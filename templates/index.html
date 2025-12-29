@@ -6,136 +6,176 @@
     <title>ES Gamma Analyzer - 0DTE</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body {
-            background: #0a0e27;
-            color: #e0e6ed;
+            background: #0d1b2a;
+            color: #f8f9fa;
             min-height: 100vh;
         }
         
         .navbar {
-            background: linear-gradient(135deg, #1e2139 0%, #252a49 100%);
-            border-bottom: 1px solid #2d3250;
+            background: linear-gradient(135deg, #1b263b 0%, #415a77 100%);
+            border-bottom: 2px solid #778da9;
         }
         
         .navbar-brand {
             font-size: 1.8rem;
             font-weight: 700;
-            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            color: #ffffff;
         }
         
         .upload-card {
-            background: #1a1f37;
-            border: 1px solid #2d3250;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            background: #1b263b;
+            border: 2px solid #415a77;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
         
         .upload-area {
-            border: 2px dashed #3b82f6;
+            border: 2px dashed #778da9;
             border-radius: 10px;
             padding: 3rem;
-            background: rgba(59, 130, 246, 0.05);
+            background: rgba(119, 141, 169, 0.1);
             cursor: pointer;
             transition: all 0.3s;
         }
         
         .upload-area:hover {
-            background: rgba(59, 130, 246, 0.1);
-            border-color: #60a5fa;
+            background: rgba(119, 141, 169, 0.2);
+            border-color: #e0e1dd;
         }
         
         .upload-area.dragover {
-            background: rgba(59, 130, 246, 0.15);
+            background: rgba(119, 141, 169, 0.25);
         }
         
         .btn-primary {
-            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            background: linear-gradient(135deg, #415a77 0%, #778da9 100%);
             border: none;
-            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+            color: #ffffff;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(119, 141, 169, 0.4);
         }
         
         .btn-primary:hover {
+            background: linear-gradient(135deg, #778da9 0%, #e0e1dd 100%);
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+            box-shadow: 0 6px 20px rgba(119, 141, 169, 0.6);
         }
         
         .form-control {
-            background: #0f1729;
-            border: 1px solid #2d3250;
-            color: #e0e6ed;
+            background: #0d1b2a;
+            border: 2px solid #415a77;
+            color: #f8f9fa;
         }
         
         .form-control:focus {
-            background: #0f1729;
-            border-color: #3b82f6;
-            color: #e0e6ed;
-            box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25);
+            background: #0d1b2a;
+            border-color: #e0e1dd;
+            color: #f8f9fa;
+            box-shadow: 0 0 0 0.25rem rgba(224, 225, 221, 0.25);
         }
         
         .card {
-            background: #1a1f37;
-            border: 1px solid #2d3250;
+            background: #1b263b;
+            border: 2px solid #415a77;
         }
         
         .card-header {
-            background: rgba(59, 130, 246, 0.1);
-            border-bottom: 2px solid #3b82f6;
+            background: #415a77;
+            border-bottom: 2px solid #778da9;
             font-weight: 600;
+            color: #ffffff;
         }
         
         .gamma-flip-card {
-            background: linear-gradient(135deg, #1e3a8a 0%, #5b21b6 100%);
-            border: 1px solid rgba(59, 130, 246, 0.3);
+            background: linear-gradient(135deg, #415a77 0%, #778da9 100%);
+            border: 2px solid #e0e1dd;
         }
         
         .gamma-value {
             font-size: 3rem;
             font-weight: bold;
+            color: #ffffff;
         }
         
         .level-item {
-            background: rgba(15, 23, 42, 0.6);
+            background: #0d1b2a;
             border-radius: 10px;
             padding: 1rem;
             margin-bottom: 0.75rem;
             border-left: 4px solid;
+            border: 2px solid;
             transition: all 0.3s;
         }
         
         .level-item:hover {
             transform: translateX(5px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
         }
         
         .support-item {
-            border-left-color: #10b981;
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            background: rgba(16, 185, 129, 0.05);
+            border-left-color: #2dd4bf;
+            border-color: rgba(45, 212, 191, 0.4);
+            background: rgba(45, 212, 191, 0.08);
         }
         
         .resistance-item {
-            border-left-color: #ef4444;
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            background: rgba(239, 68, 68, 0.05);
+            border-left-color: #fb7185;
+            border-color: rgba(251, 113, 133, 0.4);
+            background: rgba(251, 113, 133, 0.08);
         }
         
         .text-support {
-            color: #10b981;
+            color: #2dd4bf;
+            font-weight: 600;
         }
         
         .text-resistance {
-            color: #ef4444;
+            color: #fb7185;
+            font-weight: 600;
         }
         
         .stat-card {
-            background: rgba(59, 130, 246, 0.05);
-            border-left: 4px solid #3b82f6;
+            background: #f8f9fa;
+            border-left: 4px solid #778da9;
             border-radius: 10px;
+            border: 2px solid #dee2e6;
+        }
+        
+        .stat-card .text-muted {
+            color: #495057 !important;
+            font-weight: 500;
+        }
+        
+        .stat-card .fs-3,
+        .stat-card .fs-5 {
+            color: #212529;
+            font-weight: 700;
         }
         
         .spinner-border {
-            color: #3b82f6;
+            color: #e0e1dd;
+        }
+        
+        .text-muted {
+            color: #adb5bd !important;
+        }
+        
+        h5, h6 {
+            color: #f8f9fa;
+        }
+        
+        .alert-danger {
+            background: rgba(251, 113, 133, 0.15);
+            border: 2px solid #fb7185;
+            color: #f8f9fa;
+        }
+        
+        .alert-warning {
+            background: rgba(250, 204, 21, 0.15);
+            border: 2px solid #facc15;
+            color: #f8f9fa;
         }
     </style>
 </head>
@@ -192,6 +232,16 @@
                 </div>
             </div>
             
+            <!-- Chart -->
+            <!-- <div class="card mb-4">
+                <div class="card-header">
+                    <i class="bi bi-graph-up me-2"></i>ES Levels Chart
+                </div>
+                <div class="card-body" style="background: #ffffff;">
+                    <div id="chart" style="height: 500px;"></div>
+                </div>
+            </div> -->
+            
             <!-- Regime -->
             <div class="card mb-4" id="regimeCard" style="display: none;">
                 <div class="card-header">
@@ -214,7 +264,7 @@
                     <div class="row">
                         <div class="col-md-6">
                             <h6 class="text-support mb-3">
-                                <i class="bi bi-shield-check me-2"></i>Top 3 Support Levels
+                                <i class="bi bi-shield-check me-2"></i>Top 3 Resistance Levels
                             </h6>
                             <p class="text-muted small">Below price (Call > Put)</p>
                             <div id="supportsContainer">
@@ -224,7 +274,7 @@
                         </div>
                         <div class="col-md-6">
                             <h6 class="text-resistance mb-3">
-                                <i class="bi bi-shield-x me-2"></i>Top 3 Resistance Levels
+                                <i class="bi bi-shield-x me-2"></i>Top 3 Support Levels
                             </h6>
                             <p class="text-muted small">Above price (Put > Call)</p>
                             <div id="resistancesContainer">
@@ -448,6 +498,155 @@
             }
             
             statsGrid.innerHTML = statsHTML;
+            
+            // Initialize chart
+            // createChart(data);
+        }
+        
+        function createChart(data) {
+            const chartContainer = document.getElementById('chart');
+            if (!chartContainer) {
+                console.error('Chart container not found');
+                return;
+            }
+            
+            chartContainer.innerHTML = ''; // Clear previous chart
+            
+            // Check if LightweightCharts is loaded
+            if (typeof LightweightCharts === 'undefined') {
+                console.error('LightweightCharts not loaded');
+                chartContainer.innerHTML = '<div class="alert alert-warning">Chart library not loaded. Please refresh the page.</div>';
+                return;
+            }
+            
+            const chart = LightweightCharts.createChart(chartContainer, {
+                width: chartContainer.offsetWidth,
+                height: 500,
+                layout: {
+                    background: { type: 'solid', color: '#ffffff' },
+                    textColor: '#333',
+                },
+                grid: {
+                    vertLines: { color: '#e1e1e1' },
+                    horzLines: { color: '#e1e1e1' },
+                },
+                rightPriceScale: {
+                    borderColor: '#cccccc',
+                },
+                timeScale: {
+                    borderColor: '#cccccc',
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+            });
+            
+            // Create candlestick series (mock data for visualization)
+            const candlestickSeries = chart.addCandlestickSeries({
+                upColor: '#2dd4bf',
+                downColor: '#fb7185',
+                borderVisible: false,
+                wickUpColor: '#2dd4bf',
+                wickDownColor: '#fb7185',
+            });
+            
+            // Generate mock price data around current price
+            const currentPrice = parseFloat(data.current_price || data.gamma_flip || 6900);
+            const mockData = [];
+            
+            // Use simple date string format YYYY-MM-DD
+            const baseDate = new Date();
+            baseDate.setHours(9, 30, 0, 0); // Start at market open
+            
+            for (let i = 0; i <= 100; i++) {
+                const date = new Date(baseDate);
+                date.setMinutes(baseDate.getMinutes() + (i * 5)); // 5 min intervals forward
+                
+                const dateStr = date.getFullYear() + '-' + 
+                              String(date.getMonth() + 1).padStart(2, '0') + '-' + 
+                              String(date.getDate()).padStart(2, '0');
+                
+                const basePrice = currentPrice;
+                const variation = (Math.random() - 0.5) * 20;
+                const open = basePrice + variation;
+                const close = basePrice + (Math.random() - 0.5) * 15;
+                const high = Math.max(open, close) + Math.random() * 5;
+                const low = Math.min(open, close) - Math.random() * 5;
+                
+                mockData.push({
+                    time: dateStr,
+                    open: parseFloat(open.toFixed(2)),
+                    high: parseFloat(high.toFixed(2)),
+                    low: parseFloat(low.toFixed(2)),
+                    close: parseFloat(close.toFixed(2)),
+                });
+            }
+            
+            console.log('Chart data sample:', mockData.slice(0, 3));
+            try {
+                candlestickSeries.setData(mockData);
+            } catch (e) {
+                console.error('Error setting chart data:', e);
+            }
+            
+            // Plot resistance levels (from supports in data)
+            if (data.supports && data.supports.length > 0) {
+                data.supports.forEach((level, i) => {
+                    const priceLine = candlestickSeries.createPriceLine({
+                        price: level.strike,
+                        color: '#2dd4bf',
+                        lineWidth: 2,
+                        lineStyle: LightweightCharts.LineStyle.Solid,
+                        axisLabelVisible: true,
+                        title: `R${i+1} ${level.strike.toFixed(2)}`,
+                    });
+                });
+            }
+            
+            // Plot support levels (from resistances in data)
+            if (data.resistances && data.resistances.length > 0) {
+                data.resistances.forEach((level, i) => {
+                    const priceLine = candlestickSeries.createPriceLine({
+                        price: level.strike,
+                        color: '#fb7185',
+                        lineWidth: 2,
+                        lineStyle: LightweightCharts.LineStyle.Solid,
+                        axisLabelVisible: true,
+                        title: `S${i+1} ${level.strike.toFixed(2)}`,
+                    });
+                });
+            }
+            
+            // Plot gamma flip level
+            if (data.gamma_flip) {
+                const gammaLine = candlestickSeries.createPriceLine({
+                    price: data.gamma_flip,
+                    color: '#778da9',
+                    lineWidth: 3,
+                    lineStyle: LightweightCharts.LineStyle.Dashed,
+                    axisLabelVisible: true,
+                    title: `Gamma Flip ${data.gamma_flip.toFixed(2)}`,
+                });
+            }
+            
+            // Plot current price line
+            if (data.current_price) {
+                const currentLine = candlestickSeries.createPriceLine({
+                    price: data.current_price,
+                    color: '#415a77',
+                    lineWidth: 2,
+                    lineStyle: LightweightCharts.LineStyle.Dotted,
+                    axisLabelVisible: true,
+                    title: `Current ${data.current_price}`,
+                });
+            }
+            
+            // Fit content to show all levels
+            chart.timeScale().fitContent();
+            
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                chart.applyOptions({ width: chartContainer.offsetWidth });
+            });
         }
     </script>
 </body>
