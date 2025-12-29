@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ES Gamma Analyzer - 0DTE</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+            background: #0a0e27;
+            min-height: 100vh;
+            padding: 20px;
+            color: #e0e6ed;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            color: #e0e6ed;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, #1e2139 0%, #252a49 100%);
+            border-radius: 15px;
+            border: 1px solid #2d3250;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }#1a1f37;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            margin-bottom: 30px;
+            border: 1px solid #2d3250;
+        }
+        
+        .upload-area {
+            border: 2px dashed #3b82f6;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: rgba(59, 130, 246, 0.05);
+        }
+        
+        .upload-area:hover {
+            background: rgba(59, 130, 246, 0.1);
+            border-color: #60a5fa;
+        }
+        
+        .upload-area.dragover {
+            background: rgba(59, 130, 246, 0.15);
+            border-color: #3b82f6
+        
+        .upload-area:hover {
+            background: #f8f9ff;
+            border-color: #764ba2;
+        }
+        
+        .upload-area3b82f6;
+            margin-bottom: 20px;
+        }
+        
+        .upload-area h3 {
+            color: #e0e6ed;
+            margin-bottom: 10px;
+        }
+        
+        .upload-area p {
+            color: #9ca3af;
+            border-color: #667eea;
+        }
+        600;
+            color: #e0e6ed;
+        }
+        
+        .price-input input {
+            padding: 10px 15px;
+            border: 1px solid #2d3250;
+            border-radius: 8px;
+            font-size: 1em;
+            width: 150px;
+            background: #0f1729;
+            color: #e0e6ed;
+            transition: border-color 0.3s;
+        }3b82f6 0%, #8b5cf6 100%);
+            color: white;
+            border: none;
+            padding: 14px 50px;
+            font-size: 1.1em;
+            font-weight: 600;
+            border-radius: 10px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+        }
+        
+        .analyze-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4
+        
+        .price-input label {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .price-input input {
+            padding: 10px 15px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 1em;
+            width: 150px;2d3250;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        .loading p {
+            color: #3b82f6
+            padding: 12px 40px;
+            font-size: 1.1em;
+            border-radius: 25px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: transform 0.2s;
+        }
+        
+        .analyze-btn:hov#1a1f37;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            border: 1px solid #2d3250;
+        }
+        
+        .card h2 {
+            color: #e0e6ed;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+            border-bottom: 2px solid #3b82f6;
+            padding-bottom: 10px;
+        }
+        
+        .card h3 {
+            color: #e0e6ed
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radiurgba(59, 130, 246, 0.05);
+            border-radius: 10px;
+            border-left: 4px solid #3b82f6;
+        }
+        
+        .info-label {
+            font-size: 0.9em;
+            color: #9ca3af;
+            margin-bottom: 5px;
+        }
+        
+        .info-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #e0e6ed
+        
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .card h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.5em;1e3a8a 0%, #5b21b6 100%);
+            color: white;
+            text-align: center;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            box-shadow: 0 4px 20px rgba(59, 130, 246, 0.2);
+        }
+        
+        .gamma-flip .value {
+            font-size: 2.8em;
+            font-weight: bold;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.3)
+        .info-item {rgba(234, 179, 8, 0.1);
+            border-left: 4px solid #eab308;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            border: 1px solid rgba(234, 179, 8, 0.2);
+        }
+        
+        .regime-box div {
+            color: #e0e6ed solid #667eea;
+        }
+        
+        .info-label {
+            font-size: 0.9em;
+            color: #666;rgba(59, 130, 246, 0.1);
+            color: #e0e6ed;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 1px solid #2d3250;
+        }
+        
+        .table td {
+            padding: 12px;
+            border-bottom: 1px solid #2d3250;
+            color: #e0e6ed;
+        }
+        
+        .table tr:hover {
+            background: rgba(59, 130, 246, 0.05)
+            padding: 20px;
+            border-r10b981;
+            font-weight: bold;
+        }
+        
+        .resistance {
+            color: #ef4444;
+            font-weight: bold;
+        }
+        
+        .level-item {
+            background: rgba(15, 23, 42, 0.6);
+            border-radius: 10px;
+            padding: 15px 18px;
+            margin-bottom: 12px;
+            border-left: 4px solid;
+            transition: all 0.3s;
+            border: 1px solid;
+        }
+        
+        .level-item:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        
+        .level-item.support-item {
+            border-left-color: #10b981;
+            border-color: rgba(16, 185, 129, 0.2);
+            background: rgba(16, 185, 129, 0.05);
+        }
+        
+        .level-item.resistance-item {
+            border-left-color: #ef4444;
+            border-color: rgba(239, 68, 68, 0.2);
+            background: rgba(239, 68, 68, 0.05)
+            font-weight: 600;
+        }
+        
+        .table td {
+            padding:9ca3af;
+        }
+        
+        .level-item p {
+            color: #9ca3afpx;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .table tr:hover {
+            background: #f8f9ff;
+        }rgba(239, 68, 68, 0.1);
+            color: #fca5a5;
+            padding: 15px;
+            border-radius: 10px;
+            display: none;
+            border: 1px solid rgba(239, 68, 68, 0.3)bold;
+        }
+        
+        .resistance {
+            color: #d63031;
+            font-weight: bold;
+        }
+        
+        .level-item {
+            background: #f8f9ff;
+            border-radius: 8px;
+            padding: 12px 15px;
+            margin-bottom: 10px;
+            border-left: 4px solid;
+            transition: transform 0.2s;
+        }
+        
+        .level-item:hover {
+            transform: translateX(5px);
+        }
+        
+        .level-item.support-item {
+            border-left-color: #00b894;
+        }
+        
+        .level-item.resistance-item {
+            border-left-color: #d63031;
+        }
+        
+        .level-strike {
+            font-size: 1.3em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .level-details {
+            font-size: 0.9em;
+            color: #666;
+        }
+        
+        .level-gamma {
+            font-weight: bold;
+            font-size: 1em;
+            margin-top: 5px;
+        }
+        
+        .error {
+            background: #ff7675;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 ES Gamma Analyzer</h1>
+            <p>Analisi 0DTE (0 Days To Expiration)</p>
+        </div>
+        
+        <div class="upload-section">
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📄</div>
+                <h3>Carica il file PDF con Open Interest Matrix</h3>
+                <p style="color: #666; margin-top: 10px;">Clicca o trascina qui il file</p>
+                <input type="file" id="fileInput" accept=".pdf">
+            </div>
+            
+            <div class="price-input">
+                <label for="currentPrice">Prezzo Corrente (opzionale):</label>
+                <input type="number" id="currentPrice" placeholder="es. 6962.5" step="0.01">
+            </div>
+            
+            <div style="text-align: center;">
+                <button class="analyze-btn" id="analyzeBtn" disabled>Analizza</button>
+            </div>
+            
+            <div class="error" id="errorMsg"></div>
+            
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p style="margin-top: 15px; color: #667eea; font-weight: bold;">Analisi in corso...</p>
+            </div>
+        </div>
+        
+        <div class="results" id="results">
+            <!-- Gamma Flip -->
+            <div class="gamma-flip" id="gammaFlipCard">
+                <div class="info-label">🎯 Gamma Flip Level (0DTE)</div>
+                <div class="value" id="gammaFlipValue">-</div>
+            </div>
+            
+            <!-- Regime -->
+            <div class="card" id="regimeCard" style="display: none;">
+                <h2>📈 Regime di Mercato</h2>
+                <div class="regime-box">
+                    <div style="font-size: 1.2em; font-weight: bold; margin-bottom: 10px;" id="regimeType">-</div>
+                    <div id="regimeStrategy">-</div>
+                </div>
+            </div>
+            
+            <!-- Livelli Chiave -->
+            <div class="card">
+                <h2>🎯 Livelli Chiave</h2>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 20px;">
+                    <!-- Supporti -->
+                    <div>
+                        <h3 style="color: #00b894; margin-bottom: 15px;">💪 Top 3 Supporti</h3>
+                        <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">Sotto il prezzo (Call > Put)</p>
+                        <div id="supportsContainer">
+                            <p style="color: #999; text-align: center;">Nessun dato</p>
+                        </div>
+                        <p id="supportsNote" style="color: #ff9800; font-weight: bold; margin-top: 10px; display: none;"></p>
+                    </div>
+                    
+                    <!-- Resistenze -->
+                    <div>
+                        <h3 style="color: #d63031; margin-bottom: 15px;">🚧 Top 3 Resistenze</h3>
+                        <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">Sopra il prezzo (Put > Call)</p>
+                        <div id="resistancesContainer">
+                            <p style="color: #999; text-align: center;">Nessun dato</p>
+                        </div>
+                        <p id="resistancesNote" style="color: #ff9800; font-weight: bold; margin-top: 10px; display: none;"></p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Statistiche -->
+            <div class="card">
+                <h2>📊 Statistiche 0DTE</h2>
+                <div class="info-grid" id="statsGrid">
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let selectedFile = null;
+        
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const loading = document.getElementById('loading');
+        const results = document.getElementById('results');
+        const errorMsg = document.getElementById('errorMsg');
+        
+        // Click per aprire file selector
+        uploadArea.addEventListener('click', () => fileInput.click());
+        
+        // File selection
+        fileInput.addEventListener('change', (e) => {
+            selectedFile = e.target.files[0];
+            if (selectedFile) {
+                uploadArea.innerHTML = `
+                    <div class="upload-icon">✅</div>
+                    <h3>${selectedFile.name}</h3>
+                    <p style="color: #666; margin-top: 10px;">Clicca per cambiare file</p>
+                `;
+                analyzeBtn.disabled = false;
+            }
+        });
+        
+        // Drag & Drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                selectedFile = files[0];
+                fileInput.files = files;
+                uploadArea.innerHTML = `
+                    <div class="upload-icon">✅</div>
+                    <h3>${selectedFile.name}</h3>
+                    <p style="color: #666; margin-top: 10px;">Clicca per cambiare file</p>
+                `;
+                analyzeBtn.disabled = false;
+            }
+        });
+        
+        // Analyze
+        analyzeBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+            
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            
+            const currentPrice = document.getElementById('currentPrice').value;
+            if (currentPrice) {
+                formData.append('current_price', currentPrice);
+            }
+            
+            // Mostra loading
+            loading.style.display = 'block';
+            results.style.display = 'none';
+            errorMsg.style.display = 'none';
+            analyzeBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                displayResults(data);
+                results.style.display = 'block';
+                
+            } catch (error) {
+                errorMsg.textContent = '❌ ' + error.message;
+                errorMsg.style.display = 'block';
+            } finally {
+                loading.style.display = 'none';
+                analyzeBtn.disabled = false;
+            }
+        });
+        
+        function displayResults(data) {
+            // Gamma Flip
+            document.getElementById('gammaFlipValue').textContent = 
+                data.gamma_flip ? data.gamma_flip.toFixed(2) : 'N/A';
+            
+            // Regime
+            if (data.regime) {
+                document.getElementById('regimeCard').style.display = 'block';
+                document.getElementById('regimeType').textContent = data.regime;
+                document.getElementById('regimeStrategy').textContent = '📌 ' + data.strategy;
+            }
+            
+            // Supporti
+            const supportsContainer = document.getElementById('supportsContainer');
+            const supportsNote = document.getElementById('supportsNote');
+            if (data.supports && data.supports.length > 0) {
+                supportsContainer.innerHTML = data.supports.map((s, i) => `
+                    <div class="level-item support-item">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div class="level-strike" style="color: #00b894;">S${i+1}  ${s.strike.toFixed(2)}</div>
+                                <div class="level-details">Call: ${s.call_oi.toLocaleString()} | Put: ${s.put_oi.toLocaleString()}</div>
+                            </div>
+                            <div class="level-gamma" style="color: #00b894;">+${(s.gamma / 1000).toFixed(0)}K</div>
+                        </div>
+                    </div>
+                `).join('');
+                
+                if (data.supports_note) {
+                    supportsNote.textContent = '⚠️ ' + data.supports_note;
+                    supportsNote.style.display = 'block';
+                } else {
+                    supportsNote.style.display = 'none';
+                }
+            } else {
+                supportsContainer.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">Nessun supporto sotto il prezzo</p>';
+                supportsNote.style.display = 'none';
+            }
+            
+            // Resistenze
+            const resistancesContainer = document.getElementById('resistancesContainer');
+            const resistancesNote = document.getElementById('resistancesNote');
+            if (data.resistances && data.resistances.length > 0) {
+                resistancesContainer.innerHTML = data.resistances.map((r, i) => `
+                    <div class="level-item resistance-item">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div class="level-strike" style="color: #d63031;">R${i+1}  ${r.strike.toFixed(2)}</div>
+                                <div class="level-details">Call: ${r.call_oi.toLocaleString()} | Put: ${r.put_oi.toLocaleString()}</div>
+                            </div>
+                            <div class="level-gamma" style="color: #d63031;">${(r.gamma / 1000).toFixed(0)}K</div>
+                        </div>
+                    </div>
+                `).join('');
+                
+                if (data.resistances_note) {
+                    resistancesNote.textContent = '⚠️ ' + data.resistances_note;
+                    resistancesNote.style.display = 'block';
+                } else {
+                    resistancesNote.style.display = 'none';
+                }
+            } else {
+                resistancesContainer.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">Nessuna resistenza sopra il prezzo</p>';
+                resistancesNote.style.display = 'none';
+            }
+            
+            // Statistiche
+            const statsGrid = document.getElementById('statsGrid');
+            const stats = data.stats;
+            statsGrid.innerHTML = `
+                <div class="info-item">
+                    <div class="info-label">Strike Prices</div>
+                    <div class="info-value">${stats.total_strikes}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Range</div>
+                    <div class="info-value" style="font-size: 1.2em;">${stats.strike_range}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Totale Call OI</div>
+                    <div class="info-value">${stats.total_call_oi.toLocaleString()}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Totale Put OI</div>
+                    <div class="info-value">${stats.total_put_oi.toLocaleString()}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Put/Call Ratio</div>
+                    <div class="info-value">${stats.put_call_ratio ? stats.put_call_ratio : 'N/A'}</div>
+                </div>
+            `;
+            
+            if (data.current_price) {
+                statsGrid.innerHTML += `
+                    <div class="info-item" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+                        <div class="info-label" style="color: white; opacity: 0.9;">Prezzo Corrente</div>
+                        <div class="info-value" style="color: white;">${data.current_price}</div>
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>
