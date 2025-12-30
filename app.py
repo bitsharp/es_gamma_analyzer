@@ -9,16 +9,48 @@ import io
 import urllib.request
 import urllib.parse
 from typing import Any, Dict, Optional
+import tempfile
 import pdfplumber
 import pandas as pd
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
 
-# Crea cartella uploads se non esiste
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+def _is_writable_dir(path: str) -> bool:
+    try:
+        os.makedirs(path, exist_ok=True)
+        test_path = os.path.join(path, ".__write_test")
+        with open(test_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        os.remove(test_path)
+        return True
+    except Exception:
+        return False
+
+
+def get_upload_folder() -> str:
+    """Return a writable folder for uploads.
+
+    Vercel/AWS Lambda filesystems are read-only except for /tmp.
+    """
+
+    env_folder = (os.getenv("UPLOAD_FOLDER") or "").strip()
+    candidates = [p for p in [env_folder, "uploads"] if p]
+
+    tmp_base = tempfile.gettempdir() or "/tmp"
+    candidates.append(os.path.join(tmp_base, "uploads"))
+
+    for folder in candidates:
+        if _is_writable_dir(folder):
+            return folder
+
+    # Last resort: /tmp
+    return tmp_base
+
+
+app.config['UPLOAD_FOLDER'] = get_upload_folder()
 
 
 _SP500_PRICE_CACHE = {
