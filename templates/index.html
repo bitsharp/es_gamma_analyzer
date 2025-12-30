@@ -195,6 +195,19 @@
             display: none;
         }
 
+        .box-label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            line-height: 1.2;
+        }
+
+        .box-sub {
+            font-size: 0.875rem;
+            font-weight: 500;
+            line-height: 1.2;
+            opacity: 0.9;
+        }
+
         .current-price-card {
             background: linear-gradient(135deg, rgba(59, 130, 246, 0.25) 0%, rgba(139, 92, 246, 0.25) 100%) !important;
             border-left-color: #8b5cf6 !important;
@@ -234,10 +247,18 @@
                     </div>
                     
                     <div class="col-md-7 text-end">
-                        <div class="price-box text-start mb-2" id="esLiveBox">
-                            <div class="small">ES live</div>
-                            <div class="fw-bold" id="esLivePrice">--</div>
-                            <div class="small" id="esLiveTime">--</div>
+                        <div class="d-flex gap-2 justify-content-end align-items-stretch mb-2">
+                            <div class="price-box text-start" id="esLiveBox" style="min-width: 220px;">
+                                <div class="box-label">ES live</div>
+                                <div class="fw-bold" id="esLivePrice">--</div>
+                                <div class="box-sub" id="esLiveTime">--</div>
+                            </div>
+
+                            <div class="price-box text-start" id="gammaFlipBox" style="min-width: 220px;">
+                                <div class="box-label">Gamma Flip</div>
+                                <div class="fw-bold" id="gammaFlipTop">--</div>
+                                <div class="box-sub">GAMMA FLIP LEVEL</div>
+                            </div>
                         </div>
                         <button class="btn btn-primary px-4" id="analyzeBtn" disabled>
                             <i class="bi bi-graph-up me-2"></i>Analyze
@@ -258,17 +279,7 @@
         
         <!-- Results Section -->
         <div id="results" style="display: none;">
-            <div class="row mb-4">
-                <!-- Gamma Flip -->
-                <div class="col-md-4">
-                    <div class="card gamma-flip-card text-white h-100">
-                        <div class="card-body text-center py-4">
-                            <small class="d-block mb-2 opacity-75">GAMMA FLIP LEVEL</small>
-                            <div class="gamma-value" id="gammaFlipValue">-</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <div id="gammaFlipValue" style="display: none;"></div>
             
             <!-- Chart -->
             <!-- <div class="card mb-4">
@@ -352,6 +363,7 @@
         const errorMsg = document.getElementById('errorMsg');
         const esLivePrice = document.getElementById('esLivePrice');
         const esLiveTime = document.getElementById('esLiveTime');
+        const gammaFlipTop = document.getElementById('gammaFlipTop');
 
         async function loadEsPrice() {
             if (esLoadPromise) return esLoadPromise;
@@ -523,8 +535,14 @@
         
         function displayResults(data) {
             // Gamma Flip
-            document.getElementById('gammaFlipValue').textContent = 
-                data.gamma_flip ? data.gamma_flip.toFixed(2) : 'N/A';
+            const gammaFlipValueEl = document.getElementById('gammaFlipValue');
+            if (gammaFlipValueEl) {
+                gammaFlipValueEl.textContent = data.gamma_flip ? data.gamma_flip.toFixed(2) : 'N/A';
+            }
+
+            if (gammaFlipTop) {
+                gammaFlipTop.textContent = data.gamma_flip ? data.gamma_flip.toFixed(2) : '--';
+            }
             
             // Regime
             const regimeCard = document.getElementById('regimeCard');
