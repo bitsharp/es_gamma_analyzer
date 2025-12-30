@@ -3,6 +3,12 @@ Flask web application per analisi gamma exposure 0DTE
 """
 from flask import Flask, render_template, request, jsonify
 import os
+import time
+import csv
+import io
+import urllib.request
+import urllib.parse
+from typing import Any, Dict, Optional
 import pdfplumber
 import pandas as pd
 from werkzeug.utils import secure_filename
@@ -13,6 +19,87 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
 
 # Crea cartella uploads se non esiste
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+
+_SP500_PRICE_CACHE = {
+    "value": None,
+    "fetched_at": 0.0,
+}
+
+
+_ES_PRICE_CACHE = {
+    "value": None,
+    "fetched_at": 0.0,
+}
+
+
+def _fetch_stooq_latest_close(symbol: str) -> Optional[Dict[str, Any]]:
+    """Fetches the latest close for a symbol from Stooq (no API key).
+
+    Returns a dict with keys: symbol, price, date, time, source.
+    """
+
+    url = f"https://stooq.com/q/l/?s={urllib.parse.quote(symbol)}&f=sd2t2ohlcv&h&e=csv"
+    try:
+        with urllib.request.urlopen(url, timeout=8) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+
+        reader = csv.DictReader(io.StringIO(raw))
+        row = next(reader, None)
+        if not row:
+            return None
+
+        close_val = (row.get("Close") or "").strip()
+        if not close_val or close_val.upper() in {"N/D", "NA", "NULL"}:
+            return None
+
+        return {
+            "symbol": (row.get("Symbol") or symbol).strip(),
+            "price": float(close_val),
+            "date": (row.get("Date") or "").strip(),
+            "time": (row.get("Time") or "").strip(),
+            "source": "stooq",
+        }
+    except Exception:
+        return None
+
+
+def get_sp500_price_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
+    now = time.time()
+    cached = _SP500_PRICE_CACHE.get("value")
+    fetched_at = float(_SP500_PRICE_CACHE.get("fetched_at") or 0.0)
+    if cached and (now - fetched_at) <= max_age_seconds:
+        return cached
+
+    # Prefer the index; fall back to SPY as a proxy if the index is unavailable.
+    for symbol in ("^spx", "spy.us"):
+        data = _fetch_stooq_latest_close(symbol)
+        if data:
+            if symbol != "^spx":
+                data["note"] = "Proxy (SPY) used when ^SPX unavailable"
+            _SP500_PRICE_CACHE["value"] = data
+            _SP500_PRICE_CACHE["fetched_at"] = now
+            return data
+
+    return None
+
+
+def get_es_price_cached(max_age_seconds: int = 5) -> Optional[Dict[str, Any]]:
+    now = time.time()
+    cached = _ES_PRICE_CACHE.get("value")
+    fetched_at = float(_ES_PRICE_CACHE.get("fetched_at") or 0.0)
+    if cached and (now - fetched_at) <= max_age_seconds:
+        return cached
+
+    # ES continuous future on Stooq.
+    data = _fetch_stooq_latest_close("es.f")
+    if not data:
+        return None
+
+    data["instrument"] = "ES Futures"
+    _ES_PRICE_CACHE["value"] = data
+    _ES_PRICE_CACHE["fetched_at"] = now
+    return data
 
 def extract_0dte_data(pdf_path: str) -> pd.DataFrame:
     """Estrae solo i dati 0DTE dal PDF Open Interest Matrix"""
@@ -178,6 +265,24 @@ def analyze_0dte(df: pd.DataFrame, current_price: float = None):
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
+@app.route('/api/sp500-price', methods=['GET'])
+def sp500_price():
+    data = get_sp500_price_cached()
+    if not data:
+        return jsonify({"error": "Impossibile recuperare il prezzo S&P 500 in questo momento"}), 503
+
+    return jsonify(data)
+
+
+@app.route('/api/es-price', methods=['GET'])
+def es_price():
+    data = get_es_price_cached()
+    if not data:
+        return jsonify({"error": "Impossibile recuperare il prezzo ES in questo momento"}), 503
+
+    return jsonify(data)
 
 
 @app.route('/analyze', methods=['POST'])
