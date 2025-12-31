@@ -209,75 +209,136 @@ def analyze_0dte(df: pd.DataFrame, current_price: float = None):
     results = {
         'current_price': current_price,
         'gamma_flip': None,
+        'gamma_flip_zone': None,
         'supports': [],
         'resistances': [],
         'stats': {}
     }
-    
-    # Trova gamma flip
-    positive = df[df['Gamma_Exposure'] > 0].copy()
-    negative = df[df['Gamma_Exposure'] < 0].copy()
-    
-    if not positive.empty and not negative.empty:
-        pos_max_strike = positive['Strike'].max()
-        neg_min_strike = negative['Strike'].min()
-        gamma_flip = (pos_max_strike + neg_min_strike) / 2
+
+    # Sort by strike
+    df_sorted = df.sort_values('Strike').reset_index(drop=True)
+
+    # --- Operational gamma flip zone (0DTE-style) ---
+    # We approximate the "flip" by comparing local PUT pressure below a strike vs CALL pressure above it.
+    # balance(strike) = sum(Call_OI in [strike, strike+W]) - sum(Put_OI in [strike-W, strike])
+    # Then we find a sign change in balance and select the most "stable" one.
+    W_POINTS = 25.0
+    strikes = df_sorted['Strike'].astype(float).tolist()
+
+    balances = []
+    for s in strikes:
+        puts_below = float(df_sorted[(df_sorted['Strike'] >= s - W_POINTS) & (df_sorted['Strike'] <= s)]['Put_OI'].sum())
+        calls_above = float(df_sorted[(df_sorted['Strike'] >= s) & (df_sorted['Strike'] <= s + W_POINTS)]['Call_OI'].sum())
+        balances.append(calls_above - puts_below)
+
+    flip_low = None
+    flip_high = None
+    flip_zone_low = None
+    flip_zone_high = None
+
+    sign_change_candidates = []
+    for i in range(1, len(strikes)):
+        a = float(balances[i - 1])
+        b = float(balances[i])
+        if a == 0 or b == 0 or (a < 0 < b) or (a > 0 > b):
+            # stability prefers sign changes where both sides have meaningful magnitude
+            stability = min(abs(a), abs(b))
+            mid = (float(strikes[i - 1]) + float(strikes[i])) / 2
+            dist = abs(mid - float(current_price)) if current_price is not None else 0.0
+            # sort by stability desc, then by distance asc
+            sign_change_candidates.append((stability, -dist, i))
+
+    if sign_change_candidates:
+        sign_change_candidates.sort(reverse=True)
+        _, _, i = sign_change_candidates[0]
+        flip_low = float(strikes[i - 1])
+        flip_high = float(strikes[i])
+
+        # Report a zone as [right_strike, next_strike] when possible (more "zone-like")
+        right = float(strikes[i])
+        next_strike = float(strikes[i + 1]) if (i + 1) < len(strikes) else right
+        flip_zone_low = right
+        flip_zone_high = next_strike
+
+    if flip_low is not None and flip_high is not None:
+        gamma_flip = (flip_low + flip_high) / 2
         results['gamma_flip'] = round(gamma_flip, 2)
-        
-        # Regime
-        if current_price and current_price > gamma_flip:
+        if flip_zone_low is not None and flip_zone_high is not None:
+            results['gamma_flip_zone'] = {
+                'low': round(min(flip_zone_low, flip_zone_high), 2),
+                'high': round(max(flip_zone_low, flip_zone_high), 2)
+            }
+        else:
+            results['gamma_flip_zone'] = {
+                'low': round(min(flip_low, flip_high), 2),
+                'high': round(max(flip_low, flip_high), 2)
+            }
+
+        # Regime (same semantics, using flip midpoint)
+        if current_price is not None and current_price > gamma_flip:
             results['regime'] = 'Positive Gamma (Low Volatility)'
             results['strategy'] = 'Mean reversion - vendere breakout, comprare pullback'
-        elif current_price and current_price < gamma_flip:
+        elif current_price is not None and current_price < gamma_flip:
             results['regime'] = 'Negative Gamma (High Volatility)'
             results['strategy'] = 'Trend following - seguire breakout, evitare fade'
         else:
             results['regime'] = 'At Gamma Flip'
             results['strategy'] = 'Cautela - punto di transizione'
-    
-    # Filtra supporti e resistenze in base al prezzo corrente
-    if current_price:
-        # Supporti = gamma positivo SOTTO il prezzo corrente
-        supports = positive[positive['Strike'] < current_price].copy()
-        # Resistenze = gamma negativo SOPRA il prezzo corrente  
-        resistances = negative[negative['Strike'] > current_price].copy()
-        
-        # Se non ci sono abbastanza, usa anche gli altri ma con nota
-        if supports.empty and not positive.empty:
-            supports = positive
-            results['supports_note'] = 'Livelli sopra il prezzo corrente'
-        if resistances.empty and not negative.empty:
-            resistances = negative
-            results['resistances_note'] = 'Livelli sotto il prezzo corrente'
+
+        # 0DTE-style levels
+        zone_low = min(results['gamma_flip_zone']['low'], results['gamma_flip_zone']['high'])
+        zone_high = max(results['gamma_flip_zone']['low'], results['gamma_flip_zone']['high'])
+
+        below_flip = df_sorted[df_sorted['Strike'] < zone_low].copy()
+        above_flip = df_sorted[df_sorted['Strike'] > zone_high].copy()
+
+        def _prefer_25pt_levels(df_levels: pd.DataFrame, side: str) -> pd.DataFrame:
+            # Prefer strikes that are multiples of 25 when available (common "walls")
+            if df_levels.empty:
+                return df_levels
+            df_levels = df_levels.copy()
+            df_levels['is_25'] = (df_levels['Strike'] % 25 == 0)
+            key_col = 'Put_OI' if side == 'put' else 'Call_OI'
+            top = df_levels.nlargest(12, key_col)
+            preferred = top[top['is_25']]
+            if len(preferred) >= 3:
+                return preferred.nlargest(3, key_col)
+            # fill remaining
+            remainder = top[~top['is_25']]
+            combined = pd.concat([preferred, remainder], ignore_index=True)
+            return combined.nlargest(3, key_col)
+
+        # PUT supports below flip (largest Put OI)
+        if not below_flip.empty:
+            top_puts = _prefer_25pt_levels(below_flip, side='put')
+            results['supports'] = [
+                {
+                    'strike': float(row['Strike']),
+                    'call_oi': int(row['Call_OI']),
+                    'put_oi': int(row['Put_OI']),
+                    'gamma': int(row['Gamma_Exposure'])
+                }
+                for _, row in top_puts.iterrows()
+            ]
+        else:
+            results['supports_note'] = 'Nessun livello sotto la zona di flip'
+
+        # CALL resistances above flip (largest Call OI)
+        if not above_flip.empty:
+            top_calls = _prefer_25pt_levels(above_flip, side='call')
+            results['resistances'] = [
+                {
+                    'strike': float(row['Strike']),
+                    'call_oi': int(row['Call_OI']),
+                    'put_oi': int(row['Put_OI']),
+                    'gamma': int(row['Gamma_Exposure'])
+                }
+                for _, row in top_calls.iterrows()
+            ]
+        else:
+            results['resistances_note'] = 'Nessun livello sopra la zona di flip'
     else:
-        supports = positive
-        resistances = negative
-    
-    # Top 3 supporti
-    if not supports.empty:
-        top_supports = supports.nlargest(3, 'Gamma_Exposure')
-        results['supports'] = [
-            {
-                'strike': float(row['Strike']),
-                'call_oi': int(row['Call_OI']),
-                'put_oi': int(row['Put_OI']),
-                'gamma': int(row['Gamma_Exposure'])
-            }
-            for _, row in top_supports.iterrows()
-        ]
-    
-    # Top 3 resistenze
-    if not resistances.empty:
-        top_resistances = resistances.nsmallest(3, 'Gamma_Exposure')
-        results['resistances'] = [
-            {
-                'strike': float(row['Strike']),
-                'call_oi': int(row['Call_OI']),
-                'put_oi': int(row['Put_OI']),
-                'gamma': int(row['Gamma_Exposure'])
-            }
-            for _, row in top_resistances.iterrows()
-        ]
+        results['gamma_flip_note'] = 'Impossibile determinare gamma flip: nessun incrocio Call/Put trovato'
     
     # Statistiche
     total_calls = df['Call_OI'].sum()
