@@ -218,61 +218,79 @@ def analyze_0dte(df: pd.DataFrame, current_price: float = None):
     # Sort by strike
     df_sorted = df.sort_values('Strike').reset_index(drop=True)
 
-    # --- Operational gamma flip zone (0DTE-style) ---
-    # We approximate the "flip" by comparing local PUT pressure below a strike vs CALL pressure above it.
-    # balance(strike) = sum(Call_OI in [strike, strike+W]) - sum(Put_OI in [strike-W, strike])
-    # Then we find a sign change in balance and select the most "stable" one.
-    W_POINTS = 25.0
     strikes = df_sorted['Strike'].astype(float).tolist()
-
-    balances = []
-    for s in strikes:
-        puts_below = float(df_sorted[(df_sorted['Strike'] >= s - W_POINTS) & (df_sorted['Strike'] <= s)]['Put_OI'].sum())
-        calls_above = float(df_sorted[(df_sorted['Strike'] >= s) & (df_sorted['Strike'] <= s + W_POINTS)]['Call_OI'].sum())
-        balances.append(calls_above - puts_below)
 
     flip_low = None
     flip_high = None
     flip_zone_low = None
     flip_zone_high = None
 
-    sign_change_candidates = []
-    for i in range(1, len(strikes)):
-        a = float(balances[i - 1])
-        b = float(balances[i])
-        if a == 0 or b == 0 or (a < 0 < b) or (a > 0 > b):
-            # stability prefers sign changes where both sides have meaningful magnitude
-            stability = min(abs(a), abs(b))
-            mid = (float(strikes[i - 1]) + float(strikes[i])) / 2
-            dist = abs(mid - float(current_price)) if current_price is not None else 0.0
-            # sort by stability desc, then by distance asc
-            sign_change_candidates.append((stability, -dist, i))
+    # 1) Preferred: "around price" operational flip.
+    # Pick the strike ABOVE current price (within +30pts) where |Call_OI - Put_OI| is minimal.
+    if current_price is not None:
+        cp = float(current_price)
+        window_high = cp + 30.0
+        window_df = df_sorted[(df_sorted['Strike'] > cp) & (df_sorted['Strike'] <= window_high)].copy()
+        if not window_df.empty:
+            window_df['abs_net'] = (window_df['Call_OI'] - window_df['Put_OI']).abs()
+            best_idx = window_df['abs_net'].idxmin()
+            best_pos = int(df_sorted.index[df_sorted['Strike'] == float(window_df.loc[best_idx, 'Strike'])][0])
 
-    if sign_change_candidates:
-        sign_change_candidates.sort(reverse=True)
-        _, _, i = sign_change_candidates[0]
-        flip_low = float(strikes[i - 1])
-        flip_high = float(strikes[i])
+            best_strike = float(df_sorted.loc[best_pos, 'Strike'])
+            prev_strike = float(df_sorted.loc[max(0, best_pos - 1), 'Strike'])
+            next_strike = float(df_sorted.loc[min(len(df_sorted) - 1, best_pos + 1), 'Strike'])
 
-        # Report a zone as [right_strike, next_strike] when possible (more "zone-like")
-        right = float(strikes[i])
-        next_strike = float(strikes[i + 1]) if (i + 1) < len(strikes) else right
-        flip_zone_low = right
-        flip_zone_high = next_strike
+            flip_low = prev_strike
+            flip_high = best_strike
+            flip_zone_low = prev_strike
+            flip_zone_high = next_strike
+
+    # 2) Fallback: local balance sign-change method.
+    if flip_zone_low is None or flip_zone_high is None:
+        W_POINTS = 25.0
+        balances = []
+        for s in strikes:
+            puts_below = float(df_sorted[(df_sorted['Strike'] >= s - W_POINTS) & (df_sorted['Strike'] <= s)]['Put_OI'].sum())
+            calls_above = float(df_sorted[(df_sorted['Strike'] >= s) & (df_sorted['Strike'] <= s + W_POINTS)]['Call_OI'].sum())
+            balances.append(calls_above - puts_below)
+
+        sign_change_candidates = []
+        for i in range(1, len(strikes)):
+            a = float(balances[i - 1])
+            b = float(balances[i])
+            if a == 0 or b == 0 or (a < 0 < b) or (a > 0 > b):
+                stability = min(abs(a), abs(b))
+                mid = (float(strikes[i - 1]) + float(strikes[i])) / 2
+                dist = abs(mid - float(current_price)) if current_price is not None else 0.0
+                sign_change_candidates.append((stability, -dist, i))
+
+        if sign_change_candidates:
+            sign_change_candidates.sort(reverse=True)
+            _, _, i = sign_change_candidates[0]
+            flip_low = float(strikes[i - 1])
+            flip_high = float(strikes[i])
+
+            right = float(strikes[i])
+            next_strike = float(strikes[i + 1]) if (i + 1) < len(strikes) else right
+            flip_zone_low = right
+            flip_zone_high = next_strike
 
     if flip_low is not None and flip_high is not None:
-        gamma_flip = (flip_low + flip_high) / 2
-        results['gamma_flip'] = round(gamma_flip, 2)
         if flip_zone_low is not None and flip_zone_high is not None:
-            results['gamma_flip_zone'] = {
-                'low': round(min(flip_zone_low, flip_zone_high), 2),
-                'high': round(max(flip_zone_low, flip_zone_high), 2)
-            }
+            zone_low = round(min(flip_zone_low, flip_zone_high), 2)
+            zone_high = round(max(flip_zone_low, flip_zone_high), 2)
         else:
-            results['gamma_flip_zone'] = {
-                'low': round(min(flip_low, flip_high), 2),
-                'high': round(max(flip_low, flip_high), 2)
-            }
+            zone_low = round(min(flip_low, flip_high), 2)
+            zone_high = round(max(flip_low, flip_high), 2)
+
+        results['gamma_flip_zone'] = {
+            'low': zone_low,
+            'high': zone_high
+        }
+
+        # Operational flip = midpoint of the zone
+        gamma_flip = (zone_low + zone_high) / 2
+        results['gamma_flip'] = round(gamma_flip, 2)
 
         # Regime (same semantics, using flip midpoint)
         if current_price is not None and current_price > gamma_flip:
@@ -290,7 +308,8 @@ def analyze_0dte(df: pd.DataFrame, current_price: float = None):
         zone_high = max(results['gamma_flip_zone']['low'], results['gamma_flip_zone']['high'])
 
         below_flip = df_sorted[df_sorted['Strike'] < zone_low].copy()
-        above_flip = df_sorted[df_sorted['Strike'] > zone_high].copy()
+        # include boundary in resistances (often the first call-wall is exactly on zone_high)
+        above_flip = df_sorted[df_sorted['Strike'] >= zone_high].copy()
 
         def _prefer_25pt_levels(df_levels: pd.DataFrame, side: str) -> pd.DataFrame:
             # Prefer strikes that are multiples of 25 when available (common "walls")

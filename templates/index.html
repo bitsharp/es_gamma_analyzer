@@ -218,6 +218,68 @@
         .current-price-card .fs-5 {
             color: #f8f9fa !important;
         }
+
+        /* Mobile responsiveness helpers */
+        .price-row {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            align-items: stretch;
+            flex-wrap: wrap;
+        }
+
+        .price-box {
+            flex: 1 1 220px;
+            min-width: 0;
+        }
+
+        .min-w-0 {
+            min-width: 0;
+        }
+
+        .filename-truncate {
+            max-width: 250px;
+        }
+
+        @media (max-width: 575.98px) {
+            .navbar .container {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.25rem;
+            }
+
+            .navbar-brand {
+                font-size: 1.25rem;
+            }
+
+            .upload-area {
+                padding: 1rem !important;
+            }
+
+            .price-row {
+                justify-content: flex-start;
+            }
+
+            .price-box {
+                flex: 1 1 100%;
+                width: 100%;
+            }
+
+            .filename-truncate {
+                max-width: 180px;
+            }
+
+            .level-item .level-row {
+                flex-direction: column;
+                align-items: flex-start !important;
+                gap: 0.5rem;
+            }
+
+            .level-item .level-metric {
+                align-self: flex-end;
+            }
+        }
     </style>
 </head>
 <body>
@@ -246,15 +308,15 @@
                         </div>
                     </div>
                     
-                    <div class="col-md-7 text-end">
-                        <div class="d-flex gap-2 justify-content-end align-items-stretch mb-2">
-                            <div class="price-box text-start" id="esLiveBox" style="min-width: 220px;">
+                    <div class="col-md-7 text-md-end text-start mt-3 mt-md-0">
+                        <div class="price-row mb-2">
+                            <div class="price-box text-start" id="esLiveBox">
                                 <div class="box-label">ES live</div>
                                 <div class="fw-bold" id="esLivePrice">--</div>
                                 <div class="box-sub" id="esLiveTime">--</div>
                             </div>
 
-                            <div class="price-box text-start" id="gammaFlipBox" style="min-width: 220px;">
+                            <div class="price-box text-start" id="gammaFlipBox">
                                 <div class="box-label">Gamma Flip</div>
                                 <div class="fw-bold" id="gammaFlipTop">--</div>
                                 <div class="box-sub">GAMMA FLIP LEVEL</div>
@@ -483,10 +545,10 @@
             selectedFile = e.target.files[0];
             if (selectedFile) {
                 uploadArea.innerHTML = `
-                    <div class="d-flex align-items-center">
+                    <div class="d-flex align-items-center flex-wrap">
                         <i class="bi bi-check-circle me-3" style="font-size: 2.5rem; color: #2dd4bf;"></i>
-                        <div>
-                            <h6 class="mb-1 text-truncate" style="max-width: 250px;">${selectedFile.name}</h6>
+                        <div class="min-w-0">
+                            <h6 class="mb-1 text-truncate d-block filename-truncate">${selectedFile.name}</h6>
                             <p class="text-muted small mb-0">Click to change</p>
                         </div>
                     </div>
@@ -516,10 +578,10 @@
                 selectedFile = files[0];
                 fileInput.files = files;
                 uploadArea.innerHTML = `
-                    <div class="d-flex align-items-center">
+                    <div class="d-flex align-items-center flex-wrap">
                         <i class="bi bi-check-circle me-3" style="font-size: 2.5rem; color: #2dd4bf;"></i>
-                        <div>
-                            <h6 class="mb-1 text-truncate" style="max-width: 250px;">${selectedFile.name}</h6>
+                        <div class="min-w-0">
+                            <h6 class="mb-1 text-truncate d-block filename-truncate">${selectedFile.name}</h6>
                             <p class="text-muted small mb-0">Click to change</p>
                         </div>
                     </div>
@@ -558,12 +620,12 @@
             if (data.supports && data.supports.length > 0) {
                 supportsContainer.innerHTML = data.supports.map((s, i) => `
                     <div class="level-item support-item">
-                        <div class="d-flex justify-content-between align-items-center">
+                        <div class="d-flex justify-content-between align-items-center level-row">
                             <div>
                                 <div class="fw-bold text-support fs-5">S${i+1}  ${s.strike.toFixed(2)}</div>
                                 <div class="text-muted small">Call: ${s.call_oi.toLocaleString()} | Put: ${s.put_oi.toLocaleString()}</div>
                             </div>
-                            <div class="fw-bold text-support fs-5">+${(s.gamma / 1000).toFixed(0)}K</div>
+                            <div class="fw-bold text-support fs-5 level-metric">+${(s.gamma / 1000).toFixed(0)}K</div>
                         </div>
                     </div>
                 `).join('');
@@ -582,12 +644,12 @@
             if (data.resistances && data.resistances.length > 0) {
                 resistancesContainer.innerHTML = data.resistances.map((r, i) => `
                     <div class="level-item resistance-item">
-                        <div class="d-flex justify-content-between align-items-center">
+                        <div class="d-flex justify-content-between align-items-center level-row">
                             <div>
                                 <div class="fw-bold text-resistance fs-5">R${i+1}  ${r.strike.toFixed(2)}</div>
                                 <div class="text-muted small">Call: ${r.call_oi.toLocaleString()} | Put: ${r.put_oi.toLocaleString()}</div>
                             </div>
-                            <div class="fw-bold text-resistance fs-5">${(r.gamma / 1000).toFixed(0)}K</div>
+                            <div class="fw-bold text-resistance fs-5 level-metric">${(r.gamma / 1000).toFixed(0)}K</div>
                         </div>
                     </div>
                 `).join('');
