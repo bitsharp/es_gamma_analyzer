@@ -13,6 +13,7 @@ import tempfile
 import pdfplumber
 import pandas as pd
 from werkzeug.utils import secure_filename
+import re
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
@@ -63,6 +64,62 @@ _ES_PRICE_CACHE = {
     "value": None,
     "fetched_at": 0.0,
 }
+
+
+def _parse_pdf_number(value: object) -> float:
+    """Parse numeric strings found in PDFs.
+
+    Handles both:
+    - US style: 1,234.56
+    - EU style: 1.234,56
+    - Thousand separators only: 1,234 or 1.234
+    """
+
+    raw = ("" if value is None else str(value)).strip()
+    if not raw or raw.lower() in {"none", "nan", ""}:
+        return 0.0
+
+    raw = raw.replace("\u00a0", "").replace(" ", "")
+    raw = raw.replace("$", "")
+
+    negative = False
+    if raw.startswith("(") and raw.endswith(")"):
+        negative = True
+        raw = raw[1:-1]
+
+    # Keep only digits, separators and sign
+    raw = re.sub(r"[^0-9,\.\-]", "", raw)
+    if not raw or raw in {"-", ".", ","}:
+        return 0.0
+
+    has_dot = "." in raw
+    has_comma = "," in raw
+
+    try:
+        if has_dot and has_comma:
+            # Decide decimal separator as the rightmost of the two.
+            if raw.rfind(",") > raw.rfind("."):
+                # EU: '.' thousands, ',' decimal
+                raw = raw.replace(".", "")
+                raw = raw.replace(",", ".")
+            else:
+                # US: ',' thousands, '.' decimal
+                raw = raw.replace(",", "")
+        elif has_dot:
+            # If dot-groups look like thousands (e.g. 1.234 or 12.345.678), remove dots.
+            if re.fullmatch(r"-?\d{1,3}(?:\.\d{3})+", raw):
+                raw = raw.replace(".", "")
+        elif has_comma:
+            # If comma-groups look like thousands, remove commas; else treat comma as decimal.
+            if re.fullmatch(r"-?\d{1,3}(?:,\d{3})+", raw):
+                raw = raw.replace(",", "")
+            else:
+                raw = raw.replace(",", ".")
+
+        out = float(raw)
+        return -out if negative else out
+    except Exception:
+        return 0.0
 
 
 def _fetch_stooq_latest_close(symbol: str) -> Optional[Dict[str, Any]]:
@@ -134,70 +191,207 @@ def get_es_price_cached(max_age_seconds: int = 5) -> Optional[Dict[str, Any]]:
     return data
 
 def extract_0dte_data(pdf_path: str) -> pd.DataFrame:
-    """Estrae solo i dati 0DTE dal PDF Open Interest Matrix"""
-    
+    """Estrae solo i dati 0DTE dal PDF Open Interest Matrix."""
+
+    return _extract_dte_days_data(pdf_path, target_days=0)
+
+
+def extract_1dte_data(pdf_path: str) -> pd.DataFrame:
+    """Estrae solo i dati 1DTE dal PDF Open Interest Matrix.
+
+    Molti PDF hanno struttura: Strike | None | Call_0DTE | Put_0DTE | Call_1DTE | Put_1DTE | ...
+    """
+
+    return _extract_dte_days_data(pdf_path, target_days=1)
+
+
+def extract_nearest_positive_dte_data(pdf_path: str) -> pd.DataFrame:
+    """Fallback: estrae i dati della scadenza con DTE minimo > 0 disponibile nel PDF."""
+
+    mapping = _find_dte_column_mapping(pdf_path)
+    positive_days = sorted([d for d in mapping.keys() if isinstance(d, int) and d > 0])
+    for d in positive_days:
+        df = _extract_dte_days_data(pdf_path, target_days=d)
+        if not df.empty:
+            return df
+    return pd.DataFrame()
+
+
+def _extract_dte_days_data(pdf_path: str, target_days: int) -> pd.DataFrame:
+    mapping = _find_dte_column_mapping(pdf_path)
+    pair = mapping.get(int(target_days))
+    if not pair:
+        return pd.DataFrame()
+
+    call_col, put_col = pair
+    return _extract_dte_pair_data(pdf_path, call_col=call_col, put_col=put_col)
+
+
+def _extract_dte_pair_data(pdf_path: str, call_col: int, put_col: int) -> pd.DataFrame:
+    """Estrae una coppia Call/Put da una Open Interest Matrix usando indici colonna."""
+
+    def _to_float(value: object) -> float:
+        return _parse_pdf_number(value)
+
+    def _is_strike(value: object) -> bool:
+        try:
+            raw = ("" if value is None else str(value)).strip()
+            if not raw:
+                return False
+            parsed = _parse_pdf_number(raw)
+            return parsed != 0.0 or any(ch.isdigit() for ch in raw)
+        except Exception:
+            return False
+
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
             tables = page.extract_tables()
-            
+
             for table in tables:
                 if not table or len(table) < 3:
                     continue
-                
-                df = pd.DataFrame(table)
-                
-                # Trova la riga con "STRIKE"
+
+                max_len = max(len(r) for r in table)
+                norm = [r + [""] * (max_len - len(r)) for r in table]
+                df = pd.DataFrame(norm)
+
+                # Trova la riga con "STRIKE" (può non essere solo nella prima cella)
                 strike_row = None
                 for idx, row in df.iterrows():
-                    if 'STRIKE' in str(row.iloc[0]).upper():
+                    joined = " ".join(str(x) for x in row.tolist())
+                    if 'STRIKE' in joined.upper():
                         strike_row = idx
                         break
-                
+
                 if strike_row is None:
                     continue
-                
-                data_start = strike_row + 2
-                
-                strikes = []
-                call_0dte = []
-                put_0dte = []
-                gamma_0dte = []
-                
-                for idx in range(data_start, len(df)):
+
+                # Trova prima riga dati dopo header (prima colonna numerica)
+                data_start = None
+                for ridx in range(strike_row + 1, len(df)):
+                    if _is_strike(df.iloc[ridx, 0]):
+                        data_start = ridx
+                        break
+
+                if data_start is None:
+                    continue
+
+                strikes: list[float] = []
+                calls: list[float] = []
+                puts: list[float] = []
+                gammas: list[float] = []
+
+                for ridx in range(data_start, len(df)):
                     try:
-                        row = df.iloc[idx]
-                        
-                        strike_val = str(row.iloc[0]).strip()
-                        if not strike_val or strike_val.lower() in ['none', 'nan', '']:
+                        row = df.iloc[ridx]
+                        if not _is_strike(row.iloc[0]):
                             continue
-                        
-                        strike = float(strike_val.replace(',', ''))
-                        
-                        call_val = str(row.iloc[2]).strip() if len(row) > 2 else '0'
-                        call = float(call_val.replace(',', '')) if call_val and call_val.lower() not in ['none', 'nan', ''] else 0
-                        
-                        put_val = str(row.iloc[3]).strip() if len(row) > 3 else '0'
-                        put = float(put_val.replace(',', '')) if put_val and put_val.lower() not in ['none', 'nan', ''] else 0
-                        
+
+                        strike = _to_float(row.iloc[0])
+                        call = _to_float(row.iloc[call_col]) if call_col < len(row) else 0.0
+                        put = _to_float(row.iloc[put_col]) if put_col < len(row) else 0.0
                         gamma = (call - put) * 1000
-                        
+
                         strikes.append(strike)
-                        call_0dte.append(call)
-                        put_0dte.append(put)
-                        gamma_0dte.append(gamma)
-                        
-                    except Exception as e:
+                        calls.append(call)
+                        puts.append(put)
+                        gammas.append(gamma)
+                    except Exception:
                         continue
-                
+
                 if strikes:
                     return pd.DataFrame({
                         'Strike': strikes,
-                        'Call_OI': call_0dte,
-                        'Put_OI': put_0dte,
-                        'Gamma_Exposure': gamma_0dte
+                        'Call_OI': calls,
+                        'Put_OI': puts,
+                        'Gamma_Exposure': gammas
                     })
-    
+
     return pd.DataFrame()
+
+
+def _find_dte_column_mapping(pdf_path: str) -> Dict[int, tuple[int, int]]:
+    """Ritorna mappa {dte_days: (call_col, put_col)} rilevata dalla tabella.
+
+    Supporta intestazioni tipo "EWZ5\n0 DTE" con celle vuote/None tra Call e Put.
+    """
+
+    def _parse_dte_days(cell: object) -> Optional[int]:
+        if cell is None:
+            return None
+        text = str(cell).upper().replace('\n', ' ')
+        m = re.search(r'\b(\d+)\s*DTE\b', text)
+        if not m:
+            m = re.search(r'\b(\d+)\s*DAYS?\b', text)
+        if not m:
+            return None
+        try:
+            return int(m.group(1))
+        except Exception:
+            return None
+
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            tables = page.extract_tables()
+            for table in tables:
+                if not table or len(table) < 3:
+                    continue
+
+                max_len = max(len(r) for r in table)
+                norm = [r + [""] * (max_len - len(r)) for r in table]
+                df = pd.DataFrame(norm)
+
+                # find STRIKE row
+                strike_row = None
+                for idx, row in df.iterrows():
+                    joined = " ".join(str(x) for x in row.tolist())
+                    if 'STRIKE' in joined.upper():
+                        strike_row = idx
+                        break
+                if strike_row is None:
+                    continue
+
+                # prefer next row for C/P labels
+                cp_row_idx = strike_row + 1
+                if cp_row_idx >= len(df):
+                    continue
+
+                # determine day label per column from STRIKE header row, propagating across blanks
+                days_by_col: list[Optional[int]] = [None] * df.shape[1]
+                current_days: Optional[int] = None
+                for col in range(df.shape[1]):
+                    parsed = _parse_dte_days(df.iloc[strike_row, col])
+                    if parsed is not None:
+                        current_days = parsed
+                    days_by_col[col] = current_days
+
+                # map day -> call/put columns based on C/P row
+                mapping: Dict[int, Dict[str, int]] = {}
+                cp_row = df.iloc[cp_row_idx]
+                for col in range(df.shape[1]):
+                    d = days_by_col[col]
+                    if d is None:
+                        continue
+                    cp = str(cp_row.iloc[col] or '').strip().upper()
+                    if cp not in {'C', 'P'}:
+                        continue
+                    mapping.setdefault(int(d), {})
+                    # keep the first occurrence (leftmost)
+                    if cp == 'C' and 'C' not in mapping[int(d)]:
+                        mapping[int(d)]['C'] = col
+                    if cp == 'P' and 'P' not in mapping[int(d)]:
+                        mapping[int(d)]['P'] = col
+
+                # finalize only complete pairs
+                out: Dict[int, tuple[int, int]] = {}
+                for d, cols in mapping.items():
+                    if 'C' in cols and 'P' in cols:
+                        out[int(d)] = (int(cols['C']), int(cols['P']))
+
+                if out:
+                    return out
+
+    return {}
 
 
 def analyze_0dte(df: pd.DataFrame, current_price: float = None):
@@ -419,11 +613,19 @@ def analyze():
         current_price = request.form.get('current_price')
         current_price = float(current_price) if current_price else None
         
-        # Estrai dati
+        # Estrai dati: preferisci 0DTE, fallback a 1DTE; se 1DTE manca, prova la scadenza positiva più vicina.
         df = extract_0dte_data(filepath)
-        
+        if df.empty:
+            df = extract_1dte_data(filepath)
+        if df.empty:
+            df = extract_nearest_positive_dte_data(filepath)
+
         # Analizza
         results = analyze_0dte(df, current_price)
+
+        # Messaggio più chiaro se manca sia 0DTE che 1DTE
+        if isinstance(results, dict) and results.get('error') == 'Nessun dato 0DTE trovato':
+            results['error'] = 'Nessun dato 0DTE trovato; ho provato anche 1DTE (e la scadenza positiva più vicina) senza successo'
         
         # Rimuovi il file temporaneo
         os.remove(filepath)
