@@ -107,6 +107,7 @@
             border-left: 4px solid;
             border: 2px solid;
             transition: all 0.3s;
+            position: relative;
         }
         
         .level-item:hover {
@@ -144,23 +145,65 @@
 
         /* Blinking signal when price is near a level */
         .near-level {
-            animation: nearPulse 1s ease-in-out infinite;
+            animation: nearPulse 0.75s ease-in-out infinite;
+            border-width: 3px !important;
+            filter: saturate(1.15);
+        }
+
+        .near-level::after {
+            content: '';
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            transform: translateY(-50%);
+            background: #fb7185;
+            box-shadow: 0 0 0 rgba(251, 113, 133, 0);
+            animation: nearDot 0.75s ease-in-out infinite;
         }
 
         @keyframes nearPulse {
             0%, 100% {
-                box-shadow: 0 0 0 rgba(251, 113, 133, 0);
-                transform: translateX(0);
+                box-shadow:
+                    0 0 0 rgba(251, 113, 133, 0),
+                    inset 0 0 0 rgba(251, 113, 133, 0);
+                transform: translateX(0) scale(1);
+                background-color: rgba(251, 113, 133, 0.00);
             }
             50% {
-                box-shadow: 0 0 16px rgba(251, 113, 133, 0.55);
-                transform: translateX(4px);
+                box-shadow:
+                    0 0 26px rgba(251, 113, 133, 0.85),
+                    0 0 55px rgba(234, 179, 8, 0.35),
+                    inset 0 0 0 2px rgba(251, 113, 133, 0.55);
+                transform: translateX(6px) scale(1.01);
+                background-color: rgba(251, 113, 133, 0.08);
+            }
+        }
+
+        @keyframes nearDot {
+            0%, 100% {
+                opacity: 0.45;
+                box-shadow: 0 0 0 0 rgba(251, 113, 133, 0);
+            }
+            50% {
+                opacity: 1;
+                box-shadow: 0 0 0 10px rgba(251, 113, 133, 0.25);
             }
         }
 
         @media (prefers-reduced-motion: reduce) {
             .near-level {
                 animation: none;
+                transform: none;
+                box-shadow: 0 0 0 3px rgba(251, 113, 133, 0.65) !important;
+            }
+
+            .near-level::after {
+                animation: none;
+                opacity: 1;
+                box-shadow: none;
             }
         }
         
