@@ -6,9 +6,11 @@ import os
 import time
 import csv
 import io
+import json
 import urllib.request
 import urllib.parse
 from typing import Any, Dict, Optional
+import datetime as _dt
 import tempfile
 import pdfplumber
 import pandas as pd
@@ -61,6 +63,12 @@ _SP500_PRICE_CACHE = {
 
 
 _ES_PRICE_CACHE = {
+    "value": None,
+    "fetched_at": 0.0,
+}
+
+
+_NVDA_SNAPSHOT_CACHE = {
     "value": None,
     "fetched_at": 0.0,
 }
@@ -151,6 +159,149 @@ def _fetch_stooq_latest_close(symbol: str) -> Optional[Dict[str, Any]]:
         }
     except Exception:
         return None
+
+
+def _fetch_nasdaq_json(url: str, referer: str) -> Optional[Dict[str, Any]]:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": referer,
+    }
+
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+def _parse_nasdaq_month_day(text: str, now: Optional[_dt.date] = None) -> Optional[_dt.date]:
+    """Parse strings like 'Jan 2' into a concrete date near 'now'."""
+
+    if not text:
+        return None
+
+    now = now or _dt.date.today()
+    cleaned = str(text).strip()
+
+    # Typical format: 'Jan 2' or 'Jan 02'
+    try:
+        dt = _dt.datetime.strptime(f"{cleaned} {now.year}", "%b %d %Y").date()
+    except Exception:
+        return None
+
+    # If it ended up in the past (e.g. around year rollover), bump to next year.
+    if dt < now:
+        try:
+            dt = _dt.datetime.strptime(f"{cleaned} {now.year + 1}", "%b %d %Y").date()
+        except Exception:
+            return None
+
+    return dt
+
+
+def get_nvda_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
+    """Fetch NVDA last price + option-chain derived gamma flip for the nearest expiry."""
+
+    now_ts = time.time()
+    cached = _NVDA_SNAPSHOT_CACHE.get("value")
+    fetched_at = float(_NVDA_SNAPSHOT_CACHE.get("fetched_at") or 0.0)
+    if cached and (now_ts - fetched_at) <= max_age_seconds:
+        return cached
+
+    referer = "https://www.nasdaq.com/market-activity/stocks/nvda/option-chain"
+    url = "https://api.nasdaq.com/api/quote/NVDA/option-chain?assetclass=stocks"
+    payload = _fetch_nasdaq_json(url, referer=referer)
+    if not payload:
+        return None
+
+    data = payload.get("data") or {}
+    table = data.get("table") or {}
+    rows = table.get("rows") or []
+
+    last_trade_raw = (data.get("lastTrade") or "").strip()
+    last_sale_price = None
+    last_sale_time = None
+    if last_trade_raw:
+        m = re.search(r"\$\s*([0-9][0-9,\.]+)", last_trade_raw)
+        if m:
+            last_sale_price = _parse_pdf_number(m.group(1))
+        m2 = re.search(r"\(\s*AS\s+OF\s+([^\)]+)\)", last_trade_raw, re.IGNORECASE)
+        if m2:
+            last_sale_time = m2.group(1).strip()
+        else:
+            # Keep the raw string if it doesn't match expected formatting.
+            last_sale_time = last_trade_raw
+
+    # Determine nearest expiry present in the table (strings like 'Jan 2')
+    today = _dt.date.today()
+    expiry_candidates: Dict[str, _dt.date] = {}
+    for row in rows:
+        exp = (row.get("expiryDate") or "").strip()
+        if not exp:
+            continue
+        parsed = _parse_nasdaq_month_day(exp, now=today)
+        if parsed:
+            expiry_candidates[exp] = parsed
+
+    if not expiry_candidates:
+        return None
+
+    # Choose the closest expiry date.
+    nearest_exp_label, nearest_exp_date = sorted(expiry_candidates.items(), key=lambda kv: kv[1])[0]
+
+    strikes: list[float] = []
+    calls: list[float] = []
+    puts: list[float] = []
+    gammas: list[float] = []
+
+    for row in rows:
+        if (row.get("expiryDate") or "").strip() != nearest_exp_label:
+            continue
+
+        strike = _parse_pdf_number(row.get("strike"))
+        # Some rows are group/header rows (strike missing)
+        if strike <= 0:
+            continue
+
+        call_oi = _parse_pdf_number(row.get("c_Openinterest"))
+        put_oi = _parse_pdf_number(row.get("p_Openinterest"))
+        gamma_exposure = (call_oi - put_oi) * 1000
+
+        strikes.append(float(strike))
+        calls.append(float(call_oi))
+        puts.append(float(put_oi))
+        gammas.append(float(gamma_exposure))
+
+    if not strikes:
+        return None
+
+    df = pd.DataFrame({
+        "Strike": strikes,
+        "Call_OI": calls,
+        "Put_OI": puts,
+        "Gamma_Exposure": gammas,
+    }).sort_values("Strike").reset_index(drop=True)
+
+    results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None)
+    snapshot: Dict[str, Any] = {
+        "symbol": "NVDA",
+        "source": "nasdaq",
+        "expiration": nearest_exp_label,
+        "expiration_date": nearest_exp_date.isoformat(),
+        "price": float(last_sale_price) if last_sale_price else None,
+        "time": last_sale_time or None,
+    }
+
+    if isinstance(results, dict):
+        snapshot.update(results)
+
+    _NVDA_SNAPSHOT_CACHE["value"] = snapshot
+    _NVDA_SNAPSHOT_CACHE["fetched_at"] = now_ts
+    return snapshot
 
 
 def get_sp500_price_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
@@ -588,6 +739,14 @@ def es_price():
     if not data:
         return jsonify({"error": "Impossibile recuperare il prezzo ES in questo momento"}), 503
 
+    return jsonify(data)
+
+
+@app.route('/api/nvda-snapshot', methods=['GET'])
+def nvda_snapshot():
+    data = get_nvda_snapshot_cached()
+    if not data:
+        return jsonify({"error": "Impossibile recuperare NVDA option chain in questo momento"}), 503
     return jsonify(data)
 
 
