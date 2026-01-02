@@ -113,6 +113,56 @@
             transform: translateX(5px);
             box-shadow: 0 4px 12px rgba(0,0,0,0.4);
         }
+
+        /* Heat scale (yellow -> orange -> red). Top levels are red. */
+        .heat-1,
+        .heat-2 {
+            /* Most important: red */
+            background: rgba(251, 113, 133, 0.20) !important;
+            border-color: rgba(251, 113, 133, 0.80) !important;
+            border-left-color: #fb7185 !important;
+        }
+
+        .heat-1 {
+            background: rgba(251, 113, 133, 0.26) !important;
+            border-color: rgba(251, 113, 133, 0.90) !important;
+        }
+
+        .heat-3 {
+            /* Medium: orange */
+            background: rgba(234, 179, 8, 0.18) !important;
+            border-color: rgba(234, 179, 8, 0.70) !important;
+            border-left-color: #eab308 !important;
+        }
+
+        .heat-4 {
+            /* Lower: yellow */
+            background: rgba(250, 204, 21, 0.14) !important;
+            border-color: rgba(250, 204, 21, 0.60) !important;
+            border-left-color: #facc15 !important;
+        }
+
+        /* Blinking signal when price is near a level */
+        .near-level {
+            animation: nearPulse 1s ease-in-out infinite;
+        }
+
+        @keyframes nearPulse {
+            0%, 100% {
+                box-shadow: 0 0 0 rgba(251, 113, 133, 0);
+                transform: translateX(0);
+            }
+            50% {
+                box-shadow: 0 0 16px rgba(251, 113, 133, 0.55);
+                transform: translateX(4px);
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .near-level {
+                animation: none;
+            }
+        }
         
         .support-item {
             border-left-color: #2dd4bf;
@@ -312,6 +362,20 @@
                         <button class="btn btn-primary px-4" id="analyzeBtn" disabled>
                             <i class="bi bi-graph-up me-2"></i>Analyze
                         </button>
+
+                        <div class="mt-3 text-start">
+                            <div class="card" id="regimeCard" style="display: none;">
+                                <div class="card-header">
+                                    <i class="bi bi-graph-up me-2"></i>Market Regime
+                                </div>
+                                <div class="card-body">
+                                    <div class="alert alert-warning mb-0" style="background: rgba(234, 179, 8, 0.1); border-left: 4px solid #eab308;">
+                                        <h6 class="mb-2" id="regimeType">-</h6>
+                                        <p class="mb-0" id="regimeStrategy">-</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
@@ -435,28 +499,7 @@
                 </div>
             </div> -->
             
-            <!-- Regime -->
-            <div class="card mb-4" id="regimeCard" style="display: none;">
-                <div class="card-header">
-                    <i class="bi bi-graph-up me-2"></i>Market Regime
-                </div>
-                <div class="card-body">
-                    <div class="alert alert-warning mb-0" style="background: rgba(234, 179, 8, 0.1); border-left: 4px solid #eab308;">
-                        <h6 class="mb-2" id="regimeType">-</h6>
-                        <p class="mb-0" id="regimeStrategy">-</p>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Statistics -->
-            <div class="card">
-                <div class="card-header">
-                    <i class="bi bi-bar-chart me-2"></i>0DTE Statistics
-                </div>
-                <div class="card-body">
-                    <div class="row g-3" id="statsGrid"></div>
-                </div>
-            </div>
+            <!-- (0DTE Statistics removed) -->
         </div>
     </div>
     
@@ -469,6 +512,7 @@
         let latestEsPrice = null;
         let nvdaLoadPromise = null;
         let nvdaPollIntervalId = null;
+        let latestNvdaPrice = null;
         
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
@@ -487,6 +531,52 @@
         const nvdaSupportsNote = document.getElementById('nvdaSupportsNote');
         const nvdaResistancesContainer = document.getElementById('nvdaResistancesContainer');
         const nvdaResistancesNote = document.getElementById('nvdaResistancesNote');
+
+        function heatClassForIndex(i) {
+            if (i <= 0) return 'heat-1';
+            if (i === 1) return 'heat-2';
+            if (i === 2) return 'heat-3';
+            return 'heat-4';
+        }
+
+        function getNearThreshold(price, { rel = 0.00075, minAbs = 0.5 } = {}) {
+            const p = Number(price);
+            if (!Number.isFinite(p) || p <= 0) return null;
+            return Math.max(minAbs, p * rel);
+        }
+
+        function applyNearSignals(containerEl, currentPrice, opts) {
+            if (!containerEl) return;
+            const threshold = getNearThreshold(currentPrice, opts);
+            const items = containerEl.querySelectorAll('.level-item[data-strike]');
+            if (!Number.isFinite(Number(currentPrice)) || threshold == null) {
+                items.forEach(el => el.classList.remove('near-level'));
+                return;
+            }
+
+            const cp = Number(currentPrice);
+            items.forEach(el => {
+                const strike = Number(el.getAttribute('data-strike'));
+                if (!Number.isFinite(strike)) {
+                    el.classList.remove('near-level');
+                    return;
+                }
+                const near = Math.abs(strike - cp) <= threshold;
+                el.classList.toggle('near-level', near);
+            });
+        }
+
+        function updateEsNearSignals() {
+            const supportsContainer = document.getElementById('supportsContainer');
+            const resistancesContainer = document.getElementById('resistancesContainer');
+            applyNearSignals(supportsContainer, latestEsPrice, { minAbs: 5, rel: 0.00075 });
+            applyNearSignals(resistancesContainer, latestEsPrice, { minAbs: 5, rel: 0.00075 });
+        }
+
+        function updateNvdaNearSignals() {
+            applyNearSignals(nvdaSupportsContainer, latestNvdaPrice, { minAbs: 0.5, rel: 0.00075 });
+            applyNearSignals(nvdaResistancesContainer, latestNvdaPrice, { minAbs: 0.5, rel: 0.00075 });
+        }
 
         async function loadEsPrice() {
             if (esLoadPromise) return esLoadPromise;
@@ -516,6 +606,8 @@
                     if (esLiveTime) {
                         esLiveTime.textContent = when || '--';
                     }
+
+                    updateEsNearSignals();
 
                     return price;
                 } catch (e) {
@@ -563,6 +655,8 @@
                     const gammaFlip = Number(data.gamma_flip);
                     const when = (data.time || '').toString();
 
+                    latestNvdaPrice = Number.isFinite(price) ? price : null;
+
                     if (nvdaLivePrice) {
                         nvdaLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
                     }
@@ -574,13 +668,16 @@
                     }
 
                     displayNvdaKeyLevels(data);
+                    updateNvdaNearSignals();
 
                     return data;
                 } catch (e) {
                     if (nvdaLivePrice) nvdaLivePrice.textContent = '--';
                     if (nvdaLiveTime) nvdaLiveTime.textContent = '--';
                     if (nvdaGammaFlipTop) nvdaGammaFlipTop.textContent = '--';
+                    latestNvdaPrice = null;
                     displayNvdaKeyLevels(null);
+                    updateNvdaNearSignals();
                     return null;
                 }
             })();
@@ -628,7 +725,7 @@
             if (nvdaSupportsContainer) {
                 if (supports.length > 0) {
                     nvdaSupportsContainer.innerHTML = supports.map((s, i) => `
-                        <div class="level-item support-item">
+                        <div class="level-item support-item ${heatClassForIndex(i)}" data-strike="${Number(s.strike)}">
                             <div class="d-flex justify-content-between align-items-center level-row">
                                 <div>
                                     <div class="fw-bold text-support fs-5">S${i + 1}  ${Number(s.strike).toFixed(2)}</div>
@@ -655,7 +752,7 @@
             if (nvdaResistancesContainer) {
                 if (resistances.length > 0) {
                     nvdaResistancesContainer.innerHTML = resistances.map((r, i) => `
-                        <div class="level-item resistance-item">
+                        <div class="level-item resistance-item ${heatClassForIndex(i)}" data-strike="${Number(r.strike)}">
                             <div class="d-flex justify-content-between align-items-center level-row">
                                 <div>
                                     <div class="fw-bold text-resistance fs-5">R${i + 1}  ${Number(r.strike).toFixed(2)}</div>
@@ -669,6 +766,8 @@
                     nvdaResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No resistance above price</p>';
                 }
             }
+
+            updateNvdaNearSignals();
 
             if (nvdaResistancesNote) {
                 if (data.resistances_note) {
@@ -698,6 +797,9 @@
             if (!selectedFile || isAnalyzing) return;
 
             isAnalyzing = true;
+
+            const regimeCard = document.getElementById('regimeCard');
+            if (regimeCard) regimeCard.style.display = 'none';
 
             const formData = new FormData();
             formData.append('file', selectedFile);
@@ -805,10 +907,14 @@
             
             // Regime
             const regimeCard = document.getElementById('regimeCard');
-            if (data.regime) {
-                regimeCard.style.display = 'block';
-                document.getElementById('regimeType').textContent = data.regime;
-                document.getElementById('regimeStrategy').innerHTML = '<i class="bi bi-info-circle me-2"></i>' + data.strategy;
+            if (regimeCard) {
+                if (data.regime) {
+                    regimeCard.style.display = 'block';
+                    document.getElementById('regimeType').textContent = data.regime;
+                    document.getElementById('regimeStrategy').innerHTML = '<i class="bi bi-info-circle me-2"></i>' + data.strategy;
+                } else {
+                    regimeCard.style.display = 'none';
+                }
             }
             
             // Supporti
@@ -816,7 +922,7 @@
             const supportsNote = document.getElementById('supportsNote');
             if (data.supports && data.supports.length > 0) {
                 supportsContainer.innerHTML = data.supports.map((s, i) => `
-                    <div class="level-item support-item">
+                    <div class="level-item support-item ${heatClassForIndex(i)}" data-strike="${Number(s.strike)}">
                         <div class="d-flex justify-content-between align-items-center level-row">
                             <div>
                                 <div class="fw-bold text-support fs-5">S${i+1}  ${s.strike.toFixed(2)}</div>
@@ -840,7 +946,7 @@
             const resistancesNote = document.getElementById('resistancesNote');
             if (data.resistances && data.resistances.length > 0) {
                 resistancesContainer.innerHTML = data.resistances.map((r, i) => `
-                    <div class="level-item resistance-item">
+                    <div class="level-item resistance-item ${heatClassForIndex(i)}" data-strike="${Number(r.strike)}">
                         <div class="d-flex justify-content-between align-items-center level-row">
                             <div>
                                 <div class="fw-bold text-resistance fs-5">R${i+1}  ${r.strike.toFixed(2)}</div>
@@ -859,54 +965,9 @@
                 resistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No resistance above price</p>';
             }
             
-            // Statistiche
-            const statsGrid = document.getElementById('statsGrid');
-            const stats = data.stats;
-            let statsHTML = `
-                <div class="col-md-4">
-                    <div class="stat-card p-3">
-                        <div class="text-muted small mb-2">Strike Prices</div>
-                        <div class="fs-3 fw-bold">${stats.total_strikes}</div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="stat-card p-3">
-                        <div class="text-muted small mb-2">Range</div>
-                        <div class="fs-5 fw-bold">${stats.strike_range}</div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="stat-card p-3">
-                        <div class="text-muted small mb-2">Total Call OI</div>
-                        <div class="fs-3 fw-bold">${stats.total_call_oi.toLocaleString()}</div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="stat-card p-3">
-                        <div class="text-muted small mb-2">Total Put OI</div>
-                        <div class="fs-3 fw-bold">${stats.total_put_oi.toLocaleString()}</div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="stat-card p-3">
-                        <div class="text-muted small mb-2">Put/Call Ratio</div>
-                        <div class="fs-3 fw-bold">${stats.put_call_ratio || 'N/A'}</div>
-                    </div>
-                </div>
-            `;
-            
-            if (data.current_price) {
-                statsHTML += `
-                    <div class="col-md-4">
-                        <div class="stat-card p-3 current-price-card">
-                            <div class="text-muted small mb-2">Current Price</div>
-                            <div class="fs-3 fw-bold">${data.current_price}</div>
-                        </div>
-                    </div>
-                `;
-            }
-            
-            statsGrid.innerHTML = statsHTML;
+            // Statistiche (removed)
+
+            updateEsNearSignals();
             
             // Initialize chart
             // createChart(data);

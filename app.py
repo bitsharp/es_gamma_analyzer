@@ -796,4 +796,9 @@ def analyze():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    port_env = os.getenv('PORT')
+    try:
+        port = int(port_env) if port_env else 5005
+    except ValueError:
+        port = 5005
+    app.run(debug=True, port=port)
