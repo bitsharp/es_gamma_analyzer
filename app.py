@@ -74,6 +74,18 @@ _NVDA_SNAPSHOT_CACHE = {
 }
 
 
+_SPY_SNAPSHOT_CACHE = {
+    "value": None,
+    "fetched_at": 0.0,
+}
+
+
+_MSFT_SNAPSHOT_CACHE = {
+    "value": None,
+    "fetched_at": 0.0,
+}
+
+
 def _parse_pdf_number(value: object) -> float:
     """Parse numeric strings found in PDFs.
 
@@ -301,6 +313,207 @@ def get_nvda_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, An
 
     _NVDA_SNAPSHOT_CACHE["value"] = snapshot
     _NVDA_SNAPSHOT_CACHE["fetched_at"] = now_ts
+    return snapshot
+
+
+def get_spy_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
+    """Fetch SPY last price + option-chain derived gamma flip for the nearest expiry."""
+
+    now_ts = time.time()
+    cached = _SPY_SNAPSHOT_CACHE.get("value")
+    fetched_at = float(_SPY_SNAPSHOT_CACHE.get("fetched_at") or 0.0)
+    if cached and (now_ts - fetched_at) <= max_age_seconds:
+        return cached
+
+    # SPY is an ETF on Nasdaq; use the ETF option chain endpoint.
+    referer = "https://www.nasdaq.com/market-activity/etf/spy/option-chain"
+    url = "https://api.nasdaq.com/api/quote/SPY/option-chain?assetclass=etf"
+    payload = _fetch_nasdaq_json(url, referer=referer)
+    if not payload:
+        # Fallback: some environments may require the 'stocks' assetclass.
+        referer = "https://www.nasdaq.com/market-activity/stocks/spy/option-chain"
+        url = "https://api.nasdaq.com/api/quote/SPY/option-chain?assetclass=stocks"
+        payload = _fetch_nasdaq_json(url, referer=referer)
+        if not payload:
+            return None
+
+    data = payload.get("data") or {}
+    table = data.get("table") or {}
+    rows = table.get("rows") or []
+
+    last_trade_raw = (data.get("lastTrade") or "").strip()
+    last_sale_price = None
+    last_sale_time = None
+    if last_trade_raw:
+        m = re.search(r"\$\s*([0-9][0-9,\.]+)", last_trade_raw)
+        if m:
+            last_sale_price = _parse_pdf_number(m.group(1))
+        m2 = re.search(r"\(\s*AS\s+OF\s+([^\)]+)\)", last_trade_raw, re.IGNORECASE)
+        if m2:
+            last_sale_time = m2.group(1).strip()
+        else:
+            last_sale_time = last_trade_raw
+
+    # Determine nearest expiry present in the table (strings like 'Jan 2')
+    today = _dt.date.today()
+    expiry_candidates: Dict[str, _dt.date] = {}
+    for row in rows:
+        exp = (row.get("expiryDate") or "").strip()
+        if not exp:
+            continue
+        parsed = _parse_nasdaq_month_day(exp, now=today)
+        if parsed:
+            expiry_candidates[exp] = parsed
+
+    if not expiry_candidates:
+        return None
+
+    nearest_exp_label, nearest_exp_date = sorted(expiry_candidates.items(), key=lambda kv: kv[1])[0]
+
+    strikes: list[float] = []
+    calls: list[float] = []
+    puts: list[float] = []
+    gammas: list[float] = []
+
+    for row in rows:
+        if (row.get("expiryDate") or "").strip() != nearest_exp_label:
+            continue
+
+        strike = _parse_pdf_number(row.get("strike"))
+        if strike <= 0:
+            continue
+
+        call_oi = _parse_pdf_number(row.get("c_Openinterest"))
+        put_oi = _parse_pdf_number(row.get("p_Openinterest"))
+        gamma_exposure = (call_oi - put_oi) * 1000
+
+        strikes.append(float(strike))
+        calls.append(float(call_oi))
+        puts.append(float(put_oi))
+        gammas.append(float(gamma_exposure))
+
+    if not strikes:
+        return None
+
+    df = pd.DataFrame({
+        "Strike": strikes,
+        "Call_OI": calls,
+        "Put_OI": puts,
+        "Gamma_Exposure": gammas,
+    }).sort_values("Strike").reset_index(drop=True)
+
+    results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None)
+    snapshot: Dict[str, Any] = {
+        "symbol": "SPY",
+        "source": "nasdaq",
+        "expiration": nearest_exp_label,
+        "expiration_date": nearest_exp_date.isoformat(),
+        "price": float(last_sale_price) if last_sale_price else None,
+        "time": last_sale_time or None,
+    }
+
+    if isinstance(results, dict):
+        snapshot.update(results)
+
+    _SPY_SNAPSHOT_CACHE["value"] = snapshot
+    _SPY_SNAPSHOT_CACHE["fetched_at"] = now_ts
+    return snapshot
+
+
+def get_msft_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
+    """Fetch MSFT last price + option-chain derived gamma flip for the nearest expiry."""
+
+    now_ts = time.time()
+    cached = _MSFT_SNAPSHOT_CACHE.get("value")
+    fetched_at = float(_MSFT_SNAPSHOT_CACHE.get("fetched_at") or 0.0)
+    if cached and (now_ts - fetched_at) <= max_age_seconds:
+        return cached
+
+    referer = "https://www.nasdaq.com/market-activity/stocks/msft/option-chain"
+    url = "https://api.nasdaq.com/api/quote/MSFT/option-chain?assetclass=stocks"
+    payload = _fetch_nasdaq_json(url, referer=referer)
+    if not payload:
+        return None
+
+    data = payload.get("data") or {}
+    table = data.get("table") or {}
+    rows = table.get("rows") or []
+
+    last_trade_raw = (data.get("lastTrade") or "").strip()
+    last_sale_price = None
+    last_sale_time = None
+    if last_trade_raw:
+        m = re.search(r"\$\s*([0-9][0-9,\.]+)", last_trade_raw)
+        if m:
+            last_sale_price = _parse_pdf_number(m.group(1))
+        m2 = re.search(r"\(\s*AS\s+OF\s+([^\)]+)\)", last_trade_raw, re.IGNORECASE)
+        if m2:
+            last_sale_time = m2.group(1).strip()
+        else:
+            last_sale_time = last_trade_raw
+
+    today = _dt.date.today()
+    expiry_candidates: Dict[str, _dt.date] = {}
+    for row in rows:
+        exp = (row.get("expiryDate") or "").strip()
+        if not exp:
+            continue
+        parsed = _parse_nasdaq_month_day(exp, now=today)
+        if parsed:
+            expiry_candidates[exp] = parsed
+
+    if not expiry_candidates:
+        return None
+
+    nearest_exp_label, nearest_exp_date = sorted(expiry_candidates.items(), key=lambda kv: kv[1])[0]
+
+    strikes: list[float] = []
+    calls: list[float] = []
+    puts: list[float] = []
+    gammas: list[float] = []
+
+    for row in rows:
+        if (row.get("expiryDate") or "").strip() != nearest_exp_label:
+            continue
+
+        strike = _parse_pdf_number(row.get("strike"))
+        if strike <= 0:
+            continue
+
+        call_oi = _parse_pdf_number(row.get("c_Openinterest"))
+        put_oi = _parse_pdf_number(row.get("p_Openinterest"))
+        gamma_exposure = (call_oi - put_oi) * 1000
+
+        strikes.append(float(strike))
+        calls.append(float(call_oi))
+        puts.append(float(put_oi))
+        gammas.append(float(gamma_exposure))
+
+    if not strikes:
+        return None
+
+    df = pd.DataFrame({
+        "Strike": strikes,
+        "Call_OI": calls,
+        "Put_OI": puts,
+        "Gamma_Exposure": gammas,
+    }).sort_values("Strike").reset_index(drop=True)
+
+    results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None)
+    snapshot: Dict[str, Any] = {
+        "symbol": "MSFT",
+        "source": "nasdaq",
+        "expiration": nearest_exp_label,
+        "expiration_date": nearest_exp_date.isoformat(),
+        "price": float(last_sale_price) if last_sale_price else None,
+        "time": last_sale_time or None,
+    }
+
+    if isinstance(results, dict):
+        snapshot.update(results)
+
+    _MSFT_SNAPSHOT_CACHE["value"] = snapshot
+    _MSFT_SNAPSHOT_CACHE["fetched_at"] = now_ts
     return snapshot
 
 
@@ -747,6 +960,22 @@ def nvda_snapshot():
     data = get_nvda_snapshot_cached()
     if not data:
         return jsonify({"error": "Impossibile recuperare NVDA option chain in questo momento"}), 503
+    return jsonify(data)
+
+
+@app.route('/api/spy-snapshot', methods=['GET'])
+def spy_snapshot():
+    data = get_spy_snapshot_cached()
+    if not data:
+        return jsonify({"error": "Impossibile recuperare SPY option chain in questo momento"}), 503
+    return jsonify(data)
+
+
+@app.route('/api/msft-snapshot', methods=['GET'])
+def msft_snapshot():
+    data = get_msft_snapshot_cached()
+    if not data:
+        return jsonify({"error": "Impossibile recuperare MSFT option chain in questo momento"}), 503
     return jsonify(data)
 
 
