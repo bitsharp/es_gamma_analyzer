@@ -86,6 +86,18 @@ _MSFT_SNAPSHOT_CACHE = {
 }
 
 
+_SPX_SNAPSHOT_CACHE = {
+    "value": None,
+    "fetched_at": 0.0,
+}
+
+
+_XSP_SNAPSHOT_CACHE = {
+    "value": None,
+    "fetched_at": 0.0,
+}
+
+
 def _parse_pdf_number(value: object) -> float:
     """Parse numeric strings found in PDFs.
 
@@ -514,6 +526,286 @@ def get_msft_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, An
 
     _MSFT_SNAPSHOT_CACHE["value"] = snapshot
     _MSFT_SNAPSHOT_CACHE["fetched_at"] = now_ts
+    return snapshot
+
+
+def get_spx_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
+    """Fetch SPX last price + option-chain derived gamma flip for the nearest expiry.
+
+    Nasdaq may not expose SPX option chains reliably; when unavailable, falls back
+    to SPY option chain as a proxy.
+    """
+
+    now_ts = time.time()
+    cached = _SPX_SNAPSHOT_CACHE.get("value")
+    fetched_at = float(_SPX_SNAPSHOT_CACHE.get("fetched_at") or 0.0)
+    if cached and (now_ts - fetched_at) <= max_age_seconds:
+        return cached
+
+    payload = None
+    # Try likely Nasdaq index endpoints.
+    candidates = [
+        (
+            "https://www.nasdaq.com/market-activity/index/spx/option-chain",
+            "https://api.nasdaq.com/api/quote/SPX/option-chain?assetclass=index",
+        ),
+        (
+            "https://www.nasdaq.com/market-activity/index/spx/option-chain",
+            "https://api.nasdaq.com/api/quote/SPX/option-chain?assetclass=indexes",
+        ),
+        (
+            "https://www.nasdaq.com/market-activity/index/spx/option-chain",
+            "https://api.nasdaq.com/api/quote/SPX/option-chain?assetclass=stocks",
+        ),
+    ]
+    for referer, url in candidates:
+        payload = _fetch_nasdaq_json(url, referer=referer)
+        if payload:
+            break
+
+    if not payload:
+        proxy = get_spy_snapshot_cached(max_age_seconds=max_age_seconds)
+        if not proxy:
+            return None
+        snapshot = dict(proxy)
+        snapshot["symbol"] = "SPX"
+        snapshot["note"] = "Proxy (SPY option chain) used when SPX unavailable"
+        _SPX_SNAPSHOT_CACHE["value"] = snapshot
+        _SPX_SNAPSHOT_CACHE["fetched_at"] = now_ts
+        return snapshot
+
+    data = payload.get("data") or {}
+    table = data.get("table") or {}
+    rows = table.get("rows") or []
+
+    last_trade_raw = (data.get("lastTrade") or "").strip()
+    last_sale_price = None
+    last_sale_time = None
+    if last_trade_raw:
+        m = re.search(r"\$\s*([0-9][0-9,\.]+)", last_trade_raw)
+        if m:
+            last_sale_price = _parse_pdf_number(m.group(1))
+        m2 = re.search(r"\(\s*AS\s+OF\s+([^\)]+)\)", last_trade_raw, re.IGNORECASE)
+        if m2:
+            last_sale_time = m2.group(1).strip()
+        else:
+            last_sale_time = last_trade_raw
+
+    today = _dt.date.today()
+    expiry_candidates: Dict[str, _dt.date] = {}
+    for row in rows:
+        exp = (row.get("expiryDate") or "").strip()
+        if not exp:
+            continue
+        parsed = _parse_nasdaq_month_day(exp, now=today)
+        if parsed:
+            expiry_candidates[exp] = parsed
+
+    if not expiry_candidates:
+        proxy = get_spy_snapshot_cached(max_age_seconds=max_age_seconds)
+        if not proxy:
+            return None
+        snapshot = dict(proxy)
+        snapshot["symbol"] = "SPX"
+        snapshot["note"] = "Proxy (SPY option chain) used when SPX expiries unavailable"
+        _SPX_SNAPSHOT_CACHE["value"] = snapshot
+        _SPX_SNAPSHOT_CACHE["fetched_at"] = now_ts
+        return snapshot
+
+    nearest_exp_label, nearest_exp_date = sorted(expiry_candidates.items(), key=lambda kv: kv[1])[0]
+
+    strikes: list[float] = []
+    calls: list[float] = []
+    puts: list[float] = []
+    gammas: list[float] = []
+
+    for row in rows:
+        if (row.get("expiryDate") or "").strip() != nearest_exp_label:
+            continue
+
+        strike = _parse_pdf_number(row.get("strike"))
+        if strike <= 0:
+            continue
+
+        call_oi = _parse_pdf_number(row.get("c_Openinterest"))
+        put_oi = _parse_pdf_number(row.get("p_Openinterest"))
+        gamma_exposure = (call_oi - put_oi) * 1000
+
+        strikes.append(float(strike))
+        calls.append(float(call_oi))
+        puts.append(float(put_oi))
+        gammas.append(float(gamma_exposure))
+
+    if not strikes:
+        proxy = get_spy_snapshot_cached(max_age_seconds=max_age_seconds)
+        if not proxy:
+            return None
+        snapshot = dict(proxy)
+        snapshot["symbol"] = "SPX"
+        snapshot["note"] = "Proxy (SPY option chain) used when SPX strikes unavailable"
+        _SPX_SNAPSHOT_CACHE["value"] = snapshot
+        _SPX_SNAPSHOT_CACHE["fetched_at"] = now_ts
+        return snapshot
+
+    df = pd.DataFrame({
+        "Strike": strikes,
+        "Call_OI": calls,
+        "Put_OI": puts,
+        "Gamma_Exposure": gammas,
+    }).sort_values("Strike").reset_index(drop=True)
+
+    results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None)
+    snapshot: Dict[str, Any] = {
+        "symbol": "SPX",
+        "source": "nasdaq",
+        "expiration": nearest_exp_label,
+        "expiration_date": nearest_exp_date.isoformat(),
+        "price": float(last_sale_price) if last_sale_price else None,
+        "time": last_sale_time or None,
+    }
+
+    if isinstance(results, dict):
+        snapshot.update(results)
+
+    _SPX_SNAPSHOT_CACHE["value"] = snapshot
+    _SPX_SNAPSHOT_CACHE["fetched_at"] = now_ts
+    return snapshot
+
+
+def get_xsp_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
+    """Fetch XSP last price + option-chain derived gamma flip for the nearest expiry.
+
+    If Nasdaq does not provide XSP chains, falls back to SPY option chain as proxy.
+    """
+
+    now_ts = time.time()
+    cached = _XSP_SNAPSHOT_CACHE.get("value")
+    fetched_at = float(_XSP_SNAPSHOT_CACHE.get("fetched_at") or 0.0)
+    if cached and (now_ts - fetched_at) <= max_age_seconds:
+        return cached
+
+    payload = None
+    candidates = [
+        (
+            "https://www.nasdaq.com/market-activity/etf/xsp/option-chain",
+            "https://api.nasdaq.com/api/quote/XSP/option-chain?assetclass=etf",
+        ),
+        (
+            "https://www.nasdaq.com/market-activity/stocks/xsp/option-chain",
+            "https://api.nasdaq.com/api/quote/XSP/option-chain?assetclass=stocks",
+        ),
+    ]
+    for referer, url in candidates:
+        payload = _fetch_nasdaq_json(url, referer=referer)
+        if payload:
+            break
+
+    if not payload:
+        proxy = get_spy_snapshot_cached(max_age_seconds=max_age_seconds)
+        if not proxy:
+            return None
+        snapshot = dict(proxy)
+        snapshot["symbol"] = "XSP"
+        snapshot["note"] = "Proxy (SPY option chain) used when XSP unavailable"
+        _XSP_SNAPSHOT_CACHE["value"] = snapshot
+        _XSP_SNAPSHOT_CACHE["fetched_at"] = now_ts
+        return snapshot
+
+    data = payload.get("data") or {}
+    table = data.get("table") or {}
+    rows = table.get("rows") or []
+
+    last_trade_raw = (data.get("lastTrade") or "").strip()
+    last_sale_price = None
+    last_sale_time = None
+    if last_trade_raw:
+        m = re.search(r"\$\s*([0-9][0-9,\.]+)", last_trade_raw)
+        if m:
+            last_sale_price = _parse_pdf_number(m.group(1))
+        m2 = re.search(r"\(\s*AS\s+OF\s+([^\)]+)\)", last_trade_raw, re.IGNORECASE)
+        if m2:
+            last_sale_time = m2.group(1).strip()
+        else:
+            last_sale_time = last_trade_raw
+
+    today = _dt.date.today()
+    expiry_candidates: Dict[str, _dt.date] = {}
+    for row in rows:
+        exp = (row.get("expiryDate") or "").strip()
+        if not exp:
+            continue
+        parsed = _parse_nasdaq_month_day(exp, now=today)
+        if parsed:
+            expiry_candidates[exp] = parsed
+
+    if not expiry_candidates:
+        proxy = get_spy_snapshot_cached(max_age_seconds=max_age_seconds)
+        if not proxy:
+            return None
+        snapshot = dict(proxy)
+        snapshot["symbol"] = "XSP"
+        snapshot["note"] = "Proxy (SPY option chain) used when XSP expiries unavailable"
+        _XSP_SNAPSHOT_CACHE["value"] = snapshot
+        _XSP_SNAPSHOT_CACHE["fetched_at"] = now_ts
+        return snapshot
+
+    nearest_exp_label, nearest_exp_date = sorted(expiry_candidates.items(), key=lambda kv: kv[1])[0]
+
+    strikes: list[float] = []
+    calls: list[float] = []
+    puts: list[float] = []
+    gammas: list[float] = []
+
+    for row in rows:
+        if (row.get("expiryDate") or "").strip() != nearest_exp_label:
+            continue
+
+        strike = _parse_pdf_number(row.get("strike"))
+        if strike <= 0:
+            continue
+
+        call_oi = _parse_pdf_number(row.get("c_Openinterest"))
+        put_oi = _parse_pdf_number(row.get("p_Openinterest"))
+        gamma_exposure = (call_oi - put_oi) * 1000
+
+        strikes.append(float(strike))
+        calls.append(float(call_oi))
+        puts.append(float(put_oi))
+        gammas.append(float(gamma_exposure))
+
+    if not strikes:
+        proxy = get_spy_snapshot_cached(max_age_seconds=max_age_seconds)
+        if not proxy:
+            return None
+        snapshot = dict(proxy)
+        snapshot["symbol"] = "XSP"
+        snapshot["note"] = "Proxy (SPY option chain) used when XSP strikes unavailable"
+        _XSP_SNAPSHOT_CACHE["value"] = snapshot
+        _XSP_SNAPSHOT_CACHE["fetched_at"] = now_ts
+        return snapshot
+
+    df = pd.DataFrame({
+        "Strike": strikes,
+        "Call_OI": calls,
+        "Put_OI": puts,
+        "Gamma_Exposure": gammas,
+    }).sort_values("Strike").reset_index(drop=True)
+
+    results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None)
+    snapshot: Dict[str, Any] = {
+        "symbol": "XSP",
+        "source": "nasdaq",
+        "expiration": nearest_exp_label,
+        "expiration_date": nearest_exp_date.isoformat(),
+        "price": float(last_sale_price) if last_sale_price else None,
+        "time": last_sale_time or None,
+    }
+
+    if isinstance(results, dict):
+        snapshot.update(results)
+
+    _XSP_SNAPSHOT_CACHE["value"] = snapshot
+    _XSP_SNAPSHOT_CACHE["fetched_at"] = now_ts
     return snapshot
 
 
@@ -976,6 +1268,22 @@ def msft_snapshot():
     data = get_msft_snapshot_cached()
     if not data:
         return jsonify({"error": "Impossibile recuperare MSFT option chain in questo momento"}), 503
+    return jsonify(data)
+
+
+@app.route('/api/spx-snapshot', methods=['GET'])
+def spx_snapshot():
+    data = get_spx_snapshot_cached()
+    if not data:
+        return jsonify({"error": "Impossibile recuperare SPX option chain in questo momento"}), 503
+    return jsonify(data)
+
+
+@app.route('/api/xsp-snapshot', methods=['GET'])
+def xsp_snapshot():
+    data = get_xsp_snapshot_cached()
+    if not data:
+        return jsonify({"error": "Impossibile recuperare XSP option chain in questo momento"}), 503
     return jsonify(data)
 
 

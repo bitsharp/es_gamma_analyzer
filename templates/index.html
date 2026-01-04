@@ -343,7 +343,9 @@
 
         #nvdaExpiryLabel,
         #spyExpiryLabel,
-        #msftExpiryLabel {
+        #msftExpiryLabel,
+        #spxExpiryLabel,
+        #xspExpiryLabel {
             font-size: 0.75rem;
             white-space: nowrap;
         }
@@ -494,81 +496,30 @@
             </div>
         </div>
 
-        <!-- Levels Row: ES + (NVDA/SPY/MSFT) -->
+        <!-- Levels Row: ES/SPX/SPY/XSP + NVDA/MSFT -->
         <div class="row g-2 mb-4" id="levelsRow">
-            <!-- ES full width -->
-            <div class="col-12">
-                <div class="card" id="esKeyLevelsCard">
-                    <div class="card-header">
-                        <i class="bi bi-bullseye me-2"></i>ES Key Levels
-                    </div>
-                    <div class="card-body">
-                        <div class="row g-2 mb-3 price-row">
-                            <div class="col-6">
-                                <div class="price-box text-start" id="esLiveBox">
-                                <div class="box-label">ES live</div>
-                                <div class="fw-bold" id="esLivePrice">--</div>
-                                <div class="box-sub" id="esLiveTime">--</div>
-                                </div>
-                            </div>
-
-                            <div class="col-6">
-                                <div class="price-box text-start" id="gammaFlipBox">
-                                <div class="box-label">ES Gamma Flip</div>
-                                <div class="fw-bold" id="gammaFlipTop">--</div>
-                                <div class="box-sub">GAMMA FLIP LEVEL</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="row">
-                            <div class="col-md-6">
-                                <h6 class="text-support mb-3">
-                                    <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
-                                </h6>
-                                <p class="text-muted small">Below gamma flip (highest Put OI)</p>
-                                <div id="supportsContainer">
-                                    <p class="text-muted text-center py-3">No data</p>
-                                </div>
-                                <p id="supportsNote" class="text-warning mt-2 small" style="display: none;"></p>
-                            </div>
-                            <div class="col-md-6">
-                                <h6 class="text-resistance mb-3">
-                                    <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
-                                </h6>
-                                <p class="text-muted small">Above gamma flip (highest Call OI)</p>
-                                <div id="resistancesContainer">
-                                    <p class="text-muted text-center py-3">No data</p>
-                                </div>
-                                <p id="resistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Equities in one row -->
+            <!-- Row 1: ES + SPX + SPY + XSP -->
             <div class="col-12">
                 <div class="row g-2">
-                    <div class="col-12 col-md-4">
-                        <div class="card" id="nvdaKeyLevelsCard">
+                    <div class="col-12 col-md-3">
+                        <div class="card" id="esKeyLevelsCard">
                             <div class="card-header">
-                                <i class="bi bi-bullseye me-2"></i>NVDA Key Levels <span class="text-muted" id="nvdaExpiryLabel"></span>
+                                <i class="bi bi-bullseye me-2"></i>ES Key Levels
                             </div>
                             <div class="card-body">
                                 <div class="row g-2 mb-3 price-row">
                                     <div class="col-6">
-                                        <div class="price-box text-start" id="nvdaLiveBox">
-                                        <div class="box-label">NVDA live</div>
-                                        <div class="fw-bold" id="nvdaLivePrice">--</div>
-                                        <div class="box-sub" id="nvdaLiveTime">--</div>
+                                        <div class="price-box text-start" id="esLiveBox">
+                                        <div class="box-label">ES live</div>
+                                        <div class="fw-bold" id="esLivePrice">--</div>
+                                        <div class="box-sub" id="esLiveTime">--</div>
                                         </div>
                                     </div>
 
                                     <div class="col-6">
-                                        <div class="price-box text-start" id="nvdaGammaFlipBox">
-                                        <div class="box-label">NVDA Gamma Flip</div>
-                                        <div class="fw-bold" id="nvdaGammaFlipTop">--</div>
+                                        <div class="price-box text-start" id="gammaFlipBox">
+                                        <div class="box-label">ES Gamma Flip</div>
+                                        <div class="fw-bold" id="gammaFlipTop">--</div>
                                         <div class="box-sub">GAMMA FLIP LEVEL</div>
                                         </div>
                                     </div>
@@ -580,27 +531,77 @@
                                             <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
                                         </h6>
                                         <p class="text-muted small">Below gamma flip (highest Put OI)</p>
-                                        <div id="nvdaSupportsContainer">
+                                        <div id="supportsContainer">
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
-                                        <p id="nvdaSupportsNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                        <p id="supportsNote" class="text-warning mt-2 small" style="display: none;"></p>
                                     </div>
                                     <div class="col-md-6">
                                         <h6 class="text-resistance mb-3">
                                             <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
                                         </h6>
                                         <p class="text-muted small">Above gamma flip (highest Call OI)</p>
-                                        <div id="nvdaResistancesContainer">
+                                        <div id="resistancesContainer">
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
-                                        <p id="nvdaResistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                        <p id="resistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="col-12 col-md-4">
+                    <div class="col-12 col-md-3">
+                        <div class="card" id="spxKeyLevelsCard">
+                            <div class="card-header">
+                                <i class="bi bi-bullseye me-2"></i>SPX Key Levels <span class="text-muted" id="spxExpiryLabel"></span>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-2 mb-3 price-row">
+                                    <div class="col-6">
+                                        <div class="price-box text-start" id="spxLiveBox">
+                                        <div class="box-label">SPX live</div>
+                                        <div class="fw-bold" id="spxLivePrice">--</div>
+                                        <div class="box-sub" id="spxLiveTime">--</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-6">
+                                        <div class="price-box text-start" id="spxGammaFlipBox">
+                                        <div class="box-label">SPX Gamma Flip</div>
+                                        <div class="fw-bold" id="spxGammaFlipTop">--</div>
+                                        <div class="box-sub">GAMMA FLIP LEVEL</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h6 class="text-support mb-3">
+                                            <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
+                                        </h6>
+                                        <p class="text-muted small">Below gamma flip (highest Put OI)</p>
+                                        <div id="spxSupportsContainer">
+                                            <p class="text-muted text-center py-3">No data</p>
+                                        </div>
+                                        <p id="spxSupportsNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h6 class="text-resistance mb-3">
+                                            <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
+                                        </h6>
+                                        <p class="text-muted small">Above gamma flip (highest Call OI)</p>
+                                        <div id="spxResistancesContainer">
+                                            <p class="text-muted text-center py-3">No data</p>
+                                        </div>
+                                        <p id="spxResistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-12 col-md-3">
                         <div class="card" id="spyKeyLevelsCard">
                             <div class="card-header">
                                 <i class="bi bi-bullseye me-2"></i>SPY Key Levels <span class="text-muted">(Proxy: Nasdaq option chain)</span> <span class="text-muted" id="spyExpiryLabel"></span>
@@ -650,7 +651,112 @@
                         </div>
                     </div>
 
-                    <div class="col-12 col-md-4">
+                    <div class="col-12 col-md-3">
+                        <div class="card" id="xspKeyLevelsCard">
+                            <div class="card-header">
+                                <i class="bi bi-bullseye me-2"></i>XSP Key Levels <span class="text-muted" id="xspExpiryLabel"></span>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-2 mb-3 price-row">
+                                    <div class="col-6">
+                                        <div class="price-box text-start" id="xspLiveBox">
+                                        <div class="box-label">XSP live</div>
+                                        <div class="fw-bold" id="xspLivePrice">--</div>
+                                        <div class="box-sub" id="xspLiveTime">--</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-6">
+                                        <div class="price-box text-start" id="xspGammaFlipBox">
+                                        <div class="box-label">XSP Gamma Flip</div>
+                                        <div class="fw-bold" id="xspGammaFlipTop">--</div>
+                                        <div class="box-sub">GAMMA FLIP LEVEL</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h6 class="text-support mb-3">
+                                            <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
+                                        </h6>
+                                        <p class="text-muted small">Below gamma flip (highest Put OI)</p>
+                                        <div id="xspSupportsContainer">
+                                            <p class="text-muted text-center py-3">No data</p>
+                                        </div>
+                                        <p id="xspSupportsNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h6 class="text-resistance mb-3">
+                                            <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
+                                        </h6>
+                                        <p class="text-muted small">Above gamma flip (highest Call OI)</p>
+                                        <div id="xspResistancesContainer">
+                                            <p class="text-muted text-center py-3">No data</p>
+                                        </div>
+                                        <p id="xspResistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 2: NVDA + MSFT -->
+            <div class="col-12">
+                <div class="row g-2">
+                    <div class="col-12 col-md-6">
+                        <div class="card" id="nvdaKeyLevelsCard">
+                            <div class="card-header">
+                                <i class="bi bi-bullseye me-2"></i>NVDA Key Levels <span class="text-muted" id="nvdaExpiryLabel"></span>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-2 mb-3 price-row">
+                                    <div class="col-6">
+                                        <div class="price-box text-start" id="nvdaLiveBox">
+                                        <div class="box-label">NVDA live</div>
+                                        <div class="fw-bold" id="nvdaLivePrice">--</div>
+                                        <div class="box-sub" id="nvdaLiveTime">--</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-6">
+                                        <div class="price-box text-start" id="nvdaGammaFlipBox">
+                                        <div class="box-label">NVDA Gamma Flip</div>
+                                        <div class="fw-bold" id="nvdaGammaFlipTop">--</div>
+                                        <div class="box-sub">GAMMA FLIP LEVEL</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h6 class="text-support mb-3">
+                                            <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
+                                        </h6>
+                                        <p class="text-muted small">Below gamma flip (highest Put OI)</p>
+                                        <div id="nvdaSupportsContainer">
+                                            <p class="text-muted text-center py-3">No data</p>
+                                        </div>
+                                        <p id="nvdaSupportsNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h6 class="text-resistance mb-3">
+                                            <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
+                                        </h6>
+                                        <p class="text-muted small">Above gamma flip (highest Call OI)</p>
+                                        <div id="nvdaResistancesContainer">
+                                            <p class="text-muted text-center py-3">No data</p>
+                                        </div>
+                                        <p id="nvdaResistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-12 col-md-6">
                         <div class="card" id="msftKeyLevelsCard">
                             <div class="card-header">
                                 <i class="bi bi-bullseye me-2"></i>MSFT Key Levels <span class="text-muted" id="msftExpiryLabel"></span>
@@ -737,6 +843,12 @@
         let msftLoadPromise = null;
         let msftPollIntervalId = null;
         let latestMsftPrice = null;
+        let spxLoadPromise = null;
+        let spxPollIntervalId = null;
+        let latestSpxPrice = null;
+        let xspLoadPromise = null;
+        let xspPollIntervalId = null;
+        let latestXspPrice = null;
         
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
@@ -763,6 +875,24 @@
         const spySupportsNote = document.getElementById('spySupportsNote');
         const spyResistancesContainer = document.getElementById('spyResistancesContainer');
         const spyResistancesNote = document.getElementById('spyResistancesNote');
+
+        const spxLivePrice = document.getElementById('spxLivePrice');
+        const spxLiveTime = document.getElementById('spxLiveTime');
+        const spxGammaFlipTop = document.getElementById('spxGammaFlipTop');
+        const spxExpiryLabel = document.getElementById('spxExpiryLabel');
+        const spxSupportsContainer = document.getElementById('spxSupportsContainer');
+        const spxSupportsNote = document.getElementById('spxSupportsNote');
+        const spxResistancesContainer = document.getElementById('spxResistancesContainer');
+        const spxResistancesNote = document.getElementById('spxResistancesNote');
+
+        const xspLivePrice = document.getElementById('xspLivePrice');
+        const xspLiveTime = document.getElementById('xspLiveTime');
+        const xspGammaFlipTop = document.getElementById('xspGammaFlipTop');
+        const xspExpiryLabel = document.getElementById('xspExpiryLabel');
+        const xspSupportsContainer = document.getElementById('xspSupportsContainer');
+        const xspSupportsNote = document.getElementById('xspSupportsNote');
+        const xspResistancesContainer = document.getElementById('xspResistancesContainer');
+        const xspResistancesNote = document.getElementById('xspResistancesNote');
 
         const msftLivePrice = document.getElementById('msftLivePrice');
         const msftLiveTime = document.getElementById('msftLiveTime');
@@ -827,6 +957,170 @@
         function updateMsftNearSignals() {
             applyNearSignals(msftSupportsContainer, latestMsftPrice, { minAbs: 0.25, rel: 0.00075 });
             applyNearSignals(msftResistancesContainer, latestMsftPrice, { minAbs: 0.25, rel: 0.00075 });
+        }
+
+        function updateSpxNearSignals() {
+            applyNearSignals(spxSupportsContainer, latestSpxPrice, { minAbs: 5, rel: 0.00075 });
+            applyNearSignals(spxResistancesContainer, latestSpxPrice, { minAbs: 5, rel: 0.00075 });
+        }
+
+        function updateXspNearSignals() {
+            applyNearSignals(xspSupportsContainer, latestXspPrice, { minAbs: 0.5, rel: 0.00075 });
+            applyNearSignals(xspResistancesContainer, latestXspPrice, { minAbs: 0.5, rel: 0.00075 });
+        }
+
+        function displaySpxKeyLevels(data) {
+            if (spxExpiryLabel) {
+                if (data && data.expiration) {
+                    spxExpiryLabel.textContent = `(nearest expiry: ${data.expiration})`;
+                } else {
+                    spxExpiryLabel.textContent = '';
+                }
+            }
+
+            if (!data || data.error) {
+                if (spxSupportsContainer) spxSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+                if (spxResistancesContainer) spxResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+                if (spxSupportsNote) spxSupportsNote.style.display = 'none';
+                if (spxResistancesNote) spxResistancesNote.style.display = 'none';
+                return;
+            }
+
+            const supports = Array.isArray(data.supports) ? data.supports : [];
+            const resistances = Array.isArray(data.resistances) ? data.resistances : [];
+
+            if (spxSupportsContainer) {
+                if (supports.length > 0) {
+                    spxSupportsContainer.innerHTML = supports.map((s, i) => `
+                        <div class="level-item support-item ${heatClassForIndex(i)}" data-strike="${Number(s.strike)}">
+                            <div class="d-flex justify-content-between align-items-center level-row">
+                                <div>
+                                    <div class="fw-bold text-support fs-5">S${i + 1}  ${Number(s.strike).toFixed(2)}</div>
+                                    <div class="text-muted small">Call: ${Number(s.call_oi).toLocaleString()} | Put: ${Number(s.put_oi).toLocaleString()}</div>
+                                </div>
+                                <div class="fw-bold text-support fs-5 level-metric">+${(Number(s.gamma) / 1000).toFixed(0)}K</div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    spxSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No support below price</p>';
+                }
+            }
+
+            if (spxSupportsNote) {
+                if (data.supports_note) {
+                    spxSupportsNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.supports_note;
+                    spxSupportsNote.style.display = 'block';
+                } else {
+                    spxSupportsNote.style.display = 'none';
+                }
+            }
+
+            if (spxResistancesContainer) {
+                if (resistances.length > 0) {
+                    spxResistancesContainer.innerHTML = resistances.map((r, i) => `
+                        <div class="level-item resistance-item ${heatClassForIndex(i)}" data-strike="${Number(r.strike)}">
+                            <div class="d-flex justify-content-between align-items-center level-row">
+                                <div>
+                                    <div class="fw-bold text-resistance fs-5">R${i + 1}  ${Number(r.strike).toFixed(2)}</div>
+                                    <div class="text-muted small">Call: ${Number(r.call_oi).toLocaleString()} | Put: ${Number(r.put_oi).toLocaleString()}</div>
+                                </div>
+                                <div class="fw-bold text-resistance fs-5 level-metric">${(Number(r.gamma) / 1000).toFixed(0)}K</div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    spxResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No resistance above price</p>';
+                }
+            }
+
+            if (spxResistancesNote) {
+                if (data.resistances_note) {
+                    spxResistancesNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.resistances_note;
+                    spxResistancesNote.style.display = 'block';
+                } else {
+                    spxResistancesNote.style.display = 'none';
+                }
+            }
+
+            updateSpxNearSignals();
+        }
+
+        function displayXspKeyLevels(data) {
+            if (xspExpiryLabel) {
+                if (data && data.expiration) {
+                    xspExpiryLabel.textContent = `(nearest expiry: ${data.expiration})`;
+                } else {
+                    xspExpiryLabel.textContent = '';
+                }
+            }
+
+            if (!data || data.error) {
+                if (xspSupportsContainer) xspSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+                if (xspResistancesContainer) xspResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+                if (xspSupportsNote) xspSupportsNote.style.display = 'none';
+                if (xspResistancesNote) xspResistancesNote.style.display = 'none';
+                return;
+            }
+
+            const supports = Array.isArray(data.supports) ? data.supports : [];
+            const resistances = Array.isArray(data.resistances) ? data.resistances : [];
+
+            if (xspSupportsContainer) {
+                if (supports.length > 0) {
+                    xspSupportsContainer.innerHTML = supports.map((s, i) => `
+                        <div class="level-item support-item ${heatClassForIndex(i)}" data-strike="${Number(s.strike)}">
+                            <div class="d-flex justify-content-between align-items-center level-row">
+                                <div>
+                                    <div class="fw-bold text-support fs-5">S${i + 1}  ${Number(s.strike).toFixed(2)}</div>
+                                    <div class="text-muted small">Call: ${Number(s.call_oi).toLocaleString()} | Put: ${Number(s.put_oi).toLocaleString()}</div>
+                                </div>
+                                <div class="fw-bold text-support fs-5 level-metric">+${(Number(s.gamma) / 1000).toFixed(0)}K</div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    xspSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No support below price</p>';
+                }
+            }
+
+            if (xspSupportsNote) {
+                if (data.supports_note) {
+                    xspSupportsNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.supports_note;
+                    xspSupportsNote.style.display = 'block';
+                } else {
+                    xspSupportsNote.style.display = 'none';
+                }
+            }
+
+            if (xspResistancesContainer) {
+                if (resistances.length > 0) {
+                    xspResistancesContainer.innerHTML = resistances.map((r, i) => `
+                        <div class="level-item resistance-item ${heatClassForIndex(i)}" data-strike="${Number(r.strike)}">
+                            <div class="d-flex justify-content-between align-items-center level-row">
+                                <div>
+                                    <div class="fw-bold text-resistance fs-5">R${i + 1}  ${Number(r.strike).toFixed(2)}</div>
+                                    <div class="text-muted small">Call: ${Number(r.call_oi).toLocaleString()} | Put: ${Number(r.put_oi).toLocaleString()}</div>
+                                </div>
+                                <div class="fw-bold text-resistance fs-5 level-metric">${(Number(r.gamma) / 1000).toFixed(0)}K</div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    xspResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No resistance above price</p>';
+                }
+            }
+
+            if (xspResistancesNote) {
+                if (data.resistances_note) {
+                    xspResistancesNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.resistances_note;
+                    xspResistancesNote.style.display = 'block';
+                } else {
+                    xspResistancesNote.style.display = 'none';
+                }
+            }
+
+            updateXspNearSignals();
         }
 
         async function loadEsPrice() {
@@ -1026,6 +1320,132 @@
             })();
 
             return msftLoadPromise;
+        }
+
+        async function loadSpxSnapshot() {
+            if (spxLoadPromise) return spxLoadPromise;
+
+            spxLoadPromise = (async () => {
+                try {
+                    const response = await fetch('/api/spx-snapshot');
+                    const data = await response.json();
+
+                    if (!response.ok || data.error) {
+                        throw new Error(data.error || 'SPX fetch failed');
+                    }
+
+                    const price = Number(data.price);
+                    const gammaFlip = Number(data.gamma_flip);
+                    const when = (data.time || '').toString();
+
+                    latestSpxPrice = Number.isFinite(price) ? price : null;
+
+                    if (spxLivePrice) {
+                        spxLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
+                    }
+                    if (spxLiveTime) {
+                        spxLiveTime.textContent = when || (data.expiration ? `Exp ${data.expiration}` : '--');
+                    }
+                    if (spxGammaFlipTop) {
+                        spxGammaFlipTop.textContent = Number.isFinite(gammaFlip) ? `${gammaFlip.toFixed(2)}` : '--';
+                    }
+
+                    displaySpxKeyLevels(data);
+                    updateSpxNearSignals();
+
+                    return data;
+                } catch (e) {
+                    if (spxLivePrice) spxLivePrice.textContent = '--';
+                    if (spxLiveTime) spxLiveTime.textContent = '--';
+                    if (spxGammaFlipTop) spxGammaFlipTop.textContent = '--';
+                    latestSpxPrice = null;
+                    displaySpxKeyLevels(null);
+                    updateSpxNearSignals();
+                    return null;
+                }
+            })();
+
+            return spxLoadPromise;
+        }
+
+        async function refreshSpxSnapshot() {
+            spxLoadPromise = null;
+            return loadSpxSnapshot();
+        }
+
+        function startSpxPolling() {
+            if (spxPollIntervalId) return;
+            refreshSpxSnapshot();
+            spxPollIntervalId = setInterval(refreshSpxSnapshot, 60000);
+        }
+
+        function stopSpxPolling() {
+            if (!spxPollIntervalId) return;
+            clearInterval(spxPollIntervalId);
+            spxPollIntervalId = null;
+        }
+
+        async function loadXspSnapshot() {
+            if (xspLoadPromise) return xspLoadPromise;
+
+            xspLoadPromise = (async () => {
+                try {
+                    const response = await fetch('/api/xsp-snapshot');
+                    const data = await response.json();
+
+                    if (!response.ok || data.error) {
+                        throw new Error(data.error || 'XSP fetch failed');
+                    }
+
+                    const price = Number(data.price);
+                    const gammaFlip = Number(data.gamma_flip);
+                    const when = (data.time || '').toString();
+
+                    latestXspPrice = Number.isFinite(price) ? price : null;
+
+                    if (xspLivePrice) {
+                        xspLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
+                    }
+                    if (xspLiveTime) {
+                        xspLiveTime.textContent = when || (data.expiration ? `Exp ${data.expiration}` : '--');
+                    }
+                    if (xspGammaFlipTop) {
+                        xspGammaFlipTop.textContent = Number.isFinite(gammaFlip) ? `${gammaFlip.toFixed(2)}` : '--';
+                    }
+
+                    displayXspKeyLevels(data);
+                    updateXspNearSignals();
+
+                    return data;
+                } catch (e) {
+                    if (xspLivePrice) xspLivePrice.textContent = '--';
+                    if (xspLiveTime) xspLiveTime.textContent = '--';
+                    if (xspGammaFlipTop) xspGammaFlipTop.textContent = '--';
+                    latestXspPrice = null;
+                    displayXspKeyLevels(null);
+                    updateXspNearSignals();
+                    return null;
+                }
+            })();
+
+            return xspLoadPromise;
+        }
+
+        async function refreshXspSnapshot() {
+            xspLoadPromise = null;
+            return loadXspSnapshot();
+        }
+
+        function startXspPolling() {
+            if (xspPollIntervalId) return;
+            refreshXspSnapshot();
+            xspPollIntervalId = setInterval(refreshXspSnapshot, 60000);
+        }
+
+        function stopXspPolling() {
+            if (!xspPollIntervalId) return;
+            clearInterval(xspPollIntervalId);
+            xspPollIntervalId = null;
         }
 
         async function refreshMsftSnapshot() {
@@ -1316,18 +1736,24 @@
                 stopNvdaPolling();
                 stopSpyPolling();
                 stopMsftPolling();
+                stopSpxPolling();
+                stopXspPolling();
             } else {
                 startEsPricePolling();
                 startNvdaPolling();
                 startSpyPolling();
                 startMsftPolling();
+                startSpxPolling();
+                startXspPolling();
             }
         });
 
         // Kick off price fetch on page load.
         startEsPricePolling();
         startNvdaPolling();
+        startSpxPolling();
         startSpyPolling();
+        startXspPolling();
         startMsftPolling();
 
         async function runAnalysis() {
