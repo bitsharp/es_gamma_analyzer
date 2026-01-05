@@ -551,151 +551,60 @@
                         </div>
                     </div>
 
-                    <div class="col-12 col-md-3">
-                        <div class="card" id="spxKeyLevelsCard">
+                    <div class="col-12 col-md-9">
+                        <div class="card" id="pressureCard">
                             <div class="card-header">
-                                <i class="bi bi-bullseye me-2"></i>SPX Key Levels <span class="text-muted" id="spxExpiryLabel"></span> <span class="text-muted" id="spxPcrLabel"></span>
+                                <i class="bi bi-speedometer2 me-2"></i>Market Pressure (ES + SPX + SPY + XSP)
                             </div>
                             <div class="card-body">
-                                <div class="row g-2 mb-3 price-row">
-                                    <div class="col-6">
-                                        <div class="price-box text-start" id="spxLiveBox">
-                                        <div class="box-label">SPX live</div>
-                                        <div class="fw-bold" id="spxLivePrice">--</div>
-                                        <div class="box-sub" id="spxLiveTime">--</div>
-                                        </div>
-                                    </div>
-
-                                    <div class="col-6">
-                                        <div class="price-box text-start" id="spxGammaFlipBox">
-                                        <div class="box-label">SPX Gamma Flip</div>
-                                        <div class="fw-bold" id="spxGammaFlipTop">--</div>
-                                        <div class="box-sub">GAMMA FLIP LEVEL</div>
+                                <div class="row g-2 mb-3">
+                                    <div class="col-12">
+                                        <div class="price-box text-start" id="overallPressureBox">
+                                            <div class="box-label">Overall</div>
+                                            <div class="fw-bold" id="overallPressureValue">--</div>
+                                            <div class="box-sub" id="overallPressureTime">--</div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <h6 class="text-support mb-3">
-                                            <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
-                                        </h6>
-                                        <p class="text-muted small">Below gamma flip (highest Put OI)</p>
-                                        <div id="spxSupportsContainer">
-                                            <p class="text-muted text-center py-3">No data</p>
-                                        </div>
-                                        <p id="spxSupportsNote" class="text-warning mt-2 small" style="display: none;"></p>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <h6 class="text-resistance mb-3">
-                                            <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
-                                        </h6>
-                                        <p class="text-muted small">Above gamma flip (highest Call OI)</p>
-                                        <div id="spxResistancesContainer">
-                                            <p class="text-muted text-center py-3">No data</p>
-                                        </div>
-                                        <p id="spxResistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="col-12 col-md-3">
-                        <div class="card" id="spyKeyLevelsCard">
-                            <div class="card-header">
-                                <i class="bi bi-bullseye me-2"></i>SPY Key Levels <span class="text-muted">(Proxy: Nasdaq option chain)</span> <span class="text-muted" id="spyExpiryLabel"></span> <span class="text-muted" id="spyPcrLabel"></span>
-                            </div>
-                            <div class="card-body">
-                                <div class="row g-2 mb-3 price-row">
-                                    <div class="col-6">
-                                        <div class="price-box text-start" id="spyLiveBox">
-                                        <div class="box-label">SPY live</div>
-                                        <div class="fw-bold" id="spyLivePrice">--</div>
-                                        <div class="box-sub" id="spyLiveTime">--</div>
+                                <div class="row g-2">
+                                    <div class="col-6 col-lg-3">
+                                        <div class="price-box text-start">
+                                            <div class="box-label">ES</div>
+                                            <div class="fw-bold" id="pressureEsValue">--</div>
+                                            <div class="box-sub" id="pressureEsMeta">--</div>
                                         </div>
                                     </div>
-
-                                    <div class="col-6">
-                                        <div class="price-box text-start" id="spyGammaFlipBox">
-                                        <div class="box-label">SPY Gamma Flip</div>
-                                        <div class="fw-bold" id="spyGammaFlipTop">--</div>
-                                        <div class="box-sub">GAMMA FLIP LEVEL</div>
+                                    <div class="col-6 col-lg-3">
+                                        <div class="price-box text-start">
+                                            <div class="box-label">SPX</div>
+                                            <div class="fw-bold" id="pressureSpxValue">--</div>
+                                            <div class="box-sub" id="pressureSpxMeta">--</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-lg-3">
+                                        <div class="price-box text-start">
+                                            <div class="box-label">SPY</div>
+                                            <div class="fw-bold" id="pressureSpyValue">--</div>
+                                            <div class="box-sub" id="pressureSpyMeta">--</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-lg-3">
+                                        <div class="price-box text-start">
+                                            <div class="box-label">XSP</div>
+                                            <div class="fw-bold" id="pressureXspValue">--</div>
+                                            <div class="box-sub" id="pressureXspMeta">--</div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <h6 class="text-support mb-3">
-                                            <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
-                                        </h6>
-                                        <p class="text-muted small">Below gamma flip (highest Put OI)</p>
-                                        <div id="spySupportsContainer">
-                                            <p class="text-muted text-center py-3">No data</p>
-                                        </div>
-                                        <p id="spySupportsNote" class="text-warning mt-2 small" style="display: none;"></p>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <h6 class="text-resistance mb-3">
-                                            <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
-                                        </h6>
-                                        <p class="text-muted small">Above gamma flip (highest Call OI)</p>
-                                        <div id="spyResistancesContainer">
-                                            <p class="text-muted text-center py-3">No data</p>
-                                        </div>
-                                        <p id="spyResistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="col-12 col-md-3">
-                        <div class="card" id="xspKeyLevelsCard">
-                            <div class="card-header">
-                                <i class="bi bi-bullseye me-2"></i>XSP Key Levels <span class="text-muted" id="xspExpiryLabel"></span> <span class="text-muted" id="xspPcrLabel"></span>
-                            </div>
-                            <div class="card-body">
-                                <div class="row g-2 mb-3 price-row">
-                                    <div class="col-6">
-                                        <div class="price-box text-start" id="xspLiveBox">
-                                        <div class="box-label">XSP live</div>
-                                        <div class="fw-bold" id="xspLivePrice">--</div>
-                                        <div class="box-sub" id="xspLiveTime">--</div>
-                                        </div>
-                                    </div>
-
-                                    <div class="col-6">
-                                        <div class="price-box text-start" id="xspGammaFlipBox">
-                                        <div class="box-label">XSP Gamma Flip</div>
-                                        <div class="fw-bold" id="xspGammaFlipTop">--</div>
-                                        <div class="box-sub">GAMMA FLIP LEVEL</div>
-                                        </div>
-                                    </div>
+                                <div class="mt-3">
+                                    <div class="text-muted small mb-2">Combined pressure (BUY=+1 / SELL=-1 per instrument)</div>
+                                    <div id="pressureChart" style="height: 220px;"></div>
                                 </div>
 
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <h6 class="text-support mb-3">
-                                            <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
-                                        </h6>
-                                        <p class="text-muted small">Below gamma flip (highest Put OI)</p>
-                                        <div id="xspSupportsContainer">
-                                            <p class="text-muted text-center py-3">No data</p>
-                                        </div>
-                                        <p id="xspSupportsNote" class="text-warning mt-2 small" style="display: none;"></p>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <h6 class="text-resistance mb-3">
-                                            <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
-                                        </h6>
-                                        <p class="text-muted small">Above gamma flip (highest Call OI)</p>
-                                        <div id="xspResistancesContainer">
-                                            <p class="text-muted text-center py-3">No data</p>
-                                        </div>
-                                        <p id="xspResistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
-                                    </div>
+                                <div class="mt-3 text-muted small">
+                                    Pressure is inferred from price change and gamma regime (above/below gamma flip).
                                 </div>
                             </div>
                         </div>
@@ -834,21 +743,29 @@
         let esLoadPromise = null;
         let esPollIntervalId = null;
         let latestEsPrice = null;
+        let latestEsGammaFlip = null;
+        let prevEsPrice = null;
         let nvdaLoadPromise = null;
         let nvdaPollIntervalId = null;
         let latestNvdaPrice = null;
         let spyLoadPromise = null;
         let spyPollIntervalId = null;
         let latestSpyPrice = null;
+        let latestSpyGammaFlip = null;
+        let prevSpyPrice = null;
         let msftLoadPromise = null;
         let msftPollIntervalId = null;
         let latestMsftPrice = null;
         let spxLoadPromise = null;
         let spxPollIntervalId = null;
         let latestSpxPrice = null;
+        let latestSpxGammaFlip = null;
+        let prevSpxPrice = null;
         let xspLoadPromise = null;
         let xspPollIntervalId = null;
         let latestXspPrice = null;
+        let latestXspGammaFlip = null;
+        let prevXspPrice = null;
         
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
@@ -867,32 +784,16 @@
         const nvdaSupportsNote = document.getElementById('nvdaSupportsNote');
         const nvdaResistancesContainer = document.getElementById('nvdaResistancesContainer');
         const nvdaResistancesNote = document.getElementById('nvdaResistancesNote');
-        const spyLivePrice = document.getElementById('spyLivePrice');
-        const spyLiveTime = document.getElementById('spyLiveTime');
-        const spyGammaFlipTop = document.getElementById('spyGammaFlipTop');
-        const spyExpiryLabel = document.getElementById('spyExpiryLabel');
-        const spySupportsContainer = document.getElementById('spySupportsContainer');
-        const spySupportsNote = document.getElementById('spySupportsNote');
-        const spyResistancesContainer = document.getElementById('spyResistancesContainer');
-        const spyResistancesNote = document.getElementById('spyResistancesNote');
-
-        const spxLivePrice = document.getElementById('spxLivePrice');
-        const spxLiveTime = document.getElementById('spxLiveTime');
-        const spxGammaFlipTop = document.getElementById('spxGammaFlipTop');
-        const spxExpiryLabel = document.getElementById('spxExpiryLabel');
-        const spxSupportsContainer = document.getElementById('spxSupportsContainer');
-        const spxSupportsNote = document.getElementById('spxSupportsNote');
-        const spxResistancesContainer = document.getElementById('spxResistancesContainer');
-        const spxResistancesNote = document.getElementById('spxResistancesNote');
-
-        const xspLivePrice = document.getElementById('xspLivePrice');
-        const xspLiveTime = document.getElementById('xspLiveTime');
-        const xspGammaFlipTop = document.getElementById('xspGammaFlipTop');
-        const xspExpiryLabel = document.getElementById('xspExpiryLabel');
-        const xspSupportsContainer = document.getElementById('xspSupportsContainer');
-        const xspSupportsNote = document.getElementById('xspSupportsNote');
-        const xspResistancesContainer = document.getElementById('xspResistancesContainer');
-        const xspResistancesNote = document.getElementById('xspResistancesNote');
+        const pressureEsValue = document.getElementById('pressureEsValue');
+        const pressureEsMeta = document.getElementById('pressureEsMeta');
+        const pressureSpxValue = document.getElementById('pressureSpxValue');
+        const pressureSpxMeta = document.getElementById('pressureSpxMeta');
+        const pressureSpyValue = document.getElementById('pressureSpyValue');
+        const pressureSpyMeta = document.getElementById('pressureSpyMeta');
+        const pressureXspValue = document.getElementById('pressureXspValue');
+        const pressureXspMeta = document.getElementById('pressureXspMeta');
+        const overallPressureValue = document.getElementById('overallPressureValue');
+        const overallPressureTime = document.getElementById('overallPressureTime');
 
         const esPcrLabel = document.getElementById('esPcrLabel');
         const spxPcrLabel = document.getElementById('spxPcrLabel');
@@ -909,6 +810,203 @@
         const msftSupportsNote = document.getElementById('msftSupportsNote');
         const msftResistancesContainer = document.getElementById('msftResistancesContainer');
         const msftResistancesNote = document.getElementById('msftResistancesNote');
+
+        let pressureChart = null;
+        let pressureSeries = null;
+        const pressureData = [];
+
+        function ensurePressureChart() {
+            const el = document.getElementById('pressureChart');
+            if (!el || typeof LightweightCharts === 'undefined') return;
+            if (pressureChart && pressureSeries) return;
+
+            const width = Math.max(320, Math.floor((el.getBoundingClientRect && el.getBoundingClientRect().width) ? el.getBoundingClientRect().width : (el.clientWidth || 0)));
+
+            pressureChart = LightweightCharts.createChart(el, {
+                width,
+                height: 220,
+                layout: {
+                    background: { type: 'solid', color: '#0d1b2a' },
+                    textColor: '#adb5bd',
+                },
+                grid: {
+                    vertLines: { color: 'rgba(119, 141, 169, 0.15)' },
+                    horzLines: { color: 'rgba(119, 141, 169, 0.15)' },
+                },
+                rightPriceScale: {
+                    borderColor: 'rgba(119, 141, 169, 0.25)',
+                },
+                timeScale: {
+                    borderColor: 'rgba(119, 141, 169, 0.25)',
+                    timeVisible: true,
+                    secondsVisible: false,
+                    rightOffset: 1,
+                    barSpacing: 12,
+                },
+                crosshair: {
+                    vertLine: { visible: false },
+                    horzLine: { visible: false },
+                },
+                handleScroll: false,
+                handleScale: false,
+            });
+
+            pressureSeries = pressureChart.addHistogramSeries({
+                base: 0,
+                priceFormat: { type: 'price', precision: 0, minMove: 1 },
+                // Fallback color (individual bars override via data.color)
+                color: 'rgba(45, 212, 191, 0.85)',
+                autoscaleInfoProvider: () => ({
+                    priceRange: { minValue: -4, maxValue: 4 },
+                }),
+            });
+
+            // Make sure the +/- range is actually visible (not squashed).
+            try {
+                pressureChart.priceScale('right').applyOptions({
+                    scaleMargins: { top: 0.15, bottom: 0.15 },
+                });
+            } catch (e) {
+                // no-op
+            }
+
+            // Zero line reference.
+            try {
+                pressureSeries.createPriceLine({
+                    price: 0,
+                    color: 'rgba(224, 225, 221, 0.35)',
+                    lineWidth: 1,
+                    lineStyle: 2,
+                    axisLabelVisible: false,
+                    title: '',
+                });
+            } catch (e) {
+                // no-op
+            }
+
+            const onResize = () => {
+                if (!pressureChart || !el) return;
+                const w = Math.max(320, Math.floor((el.getBoundingClientRect && el.getBoundingClientRect().width) ? el.getBoundingClientRect().width : (el.clientWidth || 0)));
+                pressureChart.applyOptions({ width: w });
+            };
+            window.addEventListener('resize', onResize);
+
+            // One more resize pass after layout settles.
+            setTimeout(onResize, 0);
+        }
+
+        function _formatPressureMeta(price, gammaFlip) {
+            const p = Number(price);
+            const gf = Number(gammaFlip);
+            const priceStr = Number.isFinite(p) ? p.toFixed(2) : '--';
+            const gfStr = Number.isFinite(gf) ? gf.toFixed(2) : '--';
+            return `px ${priceStr} | flip ${gfStr}`;
+        }
+
+        function _inferSideFromDeltaAndGamma(delta, isPositiveGamma) {
+            if (!Number.isFinite(delta) || delta === 0) return null;
+            const dirUp = delta > 0;
+            if (isPositiveGamma === true) {
+                // Positive gamma: dealers hedge against the move (mean-reverting)
+                return dirUp ? 'SELL' : 'BUY';
+            }
+            if (isPositiveGamma === false) {
+                // Negative gamma: dealers hedge with the move (trend-reinforcing)
+                return dirUp ? 'BUY' : 'SELL';
+            }
+            // If we can't determine gamma regime, fall back to pure momentum.
+            return dirUp ? 'BUY' : 'SELL';
+        }
+
+        function _setPressureText(el, side) {
+            if (!el) return;
+            el.classList.remove('text-support', 'text-resistance');
+            if (side === 'BUY') {
+                el.classList.add('text-support');
+                el.textContent = 'BUY';
+            } else if (side === 'SELL') {
+                el.classList.add('text-resistance');
+                el.textContent = 'SELL';
+            } else {
+                el.textContent = '--';
+            }
+        }
+
+        function _computeInstrumentPressure({ price, gammaFlip, prevPrice }) {
+            const p = Number(price);
+            const prev = Number(prevPrice);
+            if (!Number.isFinite(p) || !Number.isFinite(prev)) {
+                return { side: null, delta: null, isPositiveGamma: null };
+            }
+            const delta = p - prev;
+
+            const gf = Number(gammaFlip);
+            const isPositiveGamma = Number.isFinite(gf) ? (p >= gf) : null;
+            const side = _inferSideFromDeltaAndGamma(delta, isPositiveGamma);
+            return { side, delta, isPositiveGamma };
+        }
+
+        function updatePressureUI() {
+            ensurePressureChart();
+            const es = _computeInstrumentPressure({ price: latestEsPrice, gammaFlip: latestEsGammaFlip, prevPrice: prevEsPrice });
+            const spx = _computeInstrumentPressure({ price: latestSpxPrice, gammaFlip: latestSpxGammaFlip, prevPrice: prevSpxPrice });
+            const spy = _computeInstrumentPressure({ price: latestSpyPrice, gammaFlip: latestSpyGammaFlip, prevPrice: prevSpyPrice });
+            const xsp = _computeInstrumentPressure({ price: latestXspPrice, gammaFlip: latestXspGammaFlip, prevPrice: prevXspPrice });
+
+            _setPressureText(pressureEsValue, es.side);
+            if (pressureEsMeta) pressureEsMeta.textContent = _formatPressureMeta(latestEsPrice, latestEsGammaFlip);
+
+            _setPressureText(pressureSpxValue, spx.side);
+            if (pressureSpxMeta) pressureSpxMeta.textContent = _formatPressureMeta(latestSpxPrice, latestSpxGammaFlip);
+
+            _setPressureText(pressureSpyValue, spy.side);
+            if (pressureSpyMeta) pressureSpyMeta.textContent = _formatPressureMeta(latestSpyPrice, latestSpyGammaFlip);
+
+            _setPressureText(pressureXspValue, xsp.side);
+            if (pressureXspMeta) pressureXspMeta.textContent = _formatPressureMeta(latestXspPrice, latestXspGammaFlip);
+
+            const sides = [es.side, spx.side, spy.side, xsp.side].filter(Boolean);
+            let buyCount = 0;
+            let sellCount = 0;
+            sides.forEach(s => {
+                if (s === 'BUY') buyCount += 1;
+                if (s === 'SELL') sellCount += 1;
+            });
+
+            const overallSide = sides.length === 0 ? null : (buyCount >= sellCount ? 'BUY' : 'SELL');
+            _setPressureText(overallPressureValue, overallSide);
+            if (overallPressureTime) {
+                const now = new Date();
+                overallPressureTime.textContent = `Updated ${now.toLocaleTimeString()}`;
+            }
+
+            // Chart: combined score across instruments (-4..+4)
+            if (pressureSeries) {
+                const scoreFor = (side) => (side === 'BUY' ? 1 : (side === 'SELL' ? -1 : 0));
+                const score = scoreFor(es.side) + scoreFor(spx.side) + scoreFor(spy.side) + scoreFor(xsp.side);
+                const ts = Math.floor(Date.now() / 1000);
+
+                // IMPORTANT: LightweightCharts expects strictly increasing times.
+                // If we get multiple updates within the same second, update the last bar instead of pushing.
+                const color = score >= 0 ? 'rgba(45, 212, 191, 0.92)' : 'rgba(251, 113, 133, 0.92)';
+                const last = pressureData.length ? pressureData[pressureData.length - 1] : null;
+
+                if (!last) {
+                    pressureData.push({ time: ts, value: score, color });
+                    pressureSeries.setData(pressureData);
+                } else if (ts === last.time) {
+                    last.value = score;
+                    last.color = color;
+                    pressureSeries.setData(pressureData);
+                } else if (ts > last.time) {
+                    pressureData.push({ time: ts, value: score, color });
+                    if (pressureData.length > 300) pressureData.splice(0, pressureData.length - 300);
+                    pressureSeries.setData(pressureData);
+                } else {
+                    // Clock skew / time went backwards; ignore this tick.
+                }
+            }
+        }
 
         function heatClassForIndex(i) {
             if (i <= 0) return 'heat-1';
@@ -963,8 +1061,7 @@
         }
 
         function updateSpyNearSignals() {
-            applyNearSignals(spySupportsContainer, latestSpyPrice, { minAbs: 0.25, rel: 0.00075 });
-            applyNearSignals(spyResistancesContainer, latestSpyPrice, { minAbs: 0.25, rel: 0.00075 });
+            // SPY key levels removed from UI; kept for backward compatibility.
         }
 
         function updateMsftNearSignals() {
@@ -973,13 +1070,11 @@
         }
 
         function updateSpxNearSignals() {
-            applyNearSignals(spxSupportsContainer, latestSpxPrice, { minAbs: 5, rel: 0.00075 });
-            applyNearSignals(spxResistancesContainer, latestSpxPrice, { minAbs: 5, rel: 0.00075 });
+            // SPX key levels removed from UI; kept for backward compatibility.
         }
 
         function updateXspNearSignals() {
-            applyNearSignals(xspSupportsContainer, latestXspPrice, { minAbs: 0.5, rel: 0.00075 });
-            applyNearSignals(xspResistancesContainer, latestXspPrice, { minAbs: 0.5, rel: 0.00075 });
+            // XSP key levels removed from UI; kept for backward compatibility.
         }
 
         function displaySpxKeyLevels(data) {
@@ -1163,7 +1258,9 @@
                     const when = [data.date, data.time].filter(Boolean).join(' ');
                     const note = data.note ? ` - ${data.note}` : '';
 
+                    if (latestEsPrice != null) prevEsPrice = latestEsPrice;
                     latestEsPrice = price;
+                    if (prevEsPrice == null) prevEsPrice = latestEsPrice;
                     if (esLivePrice) {
                         esLivePrice.textContent = `${price.toFixed(2)}`;
                     }
@@ -1172,12 +1269,14 @@
                     }
 
                     updateEsNearSignals();
+                    updatePressureUI();
 
                     return price;
                 } catch (e) {
                     if (esLivePrice) esLivePrice.textContent = '--';
                     if (esLiveTime) esLiveTime.textContent = '--';
                     latestEsPrice = null;
+                    updatePressureUI();
                     return null;
                 }
             })();
@@ -1265,29 +1364,21 @@
                     const gammaFlip = Number(data.gamma_flip);
                     const when = (data.time || '').toString();
 
-                    latestSpyPrice = Number.isFinite(price) ? price : null;
+                    if (Number.isFinite(price)) {
+                        if (latestSpyPrice != null) prevSpyPrice = latestSpyPrice;
+                        latestSpyPrice = price;
+                    } else {
+                        latestSpyPrice = null;
+                    }
+                    latestSpyGammaFlip = Number.isFinite(gammaFlip) ? gammaFlip : null;
 
-                    if (spyLivePrice) {
-                        spyLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
-                    }
-                    if (spyLiveTime) {
-                        spyLiveTime.textContent = when || (data.expiration ? `Exp ${data.expiration}` : '--');
-                    }
-                    if (spyGammaFlipTop) {
-                        spyGammaFlipTop.textContent = Number.isFinite(gammaFlip) ? `${gammaFlip.toFixed(2)}` : '--';
-                    }
-
-                    displaySpyKeyLevels(data);
-                    updateSpyNearSignals();
+                    updatePressureUI();
 
                     return data;
                 } catch (e) {
-                    if (spyLivePrice) spyLivePrice.textContent = '--';
-                    if (spyLiveTime) spyLiveTime.textContent = '--';
-                    if (spyGammaFlipTop) spyGammaFlipTop.textContent = '--';
                     latestSpyPrice = null;
-                    displaySpyKeyLevels(null);
-                    updateSpyNearSignals();
+                    latestSpyGammaFlip = null;
+                    updatePressureUI();
                     return null;
                 }
             })();
@@ -1357,29 +1448,21 @@
                     const gammaFlip = Number(data.gamma_flip);
                     const when = (data.time || '').toString();
 
-                    latestSpxPrice = Number.isFinite(price) ? price : null;
+                    if (Number.isFinite(price)) {
+                        if (latestSpxPrice != null) prevSpxPrice = latestSpxPrice;
+                        latestSpxPrice = price;
+                    } else {
+                        latestSpxPrice = null;
+                    }
+                    latestSpxGammaFlip = Number.isFinite(gammaFlip) ? gammaFlip : null;
 
-                    if (spxLivePrice) {
-                        spxLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
-                    }
-                    if (spxLiveTime) {
-                        spxLiveTime.textContent = when || (data.expiration ? `Exp ${data.expiration}` : '--');
-                    }
-                    if (spxGammaFlipTop) {
-                        spxGammaFlipTop.textContent = Number.isFinite(gammaFlip) ? `${gammaFlip.toFixed(2)}` : '--';
-                    }
-
-                    displaySpxKeyLevels(data);
-                    updateSpxNearSignals();
+                    updatePressureUI();
 
                     return data;
                 } catch (e) {
-                    if (spxLivePrice) spxLivePrice.textContent = '--';
-                    if (spxLiveTime) spxLiveTime.textContent = '--';
-                    if (spxGammaFlipTop) spxGammaFlipTop.textContent = '--';
                     latestSpxPrice = null;
-                    displaySpxKeyLevels(null);
-                    updateSpxNearSignals();
+                    latestSpxGammaFlip = null;
+                    updatePressureUI();
                     return null;
                 }
             })();
@@ -1420,29 +1503,21 @@
                     const gammaFlip = Number(data.gamma_flip);
                     const when = (data.time || '').toString();
 
-                    latestXspPrice = Number.isFinite(price) ? price : null;
+                    if (Number.isFinite(price)) {
+                        if (latestXspPrice != null) prevXspPrice = latestXspPrice;
+                        latestXspPrice = price;
+                    } else {
+                        latestXspPrice = null;
+                    }
+                    latestXspGammaFlip = Number.isFinite(gammaFlip) ? gammaFlip : null;
 
-                    if (xspLivePrice) {
-                        xspLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
-                    }
-                    if (xspLiveTime) {
-                        xspLiveTime.textContent = when || (data.expiration ? `Exp ${data.expiration}` : '--');
-                    }
-                    if (xspGammaFlipTop) {
-                        xspGammaFlipTop.textContent = Number.isFinite(gammaFlip) ? `${gammaFlip.toFixed(2)}` : '--';
-                    }
-
-                    displayXspKeyLevels(data);
-                    updateXspNearSignals();
+                    updatePressureUI();
 
                     return data;
                 } catch (e) {
-                    if (xspLivePrice) xspLivePrice.textContent = '--';
-                    if (xspLiveTime) xspLiveTime.textContent = '--';
-                    if (xspGammaFlipTop) xspGammaFlipTop.textContent = '--';
                     latestXspPrice = null;
-                    displayXspKeyLevels(null);
-                    updateXspNearSignals();
+                    latestXspGammaFlip = null;
+                    updatePressureUI();
                     return null;
                 }
             })();
@@ -1907,6 +1982,8 @@
             if (gammaFlipTop) {
                 gammaFlipTop.textContent = data.gamma_flip ? data.gamma_flip.toFixed(2) : '--';
             }
+
+            latestEsGammaFlip = (data && Number.isFinite(Number(data.gamma_flip))) ? Number(data.gamma_flip) : null;
             
             // Regime
             const regimeCard = document.getElementById('regimeCard');
@@ -1971,6 +2048,7 @@
             // Statistiche (removed)
 
             updateEsNearSignals();
+            updatePressureUI();
             
             // Initialize chart
             // createChart(data);
