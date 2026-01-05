@@ -870,17 +870,502 @@ def extract_nearest_positive_dte_data(pdf_path: str) -> pd.DataFrame:
         df = _extract_dte_days_data(pdf_path, target_days=d)
         if not df.empty:
             return df
+
+    # Fallback: some PDFs don't yield tables via pdfplumber; try coordinate-based parsing.
+    pymu_days = _find_available_dtes_pymupdf(pdf_path)
+    positive_days = sorted([d for d in pymu_days if isinstance(d, int) and d > 0])
+    for d in positive_days:
+        df = _extract_dte_pair_data_pymupdf(pdf_path, target_days=d)
+        if not df.empty:
+            return df
+
     return pd.DataFrame()
 
 
 def _extract_dte_days_data(pdf_path: str, target_days: int) -> pd.DataFrame:
     mapping = _find_dte_column_mapping(pdf_path)
     pair = mapping.get(int(target_days))
-    if not pair:
+    if pair:
+        call_col, put_col = pair
+        df = _extract_dte_pair_data(pdf_path, call_col=call_col, put_col=put_col)
+        if not df.empty:
+            return df
+
+    # Fallback: try coordinate-based parsing when pdfplumber table extraction fails.
+    return _extract_dte_pair_data_pymupdf(pdf_path, target_days=int(target_days))
+
+
+def _find_available_dtes_pymupdf(pdf_path: str) -> list[int]:
+    # Prefer extracting the ordered day list from the PDF text stream; this is
+    # often more reliable than trying to infer day labels from table coordinates.
+    code_to_day = _find_contract_code_to_day_pypdf2(pdf_path)
+    if code_to_day:
+        return sorted({d for d in code_to_day.values() if isinstance(d, int)})
+
+    ordered_days = _find_dte_days_order_pypdf2(pdf_path)
+    if ordered_days:
+        return ordered_days
+
+    try:
+        import fitz  # PyMuPDF
+    except Exception:
+        return []
+
+    def _parse_day(text: str) -> Optional[int]:
+        m = re.search(r'\b(\d+)\s*DTE\b', text.upper())
+        if m:
+            try:
+                return int(m.group(1))
+            except Exception:
+                return None
+        return None
+
+    try:
+        with fitz.open(pdf_path) as doc:
+            if doc.page_count < 1:
+                return []
+            page = doc[0]
+            words = page.get_text('words')
+    except Exception:
+        return []
+
+    days: set[int] = set()
+    # Direct tokens like "1DTE" or "1 DTE" (number token near DTE token)
+    simple = [(str(txt), float(x0), float(y0), float(x1)) for x0, y0, x1, y1, txt, *_ in words]
+    for txt, *_ in simple:
+        d = _parse_day(txt)
+        if d is not None:
+            days.add(d)
+
+    # Patterns like "1" followed by a separate "DTE" token on the same row.
+    dte_tokens = [(x0, y0) for x0, y0, x1, y1, txt, *_ in words if str(txt).upper() == 'DTE']
+    if dte_tokens:
+        numeric_tokens = [(x0, y0, x1, str(txt)) for x0, y0, x1, y1, txt, *_ in words]
+        for dte_x0, dte_y0 in dte_tokens:
+            # Find the nearest numeric token immediately to the left on the same row.
+            best = None
+            best_x1 = None
+            for x0, y0, x1, txt in numeric_tokens:
+                if abs(y0 - dte_y0) > 3.0:
+                    continue
+                if x1 > dte_x0 + 1:
+                    continue
+                m = re.match(r'^\d{1,3}$', txt.strip())
+                if not m:
+                    continue
+                if best_x1 is None or x1 > best_x1:
+                    best = txt
+                    best_x1 = x1
+            if best is not None:
+                try:
+                    days.add(int(best))
+                except Exception:
+                    pass
+
+    return sorted(days)
+
+
+def _find_dte_days_order_pypdf2(pdf_path: str) -> list[int]:
+    """Extract the ordered list of DTE day numbers from the PDF text.
+
+    Many QuikStrike PDFs include a header like "1 DTE", "2 DTE", ... in the
+    intended left-to-right order.
+    """
+
+    try:
+        from PyPDF2 import PdfReader
+    except Exception:
+        return []
+
+    try:
+        reader = PdfReader(pdf_path)
+        if not reader.pages:
+            return []
+        text = reader.pages[0].extract_text() or ''
+    except Exception:
+        return []
+
+    days: list[int] = []
+    seen: set[int] = set()
+    # Some PDFs concatenate the next token after DTE (e.g. "1 DTEE1BF6").
+    # So we intentionally don't require a trailing word boundary after "DTE".
+    for m in re.finditer(r'\b(\d{1,3})\s*DTE', text.upper()):
+        try:
+            d = int(m.group(1))
+        except Exception:
+            continue
+        if d < 0 or d > 365:
+            continue
+        if d not in seen:
+            days.append(d)
+            seen.add(d)
+    return days
+
+
+def _find_contract_code_to_day_pypdf2(pdf_path: str) -> dict[str, int]:
+    """Extract mapping of contract code -> DTE days from the PDF text header."""
+
+    try:
+        from PyPDF2 import PdfReader
+    except Exception:
+        return {}
+
+    try:
+        reader = PdfReader(pdf_path)
+        if not reader.pages:
+            return {}
+        text = (reader.pages[0].extract_text() or '').upper()
+    except Exception:
+        return {}
+
+    out: dict[str, int] = {}
+    # Common QuikStrike header pattern: <CODE> <n> DTE (sometimes without spaces).
+    for m in re.finditer(r'\b([A-Z][A-Z0-9]{2,12})\s*(\d{1,3})\s*DTE', text):
+        code = m.group(1).strip().upper()
+        if code.startswith('STRIKE'):
+            code = code.replace('STRIKE', '', 1)
+        try:
+            d = int(m.group(2))
+        except Exception:
+            continue
+        if d < 0 or d > 365:
+            continue
+        # Keep first occurrence.
+        if code and code not in out:
+            out[code] = d
+
+    return out
+
+
+def _extract_dte_pair_data_pymupdf(pdf_path: str, target_days: int) -> pd.DataFrame:
+    """Fallback extractor using PyMuPDF word coordinates.
+
+    This supports QuikStrike-style Open Interest Matrix PDFs where pdfplumber fails to
+    reconstruct tables. It reconstructs Call/Put columns based on the C/P header row.
+    """
+
+    try:
+        import fitz  # PyMuPDF
+    except Exception:
         return pd.DataFrame()
 
-    call_col, put_col = pair
-    return _extract_dte_pair_data(pdf_path, call_col=call_col, put_col=put_col)
+    def _is_number_token(text: str) -> bool:
+        s = text.strip().replace(',', '')
+        if not s:
+            return False
+        # Keep plain integers/decimals only.
+        return bool(re.match(r'^-?\d+(?:\.\d+)?$', s))
+
+    def _parse_number(text: str) -> float:
+        return _parse_pdf_number(text)
+
+    try:
+        with fitz.open(pdf_path) as doc:
+            if doc.page_count < 1:
+                return pd.DataFrame()
+            page = doc[0]
+            raw_words = page.get_text('words')
+    except Exception:
+        return pd.DataFrame()
+
+    # Normalize word tuples.
+    words: list[tuple[float, float, float, float, str]] = []
+    for x0, y0, x1, y1, txt, *_ in raw_words:
+        t = ('' if txt is None else str(txt)).strip()
+        if not t:
+            continue
+        words.append((float(x0), float(y0), float(x1), float(y1), t))
+    if not words:
+        return pd.DataFrame()
+
+    # Collect all C/P tokens.
+    cp_words = [(x0, y0, x1, t) for x0, y0, x1, y1, t in words if t in {'C', 'P', 'CP'}]
+    if not cp_words:
+        return pd.DataFrame()
+
+    # Heuristic: some QuikStrike PDFs are "transposed" (strikes across the top,
+    # expiries down the side with C/P rows). In that case, C/P tokens are aligned
+    # in a single narrow x-column and vary mostly by y.
+    cp_xs = [x0 for x0, _, _, _ in cp_words]
+    cp_ys = [y0 for _, y0, _, _ in cp_words]
+    x_span = (max(cp_xs) - min(cp_xs)) if cp_xs else 0.0
+    y_span = (max(cp_ys) - min(cp_ys)) if cp_ys else 0.0
+    looks_transposed = x_span < 8.0 and y_span > 200.0
+
+    if looks_transposed:
+        # 1) Find the strike header row: many 4-5 digit numbers on the same y.
+        strike_tokens = []
+        for x0, y0, x1, y1, t in words:
+            if not _is_number_token(t):
+                continue
+            v = _parse_number(t)
+            if v < 1000 or v > 10000:
+                continue
+            # strikes are typically integer-ish
+            strike_tokens.append((x0, y0, x1, v))
+
+        if not strike_tokens:
+            return pd.DataFrame()
+        strike_tokens.sort(key=lambda it: (it[1], it[0]))
+        rows_by_y: list[list[tuple[float, float, float, float]]] = []
+        for tok in strike_tokens:
+            if not rows_by_y or abs(tok[1] - rows_by_y[-1][0][1]) > 4.0:
+                rows_by_y.append([tok])
+            else:
+                rows_by_y[-1].append(tok)
+        strike_row = max(rows_by_y, key=lambda r: len(r))
+        if len(strike_row) < 10:
+            return pd.DataFrame()
+        strike_row_sorted = sorted(strike_row, key=lambda it: it[0])
+        strike_cols: list[tuple[float, float]] = [
+            (float(v), (x0 + x1) / 2.0) for x0, y0, x1, v in strike_row_sorted
+        ]
+        # Deduplicate by strike value keeping left-most x.
+        seen_strikes = set()
+        strike_cols = [(s, x) for s, x in strike_cols if (s not in seen_strikes and not seen_strikes.add(s))]
+        strike_cols.sort(key=lambda it: it[1])
+        if len(strike_cols) < 10:
+            return pd.DataFrame()
+
+        xs = [x for _, x in strike_cols]
+        diffs = [b - a for a, b in zip(xs, xs[1:]) if (b - a) > 0]
+        tol_x = (sorted(diffs)[len(diffs) // 2] / 2.0) if diffs else 12.0
+
+        # 2) Map contract codes to DTE days from PyPDF2 header.
+        code_to_day = _find_contract_code_to_day_pypdf2(pdf_path)
+        if not code_to_day:
+            return pd.DataFrame()
+        target_codes = {code for code, d in code_to_day.items() if int(d) == int(target_days)}
+        if not target_codes:
+            return pd.DataFrame()
+
+        # 3) Find the y position of the contract code on the page.
+        code_positions = [(t, y0) for x0, y0, x1, y1, t in words if t in target_codes]
+        if not code_positions:
+            return pd.DataFrame()
+        # Use the first (top-most) matching code occurrence.
+        code_y = sorted(code_positions, key=lambda it: it[1])[0][1]
+
+        # 4) Find nearest C and P rows around that code y.
+        cp_candidates = [(y0, t) for x0, y0, x1, t in cp_words if abs(y0 - code_y) <= 30.0]
+        call_y = None
+        put_y = None
+        for y0, t in sorted(cp_candidates, key=lambda it: abs(it[0] - code_y)):
+            if t == 'C' and call_y is None:
+                call_y = y0
+            if t == 'P' and put_y is None:
+                put_y = y0
+            if call_y is not None and put_y is not None:
+                break
+        if call_y is None or put_y is None:
+            return pd.DataFrame()
+
+        # Numeric values are often slightly offset from the C/P label baseline.
+        # Snap to the densest numeric row near each label.
+        min_strike_x = min(x for _, x in strike_cols)
+
+        def snap_to_numeric_row(y_hint: float) -> float:
+            candidates = []
+            for x0, y0, x1, y1, t in words:
+                if abs(y0 - y_hint) > 15.0:
+                    continue
+                if x0 < (min_strike_x - 5.0):
+                    continue
+                if not _is_number_token(t):
+                    continue
+                candidates.append((y0, x0))
+            if not candidates:
+                return y_hint
+            candidates.sort()
+            clusters: list[list[tuple[float, float]]] = []
+            for y0, x0 in candidates:
+                if not clusters or abs(y0 - clusters[-1][0][0]) > 2.5:
+                    clusters.append([(y0, x0)])
+                else:
+                    clusters[-1].append((y0, x0))
+            best = max(clusters, key=lambda c: len(c))
+            return sum(y for y, _ in best) / len(best)
+
+        call_y = snap_to_numeric_row(call_y)
+        put_y = snap_to_numeric_row(put_y)
+
+        # 5) Collect numeric tokens on those two rows.
+        def row_numbers_at(y_target: float) -> list[tuple[float, float]]:
+            out = []
+            for x0, y0, x1, y1, t in words:
+                if abs(y0 - y_target) > 4.0:
+                    continue
+                if not _is_number_token(t):
+                    continue
+                out.append(((x0 + x1) / 2.0, t))
+            out.sort(key=lambda it: it[0])
+            return out
+
+        call_nums = row_numbers_at(call_y)
+        put_nums = row_numbers_at(put_y)
+        if not call_nums and not put_nums:
+            return pd.DataFrame()
+
+        def pick_value(nums: list[tuple[float, str]], x_target: float) -> float:
+            best = None
+            best_dist = None
+            for xc, t in nums:
+                dist = abs(xc - x_target)
+                if dist > tol_x:
+                    continue
+                if best_dist is None or dist < best_dist:
+                    best = t
+                    best_dist = dist
+            return _parse_number(best) if best is not None else 0.0
+
+        strikes: list[float] = []
+        calls: list[float] = []
+        puts: list[float] = []
+        gammas: list[float] = []
+        for strike, x_target in strike_cols:
+            c = pick_value(call_nums, x_target)
+            p = pick_value(put_nums, x_target)
+            strikes.append(float(strike))
+            calls.append(float(c))
+            puts.append(float(p))
+            gammas.append(float((c - p) * 1000))
+
+        return pd.DataFrame({
+            'Strike': strikes,
+            'Call_OI': calls,
+            'Put_OI': puts,
+            'Gamma_Exposure': gammas,
+        })
+
+    # --- Non-transposed (wide) matrix parser ---
+
+    # Locate the C/P header row (row with the most C/P tokens).
+    bins: dict[int, list[tuple[float, float, float, str]]] = {}
+    for x0, y0, x1, t in cp_words:
+        key = int(round(y0 / 2.0))
+        bins.setdefault(key, []).append((x0, y0, x1, t))
+    best_key = max(bins.keys(), key=lambda k: len(bins[k]))
+    header_cp = bins[best_key]
+    cp_y = sum(y0 for _, y0, _, _ in header_cp) / len(header_cp)
+
+    # Build ordered list of (C,P) column x-centers from header row.
+    cp_entries: list[tuple[str, float]] = []
+    for x0, y0, x1, t in header_cp:
+        if abs(y0 - cp_y) > 4.0:
+            continue
+        x_center = (x0 + x1) / 2.0
+        if t == 'CP':
+            cp_entries.append(('C', x_center - 1.0))
+            cp_entries.append(('P', x_center + 1.0))
+        else:
+            cp_entries.append((t, x_center))
+    cp_entries.sort(key=lambda it: it[1])
+    if len(cp_entries) < 2:
+        return pd.DataFrame()
+
+    cp_pairs: list[tuple[float, float]] = []
+    i = 0
+    while i + 1 < len(cp_entries):
+        t1, x1 = cp_entries[i]
+        t2, x2 = cp_entries[i + 1]
+        if t1 == 'C' and t2 == 'P':
+            cp_pairs.append((x1, x2))
+            i += 2
+            continue
+        i += 1
+    if not cp_pairs:
+        return pd.DataFrame()
+
+    # Build day -> (call_x, put_x) mapping from the PDF text order (PyPDF2).
+    days_order = _find_dte_days_order_pypdf2(pdf_path)
+    day_to_pair: dict[int, tuple[float, float]] = {}
+    if days_order and len(days_order) == len(cp_pairs):
+        for d, (call_x, put_x) in zip(days_order, cp_pairs):
+            day_to_pair[int(d)] = (float(call_x), float(put_x))
+    elif days_order:
+        # If the counts don't match, still map sequentially up to the shortest.
+        for d, (call_x, put_x) in zip(days_order, cp_pairs):
+            day_to_pair[int(d)] = (float(call_x), float(put_x))
+    else:
+        # Last resort: treat the first pair as 1DTE, second as 2DTE, ...
+        for idx, (call_x, put_x) in enumerate(cp_pairs, start=1):
+            day_to_pair[int(idx)] = (float(call_x), float(put_x))
+
+    pair = day_to_pair.get(int(target_days))
+    if not pair:
+        return pd.DataFrame()
+    call_x, put_x = pair
+
+    # Parse data rows below the C/P header row.
+    min_data_y = cp_y + 6.0
+    strike_x_threshold = min(call_x, put_x) - 10.0
+
+    numeric_words: list[tuple[float, float, float, float, str]] = []
+    for x0, y0, x1, y1, t in words:
+        if y0 < min_data_y:
+            continue
+        if not _is_number_token(t):
+            continue
+        numeric_words.append((x0, y0, x1, y1, t))
+    if not numeric_words:
+        return pd.DataFrame()
+    numeric_words.sort(key=lambda it: (it[1], it[0]))
+
+    # Group into rows by y.
+    rows: list[list[tuple[float, float, float, float, str]]] = []
+    for w in numeric_words:
+        if not rows or abs(w[1] - rows[-1][0][1]) > 3.0:
+            rows.append([w])
+        else:
+            rows[-1].append(w)
+
+    strikes: list[float] = []
+    calls: list[float] = []
+    puts: list[float] = []
+    gammas: list[float] = []
+
+    for row in rows:
+        row_sorted = sorted(row, key=lambda it: it[0])
+        # Pick strike as left-most plausible 4-digit value on the left side.
+        strike_candidates = [w for w in row_sorted if w[0] <= strike_x_threshold]
+        if not strike_candidates:
+            continue
+        strike_word = strike_candidates[0]
+        strike_val = _parse_number(strike_word[4])
+        if strike_val <= 0:
+            continue
+
+        def pick_near(target_x: float) -> float:
+            best = None
+            best_dist = None
+            for x0, y0, x1, y1, t in row_sorted:
+                xc = (x0 + x1) / 2.0
+                dist = abs(xc - target_x)
+                if dist > 12.0:
+                    continue
+                if best_dist is None or dist < best_dist:
+                    best = t
+                    best_dist = dist
+            return _parse_number(best) if best is not None else 0.0
+
+        call = pick_near(call_x)
+        put = pick_near(put_x)
+        gamma = (call - put) * 1000
+
+        strikes.append(float(strike_val))
+        calls.append(float(call))
+        puts.append(float(put))
+        gammas.append(float(gamma))
+
+    if not strikes:
+        return pd.DataFrame()
+
+    return pd.DataFrame({
+        'Strike': strikes,
+        'Call_OI': calls,
+        'Put_OI': puts,
+        'Gamma_Exposure': gammas,
+    })
 
 
 def _extract_dte_pair_data(pdf_path: str, call_col: int, put_col: int) -> pd.DataFrame:

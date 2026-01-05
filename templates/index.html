@@ -504,7 +504,7 @@
                     <div class="col-12 col-md-3">
                         <div class="card" id="esKeyLevelsCard">
                             <div class="card-header">
-                                <i class="bi bi-bullseye me-2"></i>ES Key Levels
+                                <i class="bi bi-bullseye me-2"></i>ES Key Levels <span class="text-muted" id="esPcrLabel"></span>
                             </div>
                             <div class="card-body">
                                 <div class="row g-2 mb-3 price-row">
@@ -554,7 +554,7 @@
                     <div class="col-12 col-md-3">
                         <div class="card" id="spxKeyLevelsCard">
                             <div class="card-header">
-                                <i class="bi bi-bullseye me-2"></i>SPX Key Levels <span class="text-muted" id="spxExpiryLabel"></span>
+                                <i class="bi bi-bullseye me-2"></i>SPX Key Levels <span class="text-muted" id="spxExpiryLabel"></span> <span class="text-muted" id="spxPcrLabel"></span>
                             </div>
                             <div class="card-body">
                                 <div class="row g-2 mb-3 price-row">
@@ -604,7 +604,7 @@
                     <div class="col-12 col-md-3">
                         <div class="card" id="spyKeyLevelsCard">
                             <div class="card-header">
-                                <i class="bi bi-bullseye me-2"></i>SPY Key Levels <span class="text-muted">(Proxy: Nasdaq option chain)</span> <span class="text-muted" id="spyExpiryLabel"></span>
+                                <i class="bi bi-bullseye me-2"></i>SPY Key Levels <span class="text-muted">(Proxy: Nasdaq option chain)</span> <span class="text-muted" id="spyExpiryLabel"></span> <span class="text-muted" id="spyPcrLabel"></span>
                             </div>
                             <div class="card-body">
                                 <div class="row g-2 mb-3 price-row">
@@ -654,7 +654,7 @@
                     <div class="col-12 col-md-3">
                         <div class="card" id="xspKeyLevelsCard">
                             <div class="card-header">
-                                <i class="bi bi-bullseye me-2"></i>XSP Key Levels <span class="text-muted" id="xspExpiryLabel"></span>
+                                <i class="bi bi-bullseye me-2"></i>XSP Key Levels <span class="text-muted" id="xspExpiryLabel"></span> <span class="text-muted" id="xspPcrLabel"></span>
                             </div>
                             <div class="card-body">
                                 <div class="row g-2 mb-3 price-row">
@@ -709,7 +709,7 @@
                     <div class="col-12 col-md-6">
                         <div class="card" id="nvdaKeyLevelsCard">
                             <div class="card-header">
-                                <i class="bi bi-bullseye me-2"></i>NVDA Key Levels <span class="text-muted" id="nvdaExpiryLabel"></span>
+                                <i class="bi bi-bullseye me-2"></i>NVDA Key Levels <span class="text-muted" id="nvdaExpiryLabel"></span> <span class="text-muted" id="nvdaPcrLabel"></span>
                             </div>
                             <div class="card-body">
                                 <div class="row g-2 mb-3 price-row">
@@ -759,7 +759,7 @@
                     <div class="col-12 col-md-6">
                         <div class="card" id="msftKeyLevelsCard">
                             <div class="card-header">
-                                <i class="bi bi-bullseye me-2"></i>MSFT Key Levels <span class="text-muted" id="msftExpiryLabel"></span>
+                                <i class="bi bi-bullseye me-2"></i>MSFT Key Levels <span class="text-muted" id="msftExpiryLabel"></span> <span class="text-muted" id="msftPcrLabel"></span>
                             </div>
                             <div class="card-body">
                                 <div class="row g-2 mb-3 price-row">
@@ -894,6 +894,13 @@
         const xspResistancesContainer = document.getElementById('xspResistancesContainer');
         const xspResistancesNote = document.getElementById('xspResistancesNote');
 
+        const esPcrLabel = document.getElementById('esPcrLabel');
+        const spxPcrLabel = document.getElementById('spxPcrLabel');
+        const spyPcrLabel = document.getElementById('spyPcrLabel');
+        const xspPcrLabel = document.getElementById('xspPcrLabel');
+        const nvdaPcrLabel = document.getElementById('nvdaPcrLabel');
+        const msftPcrLabel = document.getElementById('msftPcrLabel');
+
         const msftLivePrice = document.getElementById('msftLivePrice');
         const msftLiveTime = document.getElementById('msftLiveTime');
         const msftGammaFlipTop = document.getElementById('msftGammaFlipTop');
@@ -908,6 +915,12 @@
             if (i === 1) return 'heat-2';
             if (i === 2) return 'heat-3';
             return 'heat-4';
+        }
+
+        function setPutCallRatio(labelEl, stats) {
+            if (!labelEl) return;
+            const r = Number(stats && stats.put_call_ratio);
+            labelEl.textContent = Number.isFinite(r) ? `PCR ${r.toFixed(2)}` : '';
         }
 
         function getNearThreshold(price, { rel = 0.00075, minAbs = 0.5 } = {}) {
@@ -979,12 +992,15 @@
             }
 
             if (!data || data.error) {
+                setPutCallRatio(spxPcrLabel, null);
                 if (spxSupportsContainer) spxSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
                 if (spxResistancesContainer) spxResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
                 if (spxSupportsNote) spxSupportsNote.style.display = 'none';
                 if (spxResistancesNote) spxResistancesNote.style.display = 'none';
                 return;
             }
+
+            setPutCallRatio(spxPcrLabel, data.stats);
 
             const supports = Array.isArray(data.supports) ? data.supports : [];
             const resistances = Array.isArray(data.resistances) ? data.resistances : [];
@@ -1056,12 +1072,15 @@
             }
 
             if (!data || data.error) {
+                setPutCallRatio(xspPcrLabel, null);
                 if (xspSupportsContainer) xspSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
                 if (xspResistancesContainer) xspResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
                 if (xspSupportsNote) xspSupportsNote.style.display = 'none';
                 if (xspResistancesNote) xspResistancesNote.style.display = 'none';
                 return;
             }
+
+            setPutCallRatio(xspPcrLabel, data.stats);
 
             const supports = Array.isArray(data.supports) ? data.supports : [];
             const resistances = Array.isArray(data.resistances) ? data.resistances : [];
@@ -1509,12 +1528,15 @@
             }
 
             if (!data || data.error) {
+                setPutCallRatio(nvdaPcrLabel, null);
                 if (nvdaSupportsContainer) nvdaSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
                 if (nvdaResistancesContainer) nvdaResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
                 if (nvdaSupportsNote) nvdaSupportsNote.style.display = 'none';
                 if (nvdaResistancesNote) nvdaResistancesNote.style.display = 'none';
                 return;
             }
+
+            setPutCallRatio(nvdaPcrLabel, data.stats);
 
             const supports = Array.isArray(data.supports) ? data.supports : [];
             const resistances = Array.isArray(data.resistances) ? data.resistances : [];
@@ -1586,12 +1608,15 @@
             }
 
             if (!data || data.error) {
+                setPutCallRatio(spyPcrLabel, null);
                 if (spySupportsContainer) spySupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
                 if (spyResistancesContainer) spyResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
                 if (spySupportsNote) spySupportsNote.style.display = 'none';
                 if (spyResistancesNote) spyResistancesNote.style.display = 'none';
                 return;
             }
+
+            setPutCallRatio(spyPcrLabel, data.stats);
 
             const supports = Array.isArray(data.supports) ? data.supports : [];
             const resistances = Array.isArray(data.resistances) ? data.resistances : [];
@@ -1663,12 +1688,15 @@
             }
 
             if (!data || data.error) {
+                setPutCallRatio(msftPcrLabel, null);
                 if (msftSupportsContainer) msftSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
                 if (msftResistancesContainer) msftResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
                 if (msftSupportsNote) msftSupportsNote.style.display = 'none';
                 if (msftResistancesNote) msftResistancesNote.style.display = 'none';
                 return;
             }
+
+            setPutCallRatio(msftPcrLabel, data.stats);
 
             const supports = Array.isArray(data.supports) ? data.supports : [];
             const resistances = Array.isArray(data.resistances) ? data.resistances : [];
@@ -1858,6 +1886,8 @@
         analyzeBtn.addEventListener('click', runAnalysis);
         
         function displayResults(data) {
+            setPutCallRatio(esPcrLabel, data && data.stats ? data.stats : null);
+
             // Gamma Flip
             const gammaFlipValueEl = document.getElementById('gammaFlipValue');
             if (gammaFlipValueEl) {
