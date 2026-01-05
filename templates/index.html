@@ -554,7 +554,14 @@
                     <div class="col-12 col-md-9">
                         <div class="card" id="pressureCard">
                             <div class="card-header">
-                                <i class="bi bi-speedometer2 me-2"></i>Market Pressure (ES + SPX + SPY + XSP)
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <i class="bi bi-speedometer2 me-2"></i>Market Pressure (ES + SPX + SPY + XSP)
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-light" data-bs-toggle="modal" data-bs-target="#pressureInfoModal" aria-label="Info pressure">
+                                        <i class="bi bi-info-circle"></i>
+                                    </button>
+                                </div>
                             </div>
                             <div class="card-body">
                                 <div class="row g-2 mb-3">
@@ -737,6 +744,53 @@
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Pressure Info Modal -->
+    <div class="modal fade" id="pressureInfoModal" tabindex="-1" aria-labelledby="pressureInfoModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content" style="background: #1b263b; border: 2px solid #415a77;">
+                <div class="modal-header" style="border-bottom: 2px solid #415a77;">
+                    <h5 class="modal-title" id="pressureInfoModalLabel" style="color: #f8f9fa;">Come calcoliamo la pressure</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" style="color: #f8f9fa;">
+                    <p class="mb-3">Come sto calcolando la “pressure” adesso</p>
+
+                    <p class="mb-2">Per ogni strumento (ES, SPX, SPY, XSP) prendo il cambio di prezzo tra l’ultimo update e il precedente:</p>
+                    <p class="mb-3"><code style="color:#f8f9fa;">Δ = price_now − price_prev</code></p>
+
+                    <p class="mb-2">Stimo il regime gamma usando il <code style="color:#f8f9fa;">gamma_flip</code>:</p>
+                    <ul class="mb-3">
+                        <li>se <code style="color:#f8f9fa;">price &gt;= gamma_flip</code> ⇒ Positive Gamma</li>
+                        <li>se <code style="color:#f8f9fa;">price &lt; gamma_flip</code> ⇒ Negative Gamma</li>
+                    </ul>
+
+                    <p class="mb-2">Poi trasformo <code style="color:#f8f9fa;">Δ</code> in BUY/SELL con la logica “dealer hedging” (versione semplificata):</p>
+                    <ul class="mb-3">
+                        <li>Positive Gamma (mean-reverting): se prezzo sale ⇒ SELL, se scende ⇒ BUY</li>
+                        <li>Negative Gamma (trend): se prezzo sale ⇒ BUY, se scende ⇒ SELL</li>
+                        <li>se non ho <code style="color:#f8f9fa;">gamma_flip</code> valido ⇒ fallback “momentum”: su ⇒ BUY, giù ⇒ SELL</li>
+                    </ul>
+
+                    <p class="mb-3">L’Overall è la maggioranza tra i 4 (BUY vs SELL).</p>
+
+                    <p class="mb-3">Nota importante: questa è una proxy (non è HIRO). HIRO usa dati proprietari (flussi/hedging stimato). Qui stiamo inferendo un segnale con le info disponibili (prezzo + gamma flip).</p>
+
+                    <p class="mb-2">Grafico “stile HIRO”</p>
+                    <p class="mb-2">Ho aggiunto un grafico nel box “Market Pressure” che mostra nel tempo un punteggio combinato:</p>
+                    <ul class="mb-0">
+                        <li>BUY = +1, SELL = -1 per strumento</li>
+                        <li>score totale = somma (range da -4 a +4)</li>
+                        <li>barre verdi se score ≥ 0, rosse se score &lt; 0</li>
+                    </ul>
+                </div>
+                <div class="modal-footer" style="border-top: 2px solid #415a77;">
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Chiudi</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         let selectedFile = null;
         let isAnalyzing = false;
