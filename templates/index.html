@@ -1168,7 +1168,7 @@
                         esLivePrice.textContent = `${price.toFixed(2)}`;
                     }
                     if (esLiveTime) {
-                        esLiveTime.textContent = when || '--';
+                        esLiveTime.textContent = (when || '--') + note;
                     }
 
                     updateEsNearSignals();
@@ -1813,14 +1813,24 @@
                 const data = await response.json();
 
                 if (data.error) {
-                    throw new Error(data.error);
+                    let details = '';
+                    if (Array.isArray(data.extraction_attempts) && data.extraction_attempts.length > 0) {
+                        const lines = data.extraction_attempts
+                            .map(a => `${a.label}: ${a.rows} rows (${a.seconds}s)`)
+                            .join('<br>');
+                        const pym = (data.pymupdf_available === false) ? 'no' : 'yes';
+                        details = `<div class="mt-2 small text-muted">PyMuPDF: ${pym}<br>${lines}</div>`;
+                    }
+                    errorMsg.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.error + details;
+                    errorMsg.style.display = 'block';
+                    return;
                 }
 
                 displayResults(data);
                 results.style.display = 'block';
 
             } catch (error) {
-                errorMsg.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + error.message;
+                errorMsg.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + (error && error.message ? error.message : String(error));
                 errorMsg.style.display = 'block';
             } finally {
                 loading.style.display = 'none';

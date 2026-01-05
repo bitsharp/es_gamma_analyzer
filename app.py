@@ -16,6 +16,16 @@ import pdfplumber
 import pandas as pd
 from werkzeug.utils import secure_filename
 import re
+import importlib.util
+import sys
+
+_PYMUPDF_AVAILABLE = importlib.util.find_spec("fitz") is not None
+_RUNTIME_PYTHON = sys.executable
+_IN_VENV = getattr(sys, "base_prefix", sys.prefix) != sys.prefix
+try:
+    _APP_BUILD = int(os.path.getmtime(__file__))
+except Exception:
+    _APP_BUILD = None
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
@@ -155,7 +165,10 @@ def _parse_pdf_number(value: object) -> float:
 
 
 def _fetch_stooq_latest_close(symbol: str) -> Optional[Dict[str, Any]]:
-    """Fetches the latest close for a symbol from Stooq (no API key).
+    """Fetches the latest Stooq CSV row for a symbol (no API key).
+
+    Note: Stooq exposes OHLCV fields; the app uses the `Close` column as the
+    latest available quote. This is commonly delayed/indicative (not CME real-time).
 
     Returns a dict with keys: symbol, price, date, time, source.
     """
@@ -842,12 +855,19 @@ def get_es_price_cached(max_age_seconds: int = 5) -> Optional[Dict[str, Any]]:
         return None
 
     data["instrument"] = "ES Futures"
+    data["note"] = "Stooq es.f (continuous); quote may be delayed"
     _ES_PRICE_CACHE["value"] = data
     _ES_PRICE_CACHE["fetched_at"] = now
     return data
 
 def extract_0dte_data(pdf_path: str) -> pd.DataFrame:
     """Estrae solo i dati 0DTE dal PDF Open Interest Matrix."""
+
+    # Fast/robust path: coordinate-based extraction via PyMuPDF.
+    # Some PDFs cause pdfplumber table detection to be very slow or incomplete.
+    df = _extract_dte_pair_data_pymupdf(pdf_path, target_days=0)
+    if isinstance(df, pd.DataFrame) and not df.empty:
+        return df
 
     return _extract_dte_days_data(pdf_path, target_days=0)
 
@@ -857,6 +877,10 @@ def extract_1dte_data(pdf_path: str) -> pd.DataFrame:
 
     Molti PDF hanno struttura: Strike | None | Call_0DTE | Put_0DTE | Call_1DTE | Put_1DTE | ...
     """
+
+    df = _extract_dte_pair_data_pymupdf(pdf_path, target_days=1)
+    if isinstance(df, pd.DataFrame) and not df.empty:
+        return df
 
     return _extract_dte_days_data(pdf_path, target_days=1)
 
@@ -1732,6 +1756,18 @@ def es_price():
     return jsonify(data)
 
 
+@app.route('/api/health', methods=['GET'], endpoint='api_health')
+def api_health():
+    return jsonify({
+        "status": "ok",
+        "pymupdf_available": bool(_PYMUPDF_AVAILABLE),
+        "app_build": _APP_BUILD,
+        "python": _RUNTIME_PYTHON,
+        "in_venv": bool(_IN_VENV),
+        "virtual_env": os.getenv("VIRTUAL_ENV"),
+    })
+
+
 @app.route('/api/nvda-snapshot', methods=['GET'])
 def nvda_snapshot():
     data = get_nvda_snapshot_cached()
@@ -1795,18 +1831,50 @@ def analyze():
         current_price = float(current_price) if current_price else None
         
         # Estrai dati: preferisci 0DTE, fallback a 1DTE; se 1DTE manca, prova la scadenza positiva più vicina.
-        df = extract_0dte_data(filepath)
+        # Track attempts to make failures diagnosable in the UI.
+        extraction_attempts = []
+
+        def _attempt(label: str, fn):
+            t0 = time.time()
+            out = fn()
+            dt = round(time.time() - t0, 2)
+            rows = int(len(out)) if isinstance(out, pd.DataFrame) else 0
+            extraction_attempts.append({"label": label, "rows": rows, "seconds": dt})
+            return out if isinstance(out, pd.DataFrame) else pd.DataFrame()
+
+        df = _attempt(
+            "0DTE-pymupdf",
+            lambda: _extract_dte_pair_data_pymupdf(filepath, target_days=0) if _PYMUPDF_AVAILABLE else pd.DataFrame(),
+        )
         if df.empty:
-            df = extract_1dte_data(filepath)
+            df = _attempt("0DTE-pdfplumber", lambda: _extract_dte_days_data(filepath, target_days=0))
         if df.empty:
-            df = extract_nearest_positive_dte_data(filepath)
+            df = _attempt(
+                "1DTE-pymupdf",
+                lambda: _extract_dte_pair_data_pymupdf(filepath, target_days=1) if _PYMUPDF_AVAILABLE else pd.DataFrame(),
+            )
+        if df.empty:
+            df = _attempt("1DTE-pdfplumber", lambda: _extract_dte_days_data(filepath, target_days=1))
+        if df.empty:
+            df = _attempt("nearest-positive-dte", lambda: extract_nearest_positive_dte_data(filepath))
 
         # Analizza
         results = analyze_0dte(df, current_price)
 
+        # Attach extraction details to help explain "no data" situations.
+        if isinstance(results, dict):
+            results.setdefault('extraction_attempts', extraction_attempts)
+            results.setdefault('pymupdf_available', _PYMUPDF_AVAILABLE)
+            results.setdefault('python', _RUNTIME_PYTHON)
+            results.setdefault('in_venv', bool(_IN_VENV))
+
         # Messaggio più chiaro se manca sia 0DTE che 1DTE
         if isinstance(results, dict) and results.get('error') == 'Nessun dato 0DTE trovato':
-            results['error'] = 'Nessun dato 0DTE trovato; ho provato anche 1DTE (e la scadenza positiva più vicina) senza successo'
+            base = 'Nessun dato 0DTE trovato; ho provato anche 1DTE (e la scadenza positiva più vicina) senza successo'
+            if not _PYMUPDF_AVAILABLE:
+                base += ' (nota: PyMuPDF/fitz non disponibile; avvia l\'app nel tuo .venv o installa le dipendenze)'
+                base += f" [python={_RUNTIME_PYTHON}]"
+            results['error'] = base
         
         # Rimuovi il file temporaneo
         os.remove(filepath)
