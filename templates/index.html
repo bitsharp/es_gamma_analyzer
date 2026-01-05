@@ -307,6 +307,14 @@
             color: #f8f9fa;
         }
 
+        .pressure-buy {
+            border-color: rgba(45, 212, 191, 0.85) !important;
+        }
+
+        .pressure-sell {
+            border-color: rgba(251, 113, 133, 0.85) !important;
+        }
+
         .price-box * {
             color: #f8f9fa !important;
         }
@@ -575,32 +583,68 @@
                                 </div>
 
                                 <div class="row g-2">
-                                    <div class="col-6 col-lg-3">
-                                        <div class="price-box text-start">
+                                    <div class="col-6 col-lg-4">
+                                        <div class="price-box text-start" id="pressureEsBox">
                                             <div class="box-label">ES</div>
                                             <div class="fw-bold" id="pressureEsValue">--</div>
                                             <div class="box-sub" id="pressureEsMeta">--</div>
                                         </div>
                                     </div>
-                                    <div class="col-6 col-lg-3">
-                                        <div class="price-box text-start">
+                                    <div class="col-6 col-lg-4">
+                                        <div class="price-box text-start" id="pressureSpxBox">
                                             <div class="box-label">SPX</div>
                                             <div class="fw-bold" id="pressureSpxValue">--</div>
                                             <div class="box-sub" id="pressureSpxMeta">--</div>
                                         </div>
                                     </div>
-                                    <div class="col-6 col-lg-3">
-                                        <div class="price-box text-start">
+                                    <div class="col-6 col-lg-4">
+                                        <div class="price-box text-start" id="pressureSpyBox">
                                             <div class="box-label">SPY</div>
                                             <div class="fw-bold" id="pressureSpyValue">--</div>
                                             <div class="box-sub" id="pressureSpyMeta">--</div>
                                         </div>
                                     </div>
-                                    <div class="col-6 col-lg-3">
-                                        <div class="price-box text-start">
+                                    <div class="col-6 col-lg-4">
+                                        <div class="price-box text-start" id="pressureXspBox">
                                             <div class="box-label">XSP</div>
                                             <div class="fw-bold" id="pressureXspValue">--</div>
                                             <div class="box-sub" id="pressureXspMeta">--</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-6 col-lg-4">
+                                        <div class="price-box text-start" id="pressureNvdaBox">
+                                            <div class="box-label">NVDA</div>
+                                            <div class="fw-bold" id="pressureNvdaValue">--</div>
+                                            <div class="box-sub" id="pressureNvdaMeta">--</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-lg-4">
+                                        <div class="price-box text-start" id="pressureMsftBox">
+                                            <div class="box-label">MSFT</div>
+                                            <div class="fw-bold" id="pressureMsftValue">--</div>
+                                            <div class="box-sub" id="pressureMsftMeta">--</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-lg-4">
+                                        <div class="price-box text-start" id="pressureAaplBox">
+                                            <div class="box-label">AAPL</div>
+                                            <div class="fw-bold" id="pressureAaplValue">--</div>
+                                            <div class="box-sub" id="pressureAaplMeta">--</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-lg-4">
+                                        <div class="price-box text-start" id="pressureGoogBox">
+                                            <div class="box-label">GOOG</div>
+                                            <div class="fw-bold" id="pressureGoogValue">--</div>
+                                            <div class="box-sub" id="pressureGoogMeta">--</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-lg-4">
+                                        <div class="price-box text-start" id="pressureAmznBox">
+                                            <div class="box-label">AMZN</div>
+                                            <div class="fw-bold" id="pressureAmznValue">--</div>
+                                            <div class="box-sub" id="pressureAmznMeta">--</div>
                                         </div>
                                     </div>
                                 </div>
@@ -802,6 +846,8 @@
         let nvdaLoadPromise = null;
         let nvdaPollIntervalId = null;
         let latestNvdaPrice = null;
+        let latestNvdaGammaFlip = null;
+        let prevNvdaPrice = null;
         let spyLoadPromise = null;
         let spyPollIntervalId = null;
         let latestSpyPrice = null;
@@ -810,6 +856,8 @@
         let msftLoadPromise = null;
         let msftPollIntervalId = null;
         let latestMsftPrice = null;
+        let latestMsftGammaFlip = null;
+        let prevMsftPrice = null;
         let spxLoadPromise = null;
         let spxPollIntervalId = null;
         let latestSpxPrice = null;
@@ -820,6 +868,24 @@
         let latestXspPrice = null;
         let latestXspGammaFlip = null;
         let prevXspPrice = null;
+
+        let aaplLoadPromise = null;
+        let aaplPollIntervalId = null;
+        let latestAaplPrice = null;
+        let latestAaplGammaFlip = null;
+        let prevAaplPrice = null;
+
+        let googLoadPromise = null;
+        let googPollIntervalId = null;
+        let latestGoogPrice = null;
+        let latestGoogGammaFlip = null;
+        let prevGoogPrice = null;
+
+        let amznLoadPromise = null;
+        let amznPollIntervalId = null;
+        let latestAmznPrice = null;
+        let latestAmznGammaFlip = null;
+        let prevAmznPrice = null;
         
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
@@ -840,12 +906,32 @@
         const nvdaResistancesNote = document.getElementById('nvdaResistancesNote');
         const pressureEsValue = document.getElementById('pressureEsValue');
         const pressureEsMeta = document.getElementById('pressureEsMeta');
+        const pressureEsBox = document.getElementById('pressureEsBox');
         const pressureSpxValue = document.getElementById('pressureSpxValue');
         const pressureSpxMeta = document.getElementById('pressureSpxMeta');
+        const pressureSpxBox = document.getElementById('pressureSpxBox');
         const pressureSpyValue = document.getElementById('pressureSpyValue');
         const pressureSpyMeta = document.getElementById('pressureSpyMeta');
+        const pressureSpyBox = document.getElementById('pressureSpyBox');
         const pressureXspValue = document.getElementById('pressureXspValue');
         const pressureXspMeta = document.getElementById('pressureXspMeta');
+        const pressureXspBox = document.getElementById('pressureXspBox');
+
+        const pressureNvdaValue = document.getElementById('pressureNvdaValue');
+        const pressureNvdaMeta = document.getElementById('pressureNvdaMeta');
+        const pressureNvdaBox = document.getElementById('pressureNvdaBox');
+        const pressureMsftValue = document.getElementById('pressureMsftValue');
+        const pressureMsftMeta = document.getElementById('pressureMsftMeta');
+        const pressureMsftBox = document.getElementById('pressureMsftBox');
+        const pressureAaplValue = document.getElementById('pressureAaplValue');
+        const pressureAaplMeta = document.getElementById('pressureAaplMeta');
+        const pressureAaplBox = document.getElementById('pressureAaplBox');
+        const pressureGoogValue = document.getElementById('pressureGoogValue');
+        const pressureGoogMeta = document.getElementById('pressureGoogMeta');
+        const pressureGoogBox = document.getElementById('pressureGoogBox');
+        const pressureAmznValue = document.getElementById('pressureAmznValue');
+        const pressureAmznMeta = document.getElementById('pressureAmznMeta');
+        const pressureAmznBox = document.getElementById('pressureAmznBox');
         const overallPressureValue = document.getElementById('overallPressureValue');
         const overallPressureTime = document.getElementById('overallPressureTime');
 
@@ -911,7 +997,7 @@
                 // Fallback color (individual bars override via data.color)
                 color: 'rgba(45, 212, 191, 0.85)',
                 autoscaleInfoProvider: () => ({
-                    priceRange: { minValue: -4, maxValue: 4 },
+                    priceRange: { minValue: -9, maxValue: 9 },
                 }),
             });
 
@@ -986,6 +1072,13 @@
             }
         }
 
+        function _setPressureBorder(boxEl, side) {
+            if (!boxEl) return;
+            boxEl.classList.remove('pressure-buy', 'pressure-sell');
+            if (side === 'BUY') boxEl.classList.add('pressure-buy');
+            if (side === 'SELL') boxEl.classList.add('pressure-sell');
+        }
+
         function _computeInstrumentPressure({ price, gammaFlip, prevPrice }) {
             const p = Number(price);
             const prev = Number(prevPrice);
@@ -1006,20 +1099,49 @@
             const spx = _computeInstrumentPressure({ price: latestSpxPrice, gammaFlip: latestSpxGammaFlip, prevPrice: prevSpxPrice });
             const spy = _computeInstrumentPressure({ price: latestSpyPrice, gammaFlip: latestSpyGammaFlip, prevPrice: prevSpyPrice });
             const xsp = _computeInstrumentPressure({ price: latestXspPrice, gammaFlip: latestXspGammaFlip, prevPrice: prevXspPrice });
+            const nvda = _computeInstrumentPressure({ price: latestNvdaPrice, gammaFlip: latestNvdaGammaFlip, prevPrice: prevNvdaPrice });
+            const msft = _computeInstrumentPressure({ price: latestMsftPrice, gammaFlip: latestMsftGammaFlip, prevPrice: prevMsftPrice });
+            const aapl = _computeInstrumentPressure({ price: latestAaplPrice, gammaFlip: latestAaplGammaFlip, prevPrice: prevAaplPrice });
+            const goog = _computeInstrumentPressure({ price: latestGoogPrice, gammaFlip: latestGoogGammaFlip, prevPrice: prevGoogPrice });
+            const amzn = _computeInstrumentPressure({ price: latestAmznPrice, gammaFlip: latestAmznGammaFlip, prevPrice: prevAmznPrice });
 
             _setPressureText(pressureEsValue, es.side);
             if (pressureEsMeta) pressureEsMeta.textContent = _formatPressureMeta(latestEsPrice, latestEsGammaFlip);
+            _setPressureBorder(pressureEsBox, es.side);
 
             _setPressureText(pressureSpxValue, spx.side);
             if (pressureSpxMeta) pressureSpxMeta.textContent = _formatPressureMeta(latestSpxPrice, latestSpxGammaFlip);
+            _setPressureBorder(pressureSpxBox, spx.side);
 
             _setPressureText(pressureSpyValue, spy.side);
             if (pressureSpyMeta) pressureSpyMeta.textContent = _formatPressureMeta(latestSpyPrice, latestSpyGammaFlip);
+            _setPressureBorder(pressureSpyBox, spy.side);
 
             _setPressureText(pressureXspValue, xsp.side);
             if (pressureXspMeta) pressureXspMeta.textContent = _formatPressureMeta(latestXspPrice, latestXspGammaFlip);
+            _setPressureBorder(pressureXspBox, xsp.side);
 
-            const sides = [es.side, spx.side, spy.side, xsp.side].filter(Boolean);
+            _setPressureText(pressureNvdaValue, nvda.side);
+            if (pressureNvdaMeta) pressureNvdaMeta.textContent = _formatPressureMeta(latestNvdaPrice, latestNvdaGammaFlip);
+            _setPressureBorder(pressureNvdaBox, nvda.side);
+
+            _setPressureText(pressureMsftValue, msft.side);
+            if (pressureMsftMeta) pressureMsftMeta.textContent = _formatPressureMeta(latestMsftPrice, latestMsftGammaFlip);
+            _setPressureBorder(pressureMsftBox, msft.side);
+
+            _setPressureText(pressureAaplValue, aapl.side);
+            if (pressureAaplMeta) pressureAaplMeta.textContent = _formatPressureMeta(latestAaplPrice, latestAaplGammaFlip);
+            _setPressureBorder(pressureAaplBox, aapl.side);
+
+            _setPressureText(pressureGoogValue, goog.side);
+            if (pressureGoogMeta) pressureGoogMeta.textContent = _formatPressureMeta(latestGoogPrice, latestGoogGammaFlip);
+            _setPressureBorder(pressureGoogBox, goog.side);
+
+            _setPressureText(pressureAmznValue, amzn.side);
+            if (pressureAmznMeta) pressureAmznMeta.textContent = _formatPressureMeta(latestAmznPrice, latestAmznGammaFlip);
+            _setPressureBorder(pressureAmznBox, amzn.side);
+
+            const sides = [es.side, spx.side, spy.side, xsp.side, nvda.side, msft.side, aapl.side, goog.side, amzn.side].filter(Boolean);
             let buyCount = 0;
             let sellCount = 0;
             sides.forEach(s => {
@@ -1037,7 +1159,7 @@
             // Chart: combined score across instruments (-4..+4)
             if (pressureSeries) {
                 const scoreFor = (side) => (side === 'BUY' ? 1 : (side === 'SELL' ? -1 : 0));
-                const score = scoreFor(es.side) + scoreFor(spx.side) + scoreFor(spy.side) + scoreFor(xsp.side);
+                const score = scoreFor(es.side) + scoreFor(spx.side) + scoreFor(spy.side) + scoreFor(xsp.side) + scoreFor(nvda.side) + scoreFor(msft.side) + scoreFor(aapl.side) + scoreFor(goog.side) + scoreFor(amzn.side);
                 const ts = Math.floor(Date.now() / 1000);
 
                 // IMPORTANT: LightweightCharts expects strictly increasing times.
@@ -1372,7 +1494,13 @@
                     const gammaFlip = Number(data.gamma_flip);
                     const when = (data.time || '').toString();
 
-                    latestNvdaPrice = Number.isFinite(price) ? price : null;
+                    if (Number.isFinite(price)) {
+                        if (latestNvdaPrice != null) prevNvdaPrice = latestNvdaPrice;
+                        latestNvdaPrice = price;
+                    } else {
+                        latestNvdaPrice = null;
+                    }
+                    latestNvdaGammaFlip = Number.isFinite(gammaFlip) ? gammaFlip : null;
 
                     if (nvdaLivePrice) {
                         nvdaLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
@@ -1386,6 +1514,7 @@
 
                     displayNvdaKeyLevels(data);
                     updateNvdaNearSignals();
+                    updatePressureUI();
 
                     return data;
                 } catch (e) {
@@ -1393,8 +1522,10 @@
                     if (nvdaLiveTime) nvdaLiveTime.textContent = '--';
                     if (nvdaGammaFlipTop) nvdaGammaFlipTop.textContent = '--';
                     latestNvdaPrice = null;
+                    latestNvdaGammaFlip = null;
                     displayNvdaKeyLevels(null);
                     updateNvdaNearSignals();
+                    updatePressureUI();
                     return null;
                 }
             })();
@@ -1456,7 +1587,13 @@
                     const gammaFlip = Number(data.gamma_flip);
                     const when = (data.time || '').toString();
 
-                    latestMsftPrice = Number.isFinite(price) ? price : null;
+                    if (Number.isFinite(price)) {
+                        if (latestMsftPrice != null) prevMsftPrice = latestMsftPrice;
+                        latestMsftPrice = price;
+                    } else {
+                        latestMsftPrice = null;
+                    }
+                    latestMsftGammaFlip = Number.isFinite(gammaFlip) ? gammaFlip : null;
 
                     if (msftLivePrice) {
                         msftLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
@@ -1470,6 +1607,7 @@
 
                     displayMsftKeyLevels(data);
                     updateMsftNearSignals();
+                    updatePressureUI();
 
                     return data;
                 } catch (e) {
@@ -1477,8 +1615,10 @@
                     if (msftLiveTime) msftLiveTime.textContent = '--';
                     if (msftGammaFlipTop) msftGammaFlipTop.textContent = '--';
                     latestMsftPrice = null;
+                    latestMsftGammaFlip = null;
                     displayMsftKeyLevels(null);
                     updateMsftNearSignals();
+                    updatePressureUI();
                     return null;
                 }
             })();
@@ -1887,6 +2027,156 @@
             updateMsftNearSignals();
         }
 
+        async function loadAaplSnapshot() {
+            if (aaplLoadPromise) return aaplLoadPromise;
+
+            aaplLoadPromise = (async () => {
+                try {
+                    const response = await fetch('/api/aapl-snapshot');
+                    const data = await response.json();
+                    if (!response.ok || data.error) throw new Error(data.error || 'AAPL fetch failed');
+
+                    const price = Number(data.price);
+                    const gammaFlip = Number(data.gamma_flip);
+
+                    if (Number.isFinite(price)) {
+                        if (latestAaplPrice != null) prevAaplPrice = latestAaplPrice;
+                        latestAaplPrice = price;
+                    } else {
+                        latestAaplPrice = null;
+                    }
+                    latestAaplGammaFlip = Number.isFinite(gammaFlip) ? gammaFlip : null;
+
+                    updatePressureUI();
+                    return data;
+                } catch (e) {
+                    latestAaplPrice = null;
+                    latestAaplGammaFlip = null;
+                    updatePressureUI();
+                    return null;
+                }
+            })();
+
+            return aaplLoadPromise;
+        }
+
+        async function refreshAaplSnapshot() {
+            aaplLoadPromise = null;
+            return loadAaplSnapshot();
+        }
+
+        function startAaplPolling() {
+            if (aaplPollIntervalId) return;
+            refreshAaplSnapshot();
+            aaplPollIntervalId = setInterval(refreshAaplSnapshot, 60000);
+        }
+
+        function stopAaplPolling() {
+            if (!aaplPollIntervalId) return;
+            clearInterval(aaplPollIntervalId);
+            aaplPollIntervalId = null;
+        }
+
+        async function loadGoogSnapshot() {
+            if (googLoadPromise) return googLoadPromise;
+
+            googLoadPromise = (async () => {
+                try {
+                    const response = await fetch('/api/goog-snapshot');
+                    const data = await response.json();
+                    if (!response.ok || data.error) throw new Error(data.error || 'GOOG fetch failed');
+
+                    const price = Number(data.price);
+                    const gammaFlip = Number(data.gamma_flip);
+
+                    if (Number.isFinite(price)) {
+                        if (latestGoogPrice != null) prevGoogPrice = latestGoogPrice;
+                        latestGoogPrice = price;
+                    } else {
+                        latestGoogPrice = null;
+                    }
+                    latestGoogGammaFlip = Number.isFinite(gammaFlip) ? gammaFlip : null;
+
+                    updatePressureUI();
+                    return data;
+                } catch (e) {
+                    latestGoogPrice = null;
+                    latestGoogGammaFlip = null;
+                    updatePressureUI();
+                    return null;
+                }
+            })();
+
+            return googLoadPromise;
+        }
+
+        async function refreshGoogSnapshot() {
+            googLoadPromise = null;
+            return loadGoogSnapshot();
+        }
+
+        function startGoogPolling() {
+            if (googPollIntervalId) return;
+            refreshGoogSnapshot();
+            googPollIntervalId = setInterval(refreshGoogSnapshot, 60000);
+        }
+
+        function stopGoogPolling() {
+            if (!googPollIntervalId) return;
+            clearInterval(googPollIntervalId);
+            googPollIntervalId = null;
+        }
+
+        async function loadAmznSnapshot() {
+            if (amznLoadPromise) return amznLoadPromise;
+
+            amznLoadPromise = (async () => {
+                try {
+                    const response = await fetch('/api/amzn-snapshot');
+                    const data = await response.json();
+                    if (!response.ok || data.error) throw new Error(data.error || 'AMZN fetch failed');
+
+                    const price = Number(data.price);
+                    const gammaFlip = Number(data.gamma_flip);
+
+                    if (Number.isFinite(price)) {
+                        if (latestAmznPrice != null) prevAmznPrice = latestAmznPrice;
+                        latestAmznPrice = price;
+                    } else {
+                        latestAmznPrice = null;
+                    }
+                    latestAmznGammaFlip = Number.isFinite(gammaFlip) ? gammaFlip : null;
+
+                    updatePressureUI();
+                    return data;
+                } catch (e) {
+                    latestAmznPrice = null;
+                    latestAmznGammaFlip = null;
+                    updatePressureUI();
+                    return null;
+                }
+            })();
+
+            return amznLoadPromise;
+        }
+
+        async function refreshAmznSnapshot() {
+            amznLoadPromise = null;
+            return loadAmznSnapshot();
+        }
+
+        function startAmznPolling() {
+            if (amznPollIntervalId) return;
+            refreshAmznSnapshot();
+            amznPollIntervalId = setInterval(refreshAmznSnapshot, 60000);
+        }
+
+        function stopAmznPolling() {
+            if (!amznPollIntervalId) return;
+            clearInterval(amznPollIntervalId);
+            amznPollIntervalId = null;
+        }
+
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
                 stopEsPricePolling();
@@ -1895,6 +2185,9 @@
                 stopMsftPolling();
                 stopSpxPolling();
                 stopXspPolling();
+                stopAaplPolling();
+                stopGoogPolling();
+                stopAmznPolling();
             } else {
                 startEsPricePolling();
                 startNvdaPolling();
@@ -1902,6 +2195,9 @@
                 startMsftPolling();
                 startSpxPolling();
                 startXspPolling();
+                startAaplPolling();
+                startGoogPolling();
+                startAmznPolling();
             }
         });
 
@@ -1912,6 +2208,9 @@
         startSpyPolling();
         startXspPolling();
         startMsftPolling();
+        startAaplPolling();
+        startGoogPolling();
+        startAmznPolling();
 
         async function runAnalysis() {
             if (!selectedFile || isAnalyzing) return;
