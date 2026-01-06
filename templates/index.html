@@ -30,6 +30,68 @@
             border: 2px solid #415a77;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
+
+        /* Compact top upload/regime section */
+        .upload-card .card-body {
+            padding: 0.5rem;
+        }
+
+        .upload-card .upload-area {
+            padding: 0.5rem !important;
+            border-radius: 10px;
+        }
+
+        .upload-card .upload-area .bi {
+            font-size: 1.5rem !important;
+        }
+
+        .upload-card .btn.btn-primary {
+            padding: 0.2rem 0.6rem;
+            font-size: 0.85rem;
+        }
+
+        .upload-card #regimeCard .card-header {
+            padding: 0.35rem 0.75rem;
+            font-size: 0.9rem;
+        }
+
+        .upload-card #regimeCard .card-body {
+            padding: 0.35rem 0.6rem;
+        }
+
+        .upload-card #regimeCard .alert {
+            padding: 0.4rem 0.6rem;
+        }
+
+        /* Compact Market Pressure panel to free space for chart */
+        #pressureCard .card-body {
+            padding: 0.6rem;
+        }
+
+        #pressureCard .price-box {
+            padding: 0.45rem 0.65rem;
+            border-radius: 10px;
+        }
+
+        #pressureCard .box-label {
+            font-size: 0.8rem;
+            line-height: 1.1;
+            margin-bottom: 0.1rem;
+        }
+
+        #pressureCard .fw-bold {
+            font-size: 1.15rem;
+            line-height: 1.05;
+        }
+
+        #pressureCard .box-sub {
+            font-size: 0.75rem;
+            line-height: 1.1;
+        }
+
+        #pressureCard #overallPressureValue {
+            font-size: 1.35rem;
+        }
         
         .upload-area {
             border: 2px dashed #778da9;
@@ -458,16 +520,16 @@
     
     <div class="container-fluid px-2 px-lg-3">
         <!-- Upload Section -->
-        <div class="card upload-card mb-4">
+        <div class="card upload-card mb-2">
             <div class="card-body">
                 <div class="row align-items-center">
                     <div class="col-md-5">
-                        <div class="upload-area" id="uploadArea" style="padding: 1.5rem; cursor: pointer;">
+                        <div class="upload-area" id="uploadArea" style="cursor: pointer;">
                             <div class="d-flex align-items-center">
-                                <i class="bi bi-file-earmark-pdf me-3" style="font-size: 2.5rem; color: #778da9;"></i>
+                                <i class="bi bi-file-earmark-pdf me-3" style="color: #778da9;"></i>
                                 <div>
-                                    <h6 class="mb-1">Upload PDF</h6>
-                                    <p class="text-muted small mb-0">Click or drag and drop</p>
+                                    <div class="fw-semibold small mb-0">Upload PDF</div>
+                                    <div class="text-muted small mb-0">Click or drag and drop</div>
                                 </div>
                             </div>
                             <input type="file" id="fileInput" accept=".pdf" style="display: none;">
@@ -475,19 +537,19 @@
                     </div>
                     
                     <div class="col-md-7 text-md-end text-start mt-3 mt-md-0">
-                        <button class="btn btn-primary px-4" id="analyzeBtn" disabled>
+                        <button class="btn btn-primary btn-sm" id="analyzeBtn" disabled>
                             <i class="bi bi-graph-up me-2"></i>Analyze
                         </button>
 
-                        <div class="mt-3 text-start">
+                        <div class="mt-2 text-start">
                             <div class="card" id="regimeCard" style="display: none;">
                                 <div class="card-header">
                                     <i class="bi bi-graph-up me-2"></i>Market Regime
                                 </div>
                                 <div class="card-body">
                                     <div class="alert alert-warning mb-0" style="background: rgba(234, 179, 8, 0.1); border-left: 4px solid #eab308;">
-                                        <h6 class="mb-2" id="regimeType">-</h6>
-                                        <p class="mb-0" id="regimeStrategy">-</p>
+                                        <div class="fw-semibold small mb-1" id="regimeType">-</div>
+                                        <div class="small" id="regimeStrategy">-</div>
                                     </div>
                                 </div>
                             </div>
@@ -497,7 +559,7 @@
                 
                 <div class="alert alert-danger mt-3" id="errorMsg" style="display: none;"></div>
                 
-                <div class="text-center mt-4" id="loading" style="display: none;">
+                <div class="text-center mt-2" id="loading" style="display: none;">
                     <div class="spinner-border" role="status">
                         <span class="visually-hidden">Loading...</span>
                     </div>
@@ -574,7 +636,7 @@
                                 </div>
                             </div>
                             <div class="card-body">
-                                <div class="row g-2 mb-3">
+                                <div class="row g-2 mb-2">
                                     <div class="col-12">
                                         <div class="price-box text-start" id="overallPressureBox">
                                             <div class="box-label">Overall</div>
@@ -651,7 +713,7 @@
                                     </div>
                                 </div>
 
-                                <div class="mt-3">
+                                <div class="mt-2">
                                     <div class="d-flex align-items-center justify-content-between mb-2">
                                         <div class="text-muted small">Combined pressure (BUY=+1 / SELL=-1 per instrument)</div>
                                         <button type="button" class="btn btn-sm btn-outline-light" id="pressureChartResetBtn" aria-label="Reset chart view">
