@@ -559,8 +559,35 @@
 <body>
     <nav class="navbar mb-4">
         <div class="container-fluid px-2 px-lg-3">
-            <span class="navbar-brand">ES Gamma Analyzer</span>
-            <span class="text-muted">0DTE Analysis</span>
+            <div class="d-flex align-items-center justify-content-between w-100">
+                <span class="navbar-brand">ES Gamma Analyzer</span>
+
+                <div class="d-flex align-items-center gap-3">
+                    <span class="text-muted">0DTE Analysis</span>
+
+                    {% set user = session.get('user') %}
+                    {% if user %}
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                {{ user.get('name') or user.get('email') or 'Account' }}
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" style="background: #1b263b; border: 2px solid #415a77;">
+                                {% if user.get('email') %}
+                                    <li>
+                                        <span class="dropdown-item-text" style="color:#adb5bd;">
+                                            {{ user.get('email') }}
+                                        </span>
+                                    </li>
+                                    <li><hr class="dropdown-divider" style="border-color:#415a77;"></li>
+                                {% endif %}
+                                <li><a class="dropdown-item" href="/admin" style="color:#f8f9fa;">Admin</a></li>
+                                <li><hr class="dropdown-divider" style="border-color:#415a77;"></li>
+                                <li><a class="dropdown-item" href="/logout" style="color:#f8f9fa;">Logout</a></li>
+                            </ul>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
         </div>
     </nav>
     

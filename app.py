@@ -20,6 +20,7 @@ import re
 import importlib.util
 import sys
 from functools import wraps
+import uuid
 
 try:
     from authlib.integrations.flask_client import OAuth
@@ -117,6 +118,29 @@ def _is_authenticated() -> bool:
     return bool(session.get('user'))
 
 
+def _is_admin() -> bool:
+    """Return True if the current user can access admin pages.
+
+    If ADMIN_EMAILS is set (comma-separated list), only those emails are allowed.
+    If not set, any authenticated user is allowed (useful for single-user deployments).
+    """
+
+    if not _is_authenticated():
+        return False
+
+    admin_emails_raw = (os.getenv('ADMIN_EMAILS') or '').strip()
+    # On Vercel, require an explicit allowlist.
+    if os.getenv('VERCEL') and not admin_emails_raw:
+        return False
+    if not admin_emails_raw:
+        return True
+
+    allowed = {e.strip().lower() for e in admin_emails_raw.split(',') if e.strip()}
+    user = session.get('user') or {}
+    email = (user.get('email') if isinstance(user, dict) else None) or ''
+    return email.strip().lower() in allowed
+
+
 def _wants_json() -> bool:
     accept = (request.headers.get('Accept') or '').lower()
     return request.path.startswith('/api/') or request.path == '/analyze' or 'application/json' in accept
@@ -162,6 +186,7 @@ def login_required(fn):
 
 _MONGO_CLIENT: Optional["MongoClient"] = None
 _MONGO_COLLECTION = None
+_MONGO_LOGIN_COLLECTION = None
 
 
 def _get_mongo_collection():
@@ -202,6 +227,85 @@ def _get_mongo_collection():
         return _MONGO_COLLECTION
     except Exception:
         return None
+
+
+def _get_mongo_login_collection():
+    """Return Mongo collection for login sessions or None if not configured/available."""
+
+    global _MONGO_CLIENT, _MONGO_LOGIN_COLLECTION
+    if _MONGO_LOGIN_COLLECTION is not None:
+        return _MONGO_LOGIN_COLLECTION
+
+    if MongoClient is None:
+        return None
+
+    uri = (os.getenv("MONGODB_URI") or "").strip()
+    if not uri:
+        return None
+
+    db_name = (os.getenv("MONGODB_DB") or "es_gamma_analyzer").strip()
+    coll_name = (os.getenv("MONGODB_LOGIN_COLLECTION") or "login_sessions").strip()
+
+    try:
+        if _MONGO_CLIENT is None:
+            _MONGO_CLIENT = MongoClient(uri, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+
+        db = _MONGO_CLIENT[db_name]
+        coll = db[coll_name]
+
+        # TTL to avoid unbounded growth (default 90 days). Requires a datetime field.
+        ttl_days = os.getenv("LOGIN_SESSIONS_TTL_DAYS")
+        try:
+            ttl = int(ttl_days) if ttl_days else 90
+            if ttl > 0:
+                coll.create_index("created_at", expireAfterSeconds=60 * 60 * 24 * ttl)
+        except Exception:
+            pass
+
+        # Helpful query indexes
+        try:
+            coll.create_index([("user.email", 1), ("created_at", -1)])
+        except Exception:
+            pass
+        try:
+            coll.create_index([("user.sub", 1), ("created_at", -1)])
+        except Exception:
+            pass
+
+        _MONGO_LOGIN_COLLECTION = coll
+        return _MONGO_LOGIN_COLLECTION
+    except Exception:
+        return None
+
+
+def _log_login_event(event_type: str, user: Optional[dict] = None, extra: Optional[dict] = None) -> None:
+    """Best-effort logging of auth events to MongoDB (no-op if not configured)."""
+
+    coll = _get_mongo_login_collection()
+    if coll is None:
+        return
+
+    try:
+        login_session_id = session.get('login_session_id')
+        if not login_session_id:
+            login_session_id = str(uuid.uuid4())
+            session['login_session_id'] = login_session_id
+
+        doc = {
+            "event": event_type,
+            "login_session_id": login_session_id,
+            "created_at": _dt.datetime.utcnow(),
+            "ts": int(time.time()),
+            "user": (user if isinstance(user, dict) else session.get('user')),
+            "ip": request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr,
+            "user_agent": request.headers.get('User-Agent'),
+        }
+        if extra and isinstance(extra, dict):
+            doc["extra"] = extra
+        coll.insert_one(doc)
+    except Exception:
+        # Never break login/logout due to logging.
+        return
 
 
 def _is_writable_dir(path: str) -> bool:
@@ -2213,6 +2317,8 @@ def auth_callback():
             'picture': (userinfo.get('picture') if isinstance(userinfo, dict) else None),
         }
 
+        _log_login_event('login', user=session.get('user'), extra={"provider": "google"})
+
         next_url = session.pop('next_url', None)
         if next_url and isinstance(next_url, str) and next_url.startswith('/'):
             return redirect(next_url)
@@ -2224,10 +2330,79 @@ def auth_callback():
 @app.route('/logout')
 def logout():
     try:
+        _log_login_event('logout', user=session.get('user'))
+    except Exception:
+        pass
+    try:
         session.clear()
     except Exception:
         pass
     return redirect(url_for('login'))
+
+
+@app.route('/admin')
+@login_required
+def admin_index():
+    if not _is_admin():
+        return jsonify({'error': 'Forbidden'}), 403
+    return redirect(url_for('admin_login_sessions'))
+
+
+@app.route('/admin/login-sessions')
+@login_required
+def admin_login_sessions():
+    if not _is_admin():
+        return jsonify({'error': 'Forbidden'}), 403
+
+    coll = _get_mongo_login_collection()
+    if coll is None:
+        return (
+            render_template(
+                'admin.html',
+                sessions=[],
+                mongo_enabled=False,
+                admin_emails=(os.getenv('ADMIN_EMAILS') or '').strip(),
+            ),
+            200,
+        )
+
+    limit = 200
+    try:
+        docs = list(coll.find({}, sort=[('created_at', -1)], limit=limit))
+    except TypeError:
+        # Some pymongo versions don't accept sort/limit kwargs like this
+        docs = list(coll.find({}).sort('created_at', -1).limit(limit))
+
+    sessions_out = []
+    for d in docs:
+        user = d.get('user') if isinstance(d, dict) else None
+        if not isinstance(user, dict):
+            user = {}
+
+        created_at = d.get('created_at')
+        try:
+            created_at_str = created_at.isoformat() if created_at else None
+        except Exception:
+            created_at_str = None
+
+        sessions_out.append({
+            'event': d.get('event'),
+            'created_at': created_at_str,
+            'login_session_id': d.get('login_session_id'),
+            'email': user.get('email'),
+            'name': user.get('name'),
+            'sub': user.get('sub'),
+            'ip': d.get('ip'),
+            'user_agent': d.get('user_agent'),
+            'provider': (d.get('extra') or {}).get('provider') if isinstance(d.get('extra'), dict) else None,
+        })
+
+    return render_template(
+        'admin.html',
+        sessions=sessions_out,
+        mongo_enabled=True,
+        admin_emails=(os.getenv('ADMIN_EMAILS') or '').strip(),
+    )
 
 
 @app.route('/api/sp500-price', methods=['GET'])
