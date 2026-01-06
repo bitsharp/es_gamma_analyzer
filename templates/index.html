@@ -785,7 +785,15 @@
                     <div class="col-12 col-md-6">
                         <div class="card" id="nvdaKeyLevelsCard">
                             <div class="card-header">
-                                <i class="bi bi-bullseye me-2"></i>NVDA Key Levels <span class="text-muted" id="nvdaExpiryLabel"></span> <span class="text-muted" id="nvdaPcrLabel"></span>
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <i class="bi bi-bullseye me-2"></i>NVDA Key Levels <span class="text-muted" id="nvdaExpiryLabel"></span> <span class="text-muted" id="nvdaPcrLabel"></span>
+                                    </div>
+                                    <div class="form-check form-switch mb-0" style="transform: scale(0.95); transform-origin: right center;">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="nvdaLevelsModeSwitch">
+                                        <label class="form-check-label small text-nowrap" for="nvdaLevelsModeSwitch">Use current price</label>
+                                    </div>
+                                </div>
                             </div>
                             <div class="card-body">
                                 <div class="row g-2 mb-3 price-row">
@@ -811,7 +819,7 @@
                                         <h6 class="text-support mb-3">
                                             <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
                                         </h6>
-                                        <p class="text-muted small">Below gamma flip (highest Put OI)</p>
+                                        <p class="text-muted small" id="nvdaSupportsModeHint">Below gamma flip (highest Put OI)</p>
                                         <div id="nvdaSupportsContainer">
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
@@ -821,7 +829,7 @@
                                         <h6 class="text-resistance mb-3">
                                             <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
                                         </h6>
-                                        <p class="text-muted small">Above gamma flip (highest Call OI)</p>
+                                        <p class="text-muted small" id="nvdaResistancesModeHint">Above gamma flip (highest Call OI)</p>
                                         <div id="nvdaResistancesContainer">
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
@@ -835,7 +843,15 @@
                     <div class="col-12 col-md-6">
                         <div class="card" id="msftKeyLevelsCard">
                             <div class="card-header">
-                                <i class="bi bi-bullseye me-2"></i>MSFT Key Levels <span class="text-muted" id="msftExpiryLabel"></span> <span class="text-muted" id="msftPcrLabel"></span>
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <i class="bi bi-bullseye me-2"></i>MSFT Key Levels <span class="text-muted" id="msftExpiryLabel"></span> <span class="text-muted" id="msftPcrLabel"></span>
+                                    </div>
+                                    <div class="form-check form-switch mb-0" style="transform: scale(0.95); transform-origin: right center;">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="msftLevelsModeSwitch">
+                                        <label class="form-check-label small text-nowrap" for="msftLevelsModeSwitch">Use current price</label>
+                                    </div>
+                                </div>
                             </div>
                             <div class="card-body">
                                 <div class="row g-2 mb-3 price-row">
@@ -861,7 +877,7 @@
                                         <h6 class="text-support mb-3">
                                             <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
                                         </h6>
-                                        <p class="text-muted small">Below gamma flip (highest Put OI)</p>
+                                        <p class="text-muted small" id="msftSupportsModeHint">Below gamma flip (highest Put OI)</p>
                                         <div id="msftSupportsContainer">
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
@@ -871,7 +887,7 @@
                                         <h6 class="text-resistance mb-3">
                                             <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
                                         </h6>
-                                        <p class="text-muted small">Above gamma flip (highest Call OI)</p>
+                                        <p class="text-muted small" id="msftResistancesModeHint">Above gamma flip (highest Call OI)</p>
                                         <div id="msftResistancesContainer">
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
@@ -1021,6 +1037,9 @@
         const nvdaLiveTime = document.getElementById('nvdaLiveTime');
         const nvdaGammaFlipTop = document.getElementById('nvdaGammaFlipTop');
         const nvdaExpiryLabel = document.getElementById('nvdaExpiryLabel');
+        const nvdaLevelsModeSwitch = document.getElementById('nvdaLevelsModeSwitch');
+        const nvdaSupportsModeHint = document.getElementById('nvdaSupportsModeHint');
+        const nvdaResistancesModeHint = document.getElementById('nvdaResistancesModeHint');
         const nvdaSupportsContainer = document.getElementById('nvdaSupportsContainer');
         const nvdaSupportsNote = document.getElementById('nvdaSupportsNote');
         const nvdaResistancesContainer = document.getElementById('nvdaResistancesContainer');
@@ -1078,6 +1097,9 @@
         const msftLiveTime = document.getElementById('msftLiveTime');
         const msftGammaFlipTop = document.getElementById('msftGammaFlipTop');
         const msftExpiryLabel = document.getElementById('msftExpiryLabel');
+        const msftLevelsModeSwitch = document.getElementById('msftLevelsModeSwitch');
+        const msftSupportsModeHint = document.getElementById('msftSupportsModeHint');
+        const msftResistancesModeHint = document.getElementById('msftResistancesModeHint');
         const msftSupportsContainer = document.getElementById('msftSupportsContainer');
         const msftSupportsNote = document.getElementById('msftSupportsNote');
         const msftResistancesContainer = document.getElementById('msftResistancesContainer');
@@ -1142,6 +1164,37 @@
             }
             try { el.removeAttribute('data-bs-title'); } catch (e) {}
             try { el.removeAttribute('data-bs-toggle'); } catch (e) {}
+        }
+
+        function _levelsModeFromSwitch(sw) {
+            return (sw && sw.checked) ? 'price' : 'flip';
+        }
+
+        function _restoreLevelsModeSwitch(sw, storageKey) {
+            if (!sw) return;
+            try {
+                const saved = (localStorage.getItem(storageKey) || 'price').toLowerCase();
+                sw.checked = saved === 'price';
+            } catch (e) {
+                sw.checked = true;
+            }
+        }
+
+        function _persistLevelsModeSwitch(sw, storageKey) {
+            if (!sw) return;
+            try {
+                localStorage.setItem(storageKey, _levelsModeFromSwitch(sw));
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        function _formatLevelTooltip(callOi, putOi, gamma) {
+            const callStr = Number(callOi || 0).toLocaleString();
+            const putStr = Number(putOi || 0).toLocaleString();
+            const k = Number.isFinite(Number(gamma)) ? (Number(gamma) / 1000) : 0;
+            const kStr = `${k >= 0 ? '+' : ''}${k.toFixed(0)}K`;
+            return `Call: ${callStr} | Put: ${putStr}\n${kStr}`;
         }
 
         function ensurePressureChart() {
@@ -1797,7 +1850,8 @@
 
             nvdaLoadPromise = (async () => {
                 try {
-                    const response = await fetch('/api/nvda-snapshot');
+                    const mode = _levelsModeFromSwitch(nvdaLevelsModeSwitch);
+                    const response = await fetch(`/api/nvda-snapshot?levels_mode=${encodeURIComponent(mode)}`);
                     const data = await response.json();
 
                     if (!response.ok || data.error) {
@@ -1890,7 +1944,8 @@
 
             msftLoadPromise = (async () => {
                 try {
-                    const response = await fetch('/api/msft-snapshot');
+                    const mode = _levelsModeFromSwitch(msftLevelsModeSwitch);
+                    const response = await fetch(`/api/msft-snapshot?levels_mode=${encodeURIComponent(mode)}`);
                     const data = await response.json();
 
                     if (!response.ok || data.error) {
@@ -2121,6 +2176,18 @@
 
             setPutCallRatio(nvdaPcrLabel, data.stats);
 
+            const mode = (data && data.levels_mode ? String(data.levels_mode) : _levelsModeFromSwitch(nvdaLevelsModeSwitch)).toLowerCase();
+            if (nvdaSupportsModeHint) {
+                nvdaSupportsModeHint.textContent = mode === 'price'
+                    ? 'Below current price (highest Put OI)'
+                    : 'Below gamma flip (highest Put OI)';
+            }
+            if (nvdaResistancesModeHint) {
+                nvdaResistancesModeHint.textContent = mode === 'price'
+                    ? 'Above current price (highest Call OI)'
+                    : 'Above gamma flip (highest Call OI)';
+            }
+
             const supports = Array.isArray(data.supports) ? data.supports : [];
             const resistances = Array.isArray(data.resistances) ? data.resistances : [];
 
@@ -2129,16 +2196,20 @@
                     nvdaSupportsContainer.innerHTML = supports.map((s, i) => `
                         <div class="level-item support-item ${heatClassForIndex(i)}" data-strike="${Number(s.strike)}">
                             <div class="d-flex justify-content-between align-items-center level-row">
-                                <div>
-                                    <div class="fw-bold text-support fs-5">S${i + 1}  ${Number(s.strike).toFixed(2)}</div>
-                                    <div class="text-muted small">Call: ${Number(s.call_oi).toLocaleString()} | Put: ${Number(s.put_oi).toLocaleString()}</div>
-                                </div>
-                                <div class="fw-bold text-support fs-5 level-metric">+${(Number(s.gamma) / 1000).toFixed(0)}K</div>
+                                <div class="fw-bold text-support">S${i + 1}  ${Number(s.strike).toFixed(2)}</div>
                             </div>
                         </div>
                     `).join('');
+
+                    try {
+                        const items = nvdaSupportsContainer.querySelectorAll('.level-item');
+                        items.forEach((el, idx) => {
+                            const s = supports[idx] || {};
+                            setTooltip(el, _formatLevelTooltip(s.call_oi, s.put_oi, s.gamma));
+                        });
+                    } catch (e) {}
                 } else {
-                    nvdaSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No support below price</p>';
+                    nvdaSupportsContainer.innerHTML = `<p class="text-muted text-center py-3">No support below ${mode === 'price' ? 'price' : 'gamma flip'}</p>`;
                 }
             }
 
@@ -2156,16 +2227,20 @@
                     nvdaResistancesContainer.innerHTML = resistances.map((r, i) => `
                         <div class="level-item resistance-item ${heatClassForIndex(i)}" data-strike="${Number(r.strike)}">
                             <div class="d-flex justify-content-between align-items-center level-row">
-                                <div>
-                                    <div class="fw-bold text-resistance fs-5">R${i + 1}  ${Number(r.strike).toFixed(2)}</div>
-                                    <div class="text-muted small">Call: ${Number(r.call_oi).toLocaleString()} | Put: ${Number(r.put_oi).toLocaleString()}</div>
-                                </div>
-                                <div class="fw-bold text-resistance fs-5 level-metric">${(Number(r.gamma) / 1000).toFixed(0)}K</div>
+                                <div class="fw-bold text-resistance">R${i + 1}  ${Number(r.strike).toFixed(2)}</div>
                             </div>
                         </div>
                     `).join('');
+
+                    try {
+                        const items = nvdaResistancesContainer.querySelectorAll('.level-item');
+                        items.forEach((el, idx) => {
+                            const r = resistances[idx] || {};
+                            setTooltip(el, _formatLevelTooltip(r.call_oi, r.put_oi, r.gamma));
+                        });
+                    } catch (e) {}
                 } else {
-                    nvdaResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No resistance above price</p>';
+                    nvdaResistancesContainer.innerHTML = `<p class="text-muted text-center py-3">No resistance above ${mode === 'price' ? 'price' : 'gamma flip'}</p>`;
                 }
             }
 
@@ -2281,6 +2356,18 @@
 
             setPutCallRatio(msftPcrLabel, data.stats);
 
+            const mode = (data && data.levels_mode ? String(data.levels_mode) : _levelsModeFromSwitch(msftLevelsModeSwitch)).toLowerCase();
+            if (msftSupportsModeHint) {
+                msftSupportsModeHint.textContent = mode === 'price'
+                    ? 'Below current price (highest Put OI)'
+                    : 'Below gamma flip (highest Put OI)';
+            }
+            if (msftResistancesModeHint) {
+                msftResistancesModeHint.textContent = mode === 'price'
+                    ? 'Above current price (highest Call OI)'
+                    : 'Above gamma flip (highest Call OI)';
+            }
+
             const supports = Array.isArray(data.supports) ? data.supports : [];
             const resistances = Array.isArray(data.resistances) ? data.resistances : [];
 
@@ -2289,16 +2376,20 @@
                     msftSupportsContainer.innerHTML = supports.map((s, i) => `
                         <div class="level-item support-item ${heatClassForIndex(i)}" data-strike="${Number(s.strike)}">
                             <div class="d-flex justify-content-between align-items-center level-row">
-                                <div>
-                                    <div class="fw-bold text-support fs-5">S${i + 1}  ${Number(s.strike).toFixed(2)}</div>
-                                    <div class="text-muted small">Call: ${Number(s.call_oi).toLocaleString()} | Put: ${Number(s.put_oi).toLocaleString()}</div>
-                                </div>
-                                <div class="fw-bold text-support fs-5 level-metric">+${(Number(s.gamma) / 1000).toFixed(0)}K</div>
+                                <div class="fw-bold text-support">S${i + 1}  ${Number(s.strike).toFixed(2)}</div>
                             </div>
                         </div>
                     `).join('');
+
+                    try {
+                        const items = msftSupportsContainer.querySelectorAll('.level-item');
+                        items.forEach((el, idx) => {
+                            const s = supports[idx] || {};
+                            setTooltip(el, _formatLevelTooltip(s.call_oi, s.put_oi, s.gamma));
+                        });
+                    } catch (e) {}
                 } else {
-                    msftSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No support below price</p>';
+                    msftSupportsContainer.innerHTML = `<p class="text-muted text-center py-3">No support below ${mode === 'price' ? 'price' : 'gamma flip'}</p>`;
                 }
             }
 
@@ -2316,16 +2407,20 @@
                     msftResistancesContainer.innerHTML = resistances.map((r, i) => `
                         <div class="level-item resistance-item ${heatClassForIndex(i)}" data-strike="${Number(r.strike)}">
                             <div class="d-flex justify-content-between align-items-center level-row">
-                                <div>
-                                    <div class="fw-bold text-resistance fs-5">R${i + 1}  ${Number(r.strike).toFixed(2)}</div>
-                                    <div class="text-muted small">Call: ${Number(r.call_oi).toLocaleString()} | Put: ${Number(r.put_oi).toLocaleString()}</div>
-                                </div>
-                                <div class="fw-bold text-resistance fs-5 level-metric">${(Number(r.gamma) / 1000).toFixed(0)}K</div>
+                                <div class="fw-bold text-resistance">R${i + 1}  ${Number(r.strike).toFixed(2)}</div>
                             </div>
                         </div>
                     `).join('');
+
+                    try {
+                        const items = msftResistancesContainer.querySelectorAll('.level-item');
+                        items.forEach((el, idx) => {
+                            const r = resistances[idx] || {};
+                            setTooltip(el, _formatLevelTooltip(r.call_oi, r.put_oi, r.gamma));
+                        });
+                    } catch (e) {}
                 } else {
-                    msftResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No resistance above price</p>';
+                    msftResistancesContainer.innerHTML = `<p class="text-muted text-center py-3">No resistance above ${mode === 'price' ? 'price' : 'gamma flip'}</p>`;
                 }
             }
 
@@ -2624,6 +2719,23 @@
                 // Re-run analysis with the same uploaded PDF so you can compare quickly.
                 if (!selectedFile) return;
                 await runAnalysis();
+            });
+        }
+
+        _restoreLevelsModeSwitch(nvdaLevelsModeSwitch, 'nvda_levels_mode');
+        _restoreLevelsModeSwitch(msftLevelsModeSwitch, 'msft_levels_mode');
+
+        if (nvdaLevelsModeSwitch) {
+            nvdaLevelsModeSwitch.addEventListener('change', async () => {
+                _persistLevelsModeSwitch(nvdaLevelsModeSwitch, 'nvda_levels_mode');
+                await refreshNvdaSnapshot();
+            });
+        }
+
+        if (msftLevelsModeSwitch) {
+            msftLevelsModeSwitch.addEventListener('change', async () => {
+                _persistLevelsModeSwitch(msftLevelsModeSwitch, 'msft_levels_mode');
+                await refreshMsftSnapshot();
             });
         }
         

@@ -432,14 +432,22 @@ def get_amzn_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, An
     return _get_nasdaq_stock_snapshot_cached("AMZN", _AMZN_SNAPSHOT_CACHE, max_age_seconds=max_age_seconds)
 
 
-def get_nvda_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
+def get_nvda_snapshot_cached(max_age_seconds: int = 60, levels_mode: str = "price") -> Optional[Dict[str, Any]]:
     """Fetch NVDA last price + option-chain derived gamma flip for the nearest expiry."""
 
     now_ts = time.time()
-    cached = _NVDA_SNAPSHOT_CACHE.get("value")
+    requested = (levels_mode or "price").strip().lower()
+    mode_key = "flip" if requested in {"flip", "gamma", "gamma_flip", "flip_zone"} else "price"
+
     fetched_at = float(_NVDA_SNAPSHOT_CACHE.get("fetched_at") or 0.0)
-    if cached and (now_ts - fetched_at) <= max_age_seconds:
-        return cached
+    if (now_ts - fetched_at) <= max_age_seconds:
+        by_mode = _NVDA_SNAPSHOT_CACHE.get("value_by_mode")
+        if isinstance(by_mode, dict) and by_mode.get(mode_key):
+            return by_mode.get(mode_key)
+
+        cached = _NVDA_SNAPSHOT_CACHE.get("value")
+        if isinstance(cached, dict) and (cached.get("levels_mode") == mode_key or cached.get("levels_mode_requested") == mode_key):
+            return cached
 
     referer = "https://www.nasdaq.com/market-activity/stocks/nvda/option-chain"
     url = "https://api.nasdaq.com/api/quote/NVDA/option-chain?assetclass=stocks"
@@ -515,8 +523,7 @@ def get_nvda_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, An
         "Gamma_Exposure": gammas,
     }).sort_values("Strike").reset_index(drop=True)
 
-    results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None)
-    snapshot: Dict[str, Any] = {
+    base_snapshot: Dict[str, Any] = {
         "symbol": "NVDA",
         "source": "nasdaq",
         "expiration": nearest_exp_label,
@@ -525,12 +532,19 @@ def get_nvda_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, An
         "time": last_sale_time or None,
     }
 
-    if isinstance(results, dict):
-        snapshot.update(results)
+    # Precompute both variants so the frontend toggle doesn't trigger extra network calls.
+    by_mode: Dict[str, Any] = {}
+    for m in ("price", "flip"):
+        results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None, levels_mode=m)
+        snapshot = dict(base_snapshot)
+        if isinstance(results, dict):
+            snapshot.update(results)
+        by_mode[m] = snapshot
 
-    _NVDA_SNAPSHOT_CACHE["value"] = snapshot
+    _NVDA_SNAPSHOT_CACHE["value_by_mode"] = by_mode
+    _NVDA_SNAPSHOT_CACHE["value"] = by_mode.get(mode_key) or by_mode.get("price")
     _NVDA_SNAPSHOT_CACHE["fetched_at"] = now_ts
-    return snapshot
+    return _NVDA_SNAPSHOT_CACHE["value"]
 
 
 def get_spy_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
@@ -637,14 +651,22 @@ def get_spy_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any
     return snapshot
 
 
-def get_msft_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
+def get_msft_snapshot_cached(max_age_seconds: int = 60, levels_mode: str = "price") -> Optional[Dict[str, Any]]:
     """Fetch MSFT last price + option-chain derived gamma flip for the nearest expiry."""
 
     now_ts = time.time()
-    cached = _MSFT_SNAPSHOT_CACHE.get("value")
+    requested = (levels_mode or "price").strip().lower()
+    mode_key = "flip" if requested in {"flip", "gamma", "gamma_flip", "flip_zone"} else "price"
+
     fetched_at = float(_MSFT_SNAPSHOT_CACHE.get("fetched_at") or 0.0)
-    if cached and (now_ts - fetched_at) <= max_age_seconds:
-        return cached
+    if (now_ts - fetched_at) <= max_age_seconds:
+        by_mode = _MSFT_SNAPSHOT_CACHE.get("value_by_mode")
+        if isinstance(by_mode, dict) and by_mode.get(mode_key):
+            return by_mode.get(mode_key)
+
+        cached = _MSFT_SNAPSHOT_CACHE.get("value")
+        if isinstance(cached, dict) and (cached.get("levels_mode") == mode_key or cached.get("levels_mode_requested") == mode_key):
+            return cached
 
     referer = "https://www.nasdaq.com/market-activity/stocks/msft/option-chain"
     url = "https://api.nasdaq.com/api/quote/MSFT/option-chain?assetclass=stocks"
@@ -716,8 +738,7 @@ def get_msft_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, An
         "Gamma_Exposure": gammas,
     }).sort_values("Strike").reset_index(drop=True)
 
-    results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None)
-    snapshot: Dict[str, Any] = {
+    base_snapshot: Dict[str, Any] = {
         "symbol": "MSFT",
         "source": "nasdaq",
         "expiration": nearest_exp_label,
@@ -726,12 +747,18 @@ def get_msft_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, An
         "time": last_sale_time or None,
     }
 
-    if isinstance(results, dict):
-        snapshot.update(results)
+    by_mode: Dict[str, Any] = {}
+    for m in ("price", "flip"):
+        results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None, levels_mode=m)
+        snapshot = dict(base_snapshot)
+        if isinstance(results, dict):
+            snapshot.update(results)
+        by_mode[m] = snapshot
 
-    _MSFT_SNAPSHOT_CACHE["value"] = snapshot
+    _MSFT_SNAPSHOT_CACHE["value_by_mode"] = by_mode
+    _MSFT_SNAPSHOT_CACHE["value"] = by_mode.get(mode_key) or by_mode.get("price")
     _MSFT_SNAPSHOT_CACHE["fetched_at"] = now_ts
-    return snapshot
+    return _MSFT_SNAPSHOT_CACHE["value"]
 
 
 def get_spx_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
@@ -1985,7 +2012,8 @@ def api_health():
 
 @app.route('/api/nvda-snapshot', methods=['GET'])
 def nvda_snapshot():
-    data = get_nvda_snapshot_cached()
+    levels_mode = (request.args.get('levels_mode') or 'price').strip().lower()
+    data = get_nvda_snapshot_cached(levels_mode=levels_mode)
     if not data:
         return jsonify({"error": "Impossibile recuperare NVDA option chain in questo momento"}), 503
     return jsonify(data)
@@ -2001,7 +2029,8 @@ def spy_snapshot():
 
 @app.route('/api/msft-snapshot', methods=['GET'])
 def msft_snapshot():
-    data = get_msft_snapshot_cached()
+    levels_mode = (request.args.get('levels_mode') or 'price').strip().lower()
+    data = get_msft_snapshot_cached(levels_mode=levels_mode)
     if not data:
         return jsonify({"error": "Impossibile recuperare MSFT option chain in questo momento"}), 503
     return jsonify(data)
