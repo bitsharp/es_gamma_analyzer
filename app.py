@@ -402,7 +402,11 @@ def _get_nasdaq_stock_snapshot_cached(
         "Gamma_Exposure": gammas,
     }).sort_values("Strike").reset_index(drop=True)
 
-    results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None)
+    results = analyze_0dte(
+        df,
+        current_price=float(last_sale_price) if last_sale_price else None,
+        prefer_strike_multiple=None,
+    )
     snapshot: Dict[str, Any] = {
         "symbol": sym,
         "source": "nasdaq",
@@ -535,7 +539,12 @@ def get_nvda_snapshot_cached(max_age_seconds: int = 60, levels_mode: str = "pric
     # Precompute both variants so the frontend toggle doesn't trigger extra network calls.
     by_mode: Dict[str, Any] = {}
     for m in ("price", "flip"):
-        results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None, levels_mode=m)
+        results = analyze_0dte(
+            df,
+            current_price=float(last_sale_price) if last_sale_price else None,
+            levels_mode=m,
+            prefer_strike_multiple=None,
+        )
         snapshot = dict(base_snapshot)
         if isinstance(results, dict):
             snapshot.update(results)
@@ -749,7 +758,12 @@ def get_msft_snapshot_cached(max_age_seconds: int = 60, levels_mode: str = "pric
 
     by_mode: Dict[str, Any] = {}
     for m in ("price", "flip"):
-        results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None, levels_mode=m)
+        results = analyze_0dte(
+            df,
+            current_price=float(last_sale_price) if last_sale_price else None,
+            levels_mode=m,
+            prefer_strike_multiple=None,
+        )
         snapshot = dict(base_snapshot)
         if isinstance(results, dict):
             snapshot.update(results)
@@ -1778,12 +1792,22 @@ def _find_dte_column_mapping(pdf_path: str) -> Dict[int, tuple[int, int]]:
     return {}
 
 
-def analyze_0dte(df: pd.DataFrame, current_price: float = None, levels_mode: str = "price"):
+def analyze_0dte(
+    df: pd.DataFrame,
+    current_price: float = None,
+    levels_mode: str = "price",
+    prefer_strike_multiple: Optional[float] = 25.0,
+):
     """Analizza i dati 0DTE e restituisce risultati strutturati.
 
     levels_mode:
         - "price" (default): supporti/resistenze rispetto al prezzo corrente
         - "flip": supporti/resistenze rispetto alla gamma flip zone
+
+    prefer_strike_multiple:
+        Se impostato (default 25), prova a preferire strike multipli di quel valore
+        quando ci sono abbastanza candidati (utile per ES). Se None, non applica
+        alcuna preferenza (utile per stocks con strike a 0.5/1.0).
     """
 
     if df.empty:
@@ -1910,25 +1934,35 @@ def analyze_0dte(df: pd.DataFrame, current_price: float = None, levels_mode: str
             # include boundary in resistances (often the first call-wall is exactly on zone_high)
             above_levels = df_sorted[df_sorted['Strike'] >= zone_high].copy()
 
-        def _prefer_25pt_levels(df_levels: pd.DataFrame, side: str) -> pd.DataFrame:
-            # Prefer strikes that are multiples of 25 when available (common "walls")
+        def _pick_top_levels(df_levels: pd.DataFrame, side: str) -> pd.DataFrame:
             if df_levels.empty:
                 return df_levels
-            df_levels = df_levels.copy()
-            df_levels['is_25'] = (df_levels['Strike'] % 25 == 0)
+
             key_col = 'Put_OI' if side == 'put' else 'Call_OI'
+
+            # Stocks: do not bias to strike multiples.
+            if prefer_strike_multiple is None:
+                return df_levels.nlargest(3, key_col)
+
+            # ES: prefer strikes that are multiples of prefer_strike_multiple when available.
+            m = float(prefer_strike_multiple)
+            df_levels = df_levels.copy()
+            strike = df_levels['Strike'].astype(float)
+            # Robust multiple check for floats: consider strike a multiple if it's within epsilon.
+            nearest = (strike / m).round() * m
+            df_levels['is_multiple'] = (nearest - strike).abs() < 1e-6
+
             top = df_levels.nlargest(12, key_col)
-            preferred = top[top['is_25']]
+            preferred = top[top['is_multiple']]
             if len(preferred) >= 3:
                 return preferred.nlargest(3, key_col)
-            # fill remaining
-            remainder = top[~top['is_25']]
+            remainder = top[~top['is_multiple']]
             combined = pd.concat([preferred, remainder], ignore_index=True)
             return combined.nlargest(3, key_col)
 
         # PUT supports below flip (largest Put OI)
         if not below_levels.empty:
-            top_puts = _prefer_25pt_levels(below_levels, side='put')
+            top_puts = _pick_top_levels(below_levels, side='put')
             results['supports'] = [
                 {
                     'strike': float(row['Strike']),
@@ -1943,7 +1977,7 @@ def analyze_0dte(df: pd.DataFrame, current_price: float = None, levels_mode: str
 
         # CALL resistances above flip (largest Call OI)
         if not above_levels.empty:
-            top_calls = _prefer_25pt_levels(above_levels, side='call')
+            top_calls = _pick_top_levels(above_levels, side='call')
             results['resistances'] = [
                 {
                     'strike': float(row['Strike']),
