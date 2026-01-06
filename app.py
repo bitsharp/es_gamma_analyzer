@@ -1751,12 +1751,12 @@ def _find_dte_column_mapping(pdf_path: str) -> Dict[int, tuple[int, int]]:
     return {}
 
 
-def analyze_0dte(df: pd.DataFrame, current_price: float = None, levels_mode: str = "flip"):
+def analyze_0dte(df: pd.DataFrame, current_price: float = None, levels_mode: str = "price"):
     """Analizza i dati 0DTE e restituisce risultati strutturati.
 
     levels_mode:
-        - "flip" (default): supporti/resistenze rispetto alla gamma flip zone
-        - "price": supporti/resistenze rispetto al prezzo corrente
+        - "price" (default): supporti/resistenze rispetto al prezzo corrente
+        - "flip": supporti/resistenze rispetto alla gamma flip zone
     """
 
     if df.empty:
@@ -1774,7 +1774,7 @@ def analyze_0dte(df: pd.DataFrame, current_price: float = None, levels_mode: str
         'supports': [],
         'resistances': [],
         'stats': {},
-        'levels_mode_requested': requested_mode or 'flip',
+        'levels_mode_requested': requested_mode or 'price',
         'levels_mode': resolved_mode,
     }
 
@@ -2140,7 +2140,7 @@ def analyze():
         current_price = request.form.get('current_price')
         current_price = float(current_price) if current_price else None
 
-        levels_mode = (request.form.get('levels_mode') or 'flip').strip().lower()
+        levels_mode = (request.form.get('levels_mode') or 'price').strip().lower()
         
         # Estrai dati: preferisci 0DTE, fallback a 1DTE; se 1DTE manca, prova la scadenza positiva più vicina.
         # Track attempts to make failures diagnosable in the UI.

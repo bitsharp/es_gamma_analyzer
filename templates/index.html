@@ -2630,7 +2630,7 @@
         if (esLevelsModeSwitch) {
             // Restore last choice
             try {
-                const saved = (localStorage.getItem('es_levels_mode') || 'flip').toLowerCase();
+                const saved = (localStorage.getItem('es_levels_mode') || 'price').toLowerCase();
                 esLevelsModeSwitch.checked = saved === 'price';
             } catch (e) {
                 // ignore
