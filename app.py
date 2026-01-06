@@ -239,6 +239,35 @@ def _parse_pdf_number(value: object) -> float:
         return 0.0
 
 
+def _parse_nasdaq_price(value: object) -> float:
+    """Parse price strings coming from Nasdaq `lastTrade`.
+
+    Nasdaq prices should be treated as US-style numbers:
+    - '.' is decimal separator
+    - ',' (if present) is thousands separator
+
+    This avoids mis-parsing values like '187.285' as '187285'.
+    """
+
+    raw = ("" if value is None else str(value)).strip()
+    if not raw or raw.lower() in {"none", "nan", ""}:
+        return 0.0
+
+    raw = raw.replace("\u00a0", "").replace(" ", "")
+    raw = raw.replace("$", "")
+    raw = re.sub(r"[^0-9,\.\-]", "", raw)
+    if not raw or raw in {"-", ".", ","}:
+        return 0.0
+
+    # Nasdaq should be US formatted: commas are thousands, dot is decimal.
+    raw = raw.replace(",", "")
+    try:
+        return float(raw)
+    except Exception:
+        # Fallback to the generic parser as a last resort.
+        return _parse_pdf_number(value)
+
+
 def _fetch_stooq_latest_close(symbol: str) -> Optional[Dict[str, Any]]:
     """Fetches the latest Stooq CSV row for a symbol (no API key).
 
@@ -348,7 +377,7 @@ def _get_nasdaq_stock_snapshot_cached(
     if last_trade_raw:
         m = re.search(r"\$\s*([0-9][0-9,\.]+)", last_trade_raw)
         if m:
-            last_sale_price = _parse_pdf_number(m.group(1))
+            last_sale_price = _parse_nasdaq_price(m.group(1))
         m2 = re.search(r"\(\s*AS\s+OF\s+([^\)]+)\)", last_trade_raw, re.IGNORECASE)
         if m2:
             last_sale_time = m2.group(1).strip()
@@ -469,7 +498,7 @@ def get_nvda_snapshot_cached(max_age_seconds: int = 60, levels_mode: str = "pric
     if last_trade_raw:
         m = re.search(r"\$\s*([0-9][0-9,\.]+)", last_trade_raw)
         if m:
-            last_sale_price = _parse_pdf_number(m.group(1))
+            last_sale_price = _parse_nasdaq_price(m.group(1))
         m2 = re.search(r"\(\s*AS\s+OF\s+([^\)]+)\)", last_trade_raw, re.IGNORECASE)
         if m2:
             last_sale_time = m2.group(1).strip()
@@ -587,7 +616,7 @@ def get_spy_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any
     if last_trade_raw:
         m = re.search(r"\$\s*([0-9][0-9,\.]+)", last_trade_raw)
         if m:
-            last_sale_price = _parse_pdf_number(m.group(1))
+            last_sale_price = _parse_nasdaq_price(m.group(1))
         m2 = re.search(r"\(\s*AS\s+OF\s+([^\)]+)\)", last_trade_raw, re.IGNORECASE)
         if m2:
             last_sale_time = m2.group(1).strip()
@@ -693,7 +722,7 @@ def get_msft_snapshot_cached(max_age_seconds: int = 60, levels_mode: str = "pric
     if last_trade_raw:
         m = re.search(r"\$\s*([0-9][0-9,\.]+)", last_trade_raw)
         if m:
-            last_sale_price = _parse_pdf_number(m.group(1))
+            last_sale_price = _parse_nasdaq_price(m.group(1))
         m2 = re.search(r"\(\s*AS\s+OF\s+([^\)]+)\)", last_trade_raw, re.IGNORECASE)
         if m2:
             last_sale_time = m2.group(1).strip()
@@ -830,7 +859,7 @@ def get_spx_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any
     if last_trade_raw:
         m = re.search(r"\$\s*([0-9][0-9,\.]+)", last_trade_raw)
         if m:
-            last_sale_price = _parse_pdf_number(m.group(1))
+            last_sale_price = _parse_nasdaq_price(m.group(1))
         m2 = re.search(r"\(\s*AS\s+OF\s+([^\)]+)\)", last_trade_raw, re.IGNORECASE)
         if m2:
             last_sale_time = m2.group(1).strip()
@@ -967,7 +996,7 @@ def get_xsp_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any
     if last_trade_raw:
         m = re.search(r"\$\s*([0-9][0-9,\.]+)", last_trade_raw)
         if m:
-            last_sale_price = _parse_pdf_number(m.group(1))
+            last_sale_price = _parse_nasdaq_price(m.group(1))
         m2 = re.search(r"\(\s*AS\s+OF\s+([^\)]+)\)", last_trade_raw, re.IGNORECASE)
         if m2:
             last_sale_time = m2.group(1).strip()
