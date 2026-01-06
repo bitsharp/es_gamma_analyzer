@@ -108,6 +108,22 @@
             border-radius: 10px;
         }
 
+        #pressureCard .pressure-instrument-box {
+            padding: 0.35rem 0.55rem;
+        }
+
+        #pressureCard .pressure-instrument-box .box-sub {
+            display: none;
+        }
+
+        #pressureCard .pressure-inline-meta {
+            color: #adb5bd;
+            font-weight: 500;
+            font-size: 0.78rem;
+            margin-left: 0.35rem;
+            white-space: nowrap;
+        }
+
         #pressureCard .box-label {
             font-size: 0.8rem;
             line-height: 1.1;
@@ -115,7 +131,7 @@
         }
 
         #pressureCard .fw-bold {
-            font-size: 1.15rem;
+            font-size: 1.05rem;
             line-height: 1.05;
         }
 
@@ -124,8 +140,12 @@
             line-height: 1.1;
         }
 
+        #pressureCard #overallPressureTime {
+            display: none;
+        }
+
         #pressureCard #overallPressureValue {
-            font-size: 1.35rem;
+            font-size: 1.25rem;
         }
         
         .upload-area {
@@ -683,65 +703,65 @@
 
                                 <div class="row g-2">
                                     <div class="col-6 col-lg-4">
-                                        <div class="price-box text-start" id="pressureEsBox">
-                                            <div class="box-label">ES</div>
+                                        <div class="price-box text-start pressure-instrument-box" id="pressureEsBox">
+                                            <div class="box-label">ES <span class="pressure-inline-meta" id="pressureEsInlineMeta"></span></div>
                                             <div class="fw-bold" id="pressureEsValue">--</div>
                                             <div class="box-sub" id="pressureEsMeta">--</div>
                                         </div>
                                     </div>
                                     <div class="col-6 col-lg-4">
-                                        <div class="price-box text-start" id="pressureSpxBox">
-                                            <div class="box-label">SPX</div>
+                                        <div class="price-box text-start pressure-instrument-box" id="pressureSpxBox">
+                                            <div class="box-label">SPX <span class="pressure-inline-meta" id="pressureSpxInlineMeta"></span></div>
                                             <div class="fw-bold" id="pressureSpxValue">--</div>
                                             <div class="box-sub" id="pressureSpxMeta">--</div>
                                         </div>
                                     </div>
                                     <div class="col-6 col-lg-4">
-                                        <div class="price-box text-start" id="pressureSpyBox">
-                                            <div class="box-label">SPY</div>
+                                        <div class="price-box text-start pressure-instrument-box" id="pressureSpyBox">
+                                            <div class="box-label">SPY <span class="pressure-inline-meta" id="pressureSpyInlineMeta"></span></div>
                                             <div class="fw-bold" id="pressureSpyValue">--</div>
                                             <div class="box-sub" id="pressureSpyMeta">--</div>
                                         </div>
                                     </div>
                                     <div class="col-6 col-lg-4">
-                                        <div class="price-box text-start" id="pressureXspBox">
-                                            <div class="box-label">XSP</div>
+                                        <div class="price-box text-start pressure-instrument-box" id="pressureXspBox">
+                                            <div class="box-label">XSP <span class="pressure-inline-meta" id="pressureXspInlineMeta"></span></div>
                                             <div class="fw-bold" id="pressureXspValue">--</div>
                                             <div class="box-sub" id="pressureXspMeta">--</div>
                                         </div>
                                     </div>
 
                                     <div class="col-6 col-lg-4">
-                                        <div class="price-box text-start" id="pressureNvdaBox">
-                                            <div class="box-label">NVDA</div>
+                                        <div class="price-box text-start pressure-instrument-box" id="pressureNvdaBox">
+                                            <div class="box-label">NVDA <span class="pressure-inline-meta" id="pressureNvdaInlineMeta"></span></div>
                                             <div class="fw-bold" id="pressureNvdaValue">--</div>
                                             <div class="box-sub" id="pressureNvdaMeta">--</div>
                                         </div>
                                     </div>
                                     <div class="col-6 col-lg-4">
-                                        <div class="price-box text-start" id="pressureMsftBox">
-                                            <div class="box-label">MSFT</div>
+                                        <div class="price-box text-start pressure-instrument-box" id="pressureMsftBox">
+                                            <div class="box-label">MSFT <span class="pressure-inline-meta" id="pressureMsftInlineMeta"></span></div>
                                             <div class="fw-bold" id="pressureMsftValue">--</div>
                                             <div class="box-sub" id="pressureMsftMeta">--</div>
                                         </div>
                                     </div>
                                     <div class="col-6 col-lg-4">
-                                        <div class="price-box text-start" id="pressureAaplBox">
-                                            <div class="box-label">AAPL</div>
+                                        <div class="price-box text-start pressure-instrument-box" id="pressureAaplBox">
+                                            <div class="box-label">AAPL <span class="pressure-inline-meta" id="pressureAaplInlineMeta"></span></div>
                                             <div class="fw-bold" id="pressureAaplValue">--</div>
                                             <div class="box-sub" id="pressureAaplMeta">--</div>
                                         </div>
                                     </div>
                                     <div class="col-6 col-lg-4">
-                                        <div class="price-box text-start" id="pressureGoogBox">
-                                            <div class="box-label">GOOG</div>
+                                        <div class="price-box text-start pressure-instrument-box" id="pressureGoogBox">
+                                            <div class="box-label">GOOG <span class="pressure-inline-meta" id="pressureGoogInlineMeta"></span></div>
                                             <div class="fw-bold" id="pressureGoogValue">--</div>
                                             <div class="box-sub" id="pressureGoogMeta">--</div>
                                         </div>
                                     </div>
                                     <div class="col-6 col-lg-4">
-                                        <div class="price-box text-start" id="pressureAmznBox">
-                                            <div class="box-label">AMZN</div>
+                                        <div class="price-box text-start pressure-instrument-box" id="pressureAmznBox">
+                                            <div class="box-label">AMZN <span class="pressure-inline-meta" id="pressureAmznInlineMeta"></span></div>
                                             <div class="fw-bold" id="pressureAmznValue">--</div>
                                             <div class="box-sub" id="pressureAmznMeta">--</div>
                                         </div>
@@ -1012,31 +1032,40 @@
         const nvdaResistancesNote = document.getElementById('nvdaResistancesNote');
         const pressureEsValue = document.getElementById('pressureEsValue');
         const pressureEsMeta = document.getElementById('pressureEsMeta');
+        const pressureEsInlineMeta = document.getElementById('pressureEsInlineMeta');
         const pressureEsBox = document.getElementById('pressureEsBox');
         const pressureSpxValue = document.getElementById('pressureSpxValue');
         const pressureSpxMeta = document.getElementById('pressureSpxMeta');
+        const pressureSpxInlineMeta = document.getElementById('pressureSpxInlineMeta');
         const pressureSpxBox = document.getElementById('pressureSpxBox');
         const pressureSpyValue = document.getElementById('pressureSpyValue');
         const pressureSpyMeta = document.getElementById('pressureSpyMeta');
+        const pressureSpyInlineMeta = document.getElementById('pressureSpyInlineMeta');
         const pressureSpyBox = document.getElementById('pressureSpyBox');
         const pressureXspValue = document.getElementById('pressureXspValue');
         const pressureXspMeta = document.getElementById('pressureXspMeta');
+        const pressureXspInlineMeta = document.getElementById('pressureXspInlineMeta');
         const pressureXspBox = document.getElementById('pressureXspBox');
 
         const pressureNvdaValue = document.getElementById('pressureNvdaValue');
         const pressureNvdaMeta = document.getElementById('pressureNvdaMeta');
+        const pressureNvdaInlineMeta = document.getElementById('pressureNvdaInlineMeta');
         const pressureNvdaBox = document.getElementById('pressureNvdaBox');
         const pressureMsftValue = document.getElementById('pressureMsftValue');
         const pressureMsftMeta = document.getElementById('pressureMsftMeta');
+        const pressureMsftInlineMeta = document.getElementById('pressureMsftInlineMeta');
         const pressureMsftBox = document.getElementById('pressureMsftBox');
         const pressureAaplValue = document.getElementById('pressureAaplValue');
         const pressureAaplMeta = document.getElementById('pressureAaplMeta');
+        const pressureAaplInlineMeta = document.getElementById('pressureAaplInlineMeta');
         const pressureAaplBox = document.getElementById('pressureAaplBox');
         const pressureGoogValue = document.getElementById('pressureGoogValue');
         const pressureGoogMeta = document.getElementById('pressureGoogMeta');
+        const pressureGoogInlineMeta = document.getElementById('pressureGoogInlineMeta');
         const pressureGoogBox = document.getElementById('pressureGoogBox');
         const pressureAmznValue = document.getElementById('pressureAmznValue');
         const pressureAmznMeta = document.getElementById('pressureAmznMeta');
+        const pressureAmznInlineMeta = document.getElementById('pressureAmznInlineMeta');
         const pressureAmznBox = document.getElementById('pressureAmznBox');
         const overallPressureBox = document.getElementById('overallPressureBox');
         const overallPressureValue = document.getElementById('overallPressureValue');
@@ -1352,39 +1381,39 @@
             const amzn = _computeInstrumentPressure({ price: latestAmznPrice, gammaFlip: latestAmznGammaFlip, prevPrice: prevAmznPrice });
 
             _setPressureText(pressureEsValue, es.side);
-            if (pressureEsMeta) pressureEsMeta.textContent = _formatPressureMeta(latestEsPrice, latestEsGammaFlip);
+            if (pressureEsInlineMeta) pressureEsInlineMeta.textContent = `(${_formatPressureMeta(latestEsPrice, latestEsGammaFlip)})`;
             _setPressureBorder(pressureEsBox, es.side);
 
             _setPressureText(pressureSpxValue, spx.side);
-            if (pressureSpxMeta) pressureSpxMeta.textContent = _formatPressureMeta(latestSpxPrice, latestSpxGammaFlip);
+            if (pressureSpxInlineMeta) pressureSpxInlineMeta.textContent = `(${_formatPressureMeta(latestSpxPrice, latestSpxGammaFlip)})`;
             _setPressureBorder(pressureSpxBox, spx.side);
 
             _setPressureText(pressureSpyValue, spy.side);
-            if (pressureSpyMeta) pressureSpyMeta.textContent = _formatPressureMeta(latestSpyPrice, latestSpyGammaFlip);
+            if (pressureSpyInlineMeta) pressureSpyInlineMeta.textContent = `(${_formatPressureMeta(latestSpyPrice, latestSpyGammaFlip)})`;
             _setPressureBorder(pressureSpyBox, spy.side);
 
             _setPressureText(pressureXspValue, xsp.side);
-            if (pressureXspMeta) pressureXspMeta.textContent = _formatPressureMeta(latestXspPrice, latestXspGammaFlip);
+            if (pressureXspInlineMeta) pressureXspInlineMeta.textContent = `(${_formatPressureMeta(latestXspPrice, latestXspGammaFlip)})`;
             _setPressureBorder(pressureXspBox, xsp.side);
 
             _setPressureText(pressureNvdaValue, nvda.side);
-            if (pressureNvdaMeta) pressureNvdaMeta.textContent = _formatPressureMeta(latestNvdaPrice, latestNvdaGammaFlip);
+            if (pressureNvdaInlineMeta) pressureNvdaInlineMeta.textContent = `(${_formatPressureMeta(latestNvdaPrice, latestNvdaGammaFlip)})`;
             _setPressureBorder(pressureNvdaBox, nvda.side);
 
             _setPressureText(pressureMsftValue, msft.side);
-            if (pressureMsftMeta) pressureMsftMeta.textContent = _formatPressureMeta(latestMsftPrice, latestMsftGammaFlip);
+            if (pressureMsftInlineMeta) pressureMsftInlineMeta.textContent = `(${_formatPressureMeta(latestMsftPrice, latestMsftGammaFlip)})`;
             _setPressureBorder(pressureMsftBox, msft.side);
 
             _setPressureText(pressureAaplValue, aapl.side);
-            if (pressureAaplMeta) pressureAaplMeta.textContent = _formatPressureMeta(latestAaplPrice, latestAaplGammaFlip);
+            if (pressureAaplInlineMeta) pressureAaplInlineMeta.textContent = `(${_formatPressureMeta(latestAaplPrice, latestAaplGammaFlip)})`;
             _setPressureBorder(pressureAaplBox, aapl.side);
 
             _setPressureText(pressureGoogValue, goog.side);
-            if (pressureGoogMeta) pressureGoogMeta.textContent = _formatPressureMeta(latestGoogPrice, latestGoogGammaFlip);
+            if (pressureGoogInlineMeta) pressureGoogInlineMeta.textContent = `(${_formatPressureMeta(latestGoogPrice, latestGoogGammaFlip)})`;
             _setPressureBorder(pressureGoogBox, goog.side);
 
             _setPressureText(pressureAmznValue, amzn.side);
-            if (pressureAmznMeta) pressureAmznMeta.textContent = _formatPressureMeta(latestAmznPrice, latestAmznGammaFlip);
+            if (pressureAmznInlineMeta) pressureAmznInlineMeta.textContent = `(${_formatPressureMeta(latestAmznPrice, latestAmznGammaFlip)})`;
             _setPressureBorder(pressureAmznBox, amzn.side);
 
             const sides = [es.side, spx.side, spy.side, xsp.side, nvda.side, msft.side, aapl.side, goog.side, amzn.side].filter(Boolean);
@@ -1400,7 +1429,9 @@
             _setPressureBorder(overallPressureBox, overallSide);
             if (overallPressureTime) {
                 const now = new Date();
-                overallPressureTime.textContent = `Updated ${now.toLocaleTimeString()}`;
+                const t = `Updated ${now.toLocaleTimeString()}`;
+                overallPressureTime.textContent = '';
+                setTooltip(overallPressureBox, t);
             }
 
             // Chart: combined score across instruments (-4..+4)
