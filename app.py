@@ -19,6 +19,19 @@ import re
 import importlib.util
 import sys
 
+# Optional: load local .env for development (no-op if not installed / not present).
+try:  # pragma: no cover
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:
+    pass
+
+try:
+    from pymongo import MongoClient
+except Exception:  # pragma: no cover
+    MongoClient = None
+
 _PYMUPDF_AVAILABLE = importlib.util.find_spec("fitz") is not None
 _RUNTIME_PYTHON = sys.executable
 _IN_VENV = getattr(sys, "base_prefix", sys.prefix) != sys.prefix
@@ -29,6 +42,50 @@ except Exception:
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+
+
+_MONGO_CLIENT: Optional["MongoClient"] = None
+_MONGO_COLLECTION = None
+
+
+def _get_mongo_collection():
+    """Return Mongo collection for pressure points or None if not configured/available."""
+
+    global _MONGO_CLIENT, _MONGO_COLLECTION
+    if _MONGO_COLLECTION is not None:
+        return _MONGO_COLLECTION
+
+    if MongoClient is None:
+        return None
+
+    uri = (os.getenv("MONGODB_URI") or "").strip()
+    if not uri:
+        return None
+
+    db_name = (os.getenv("MONGODB_DB") or "es_gamma_analyzer").strip()
+    coll_name = (os.getenv("MONGODB_PRESSURE_COLLECTION") or "pressure_points").strip()
+
+    try:
+        if _MONGO_CLIENT is None:
+            _MONGO_CLIENT = MongoClient(uri, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+        db = _MONGO_CLIENT[db_name]
+        coll = db[coll_name]
+        # Unique by second; updates within the same second will overwrite.
+        try:
+            coll.create_index("ts", unique=True)
+        except Exception:
+            pass
+
+        # TTL to avoid unbounded growth (keep more than 8h).
+        # Requires a datetime field.
+        try:
+            coll.create_index("created_at", expireAfterSeconds=60 * 60 * 36)
+        except Exception:
+            pass
+        _MONGO_COLLECTION = coll
+        return _MONGO_COLLECTION
+    except Exception:
+        return None
 
 
 def _is_writable_dir(path: str) -> bool:
@@ -1893,6 +1950,7 @@ def es_price():
 
 @app.route('/api/health', methods=['GET'], endpoint='api_health')
 def api_health():
+    mongo = _get_mongo_collection()
     return jsonify({
         "status": "ok",
         "pymupdf_available": bool(_PYMUPDF_AVAILABLE),
@@ -1900,6 +1958,7 @@ def api_health():
         "python": _RUNTIME_PYTHON,
         "in_venv": bool(_IN_VENV),
         "virtual_env": os.getenv("VIRTUAL_ENV"),
+        "mongo_configured": mongo is not None,
     })
 
 
@@ -1965,6 +2024,77 @@ def amzn_snapshot():
     if not data:
         return jsonify({"error": "Impossibile recuperare AMZN option chain in questo momento"}), 503
     return jsonify(data)
+
+
+@app.route('/api/pressure-history', methods=['GET'])
+def pressure_history():
+    """Return recent pressure points for chart persistence."""
+
+    coll = _get_mongo_collection()
+    if coll is None:
+        return jsonify({"error": "MongoDB non configurato"}), 503
+
+    try:
+        hours = float(request.args.get('hours', '8') or '8')
+    except Exception:
+        hours = 8.0
+    hours = max(0.25, min(hours, 72.0))
+
+    now_ts = int(time.time())
+    since_ts = now_ts - int(hours * 3600)
+
+    try:
+        # 8h @ 1 point/sec = 28,800 points. Keep some headroom.
+        cursor = coll.find({"ts": {"$gte": since_ts}}).sort("ts", 1).limit(50000)
+        points = []
+        for doc in cursor:
+            points.append({
+                "ts": int(doc.get("ts")),
+                "score": doc.get("score"),
+                "breakdown": doc.get("breakdown"),
+            })
+        return jsonify({"points": points, "hours": hours, "since_ts": since_ts, "now_ts": now_ts})
+    except Exception as e:
+        return jsonify({"error": f"Errore MongoDB: {e}"}), 503
+
+
+@app.route('/api/pressure-point', methods=['POST'])
+def pressure_point():
+    """Upsert a single pressure point (1-second granularity)."""
+
+    coll = _get_mongo_collection()
+    if coll is None:
+        return jsonify({"error": "MongoDB non configurato"}), 503
+
+    data = request.get_json(silent=True) or {}
+    try:
+        ts = int(data.get('ts'))
+    except Exception:
+        ts = None
+
+    score = data.get('score')
+    breakdown = data.get('breakdown')
+
+    if ts is None or score is None:
+        return jsonify({"error": "Payload non valido: richiesti ts e score"}), 400
+
+    try:
+        coll.update_one(
+            {"ts": ts},
+            {
+                "$set": {
+                    "ts": ts,
+                    "score": score,
+                    "breakdown": breakdown,
+                    "updated_at": int(time.time()),
+                },
+                "$setOnInsert": {"created_at": _dt.datetime.utcnow()},
+            },
+            upsert=True,
+        )
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": f"Errore MongoDB: {e}"}), 503
 
 
 @app.route('/analyze', methods=['POST'])

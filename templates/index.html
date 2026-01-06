@@ -1025,6 +1025,11 @@
         let pressureSeries = null;
         const pressureData = [];
 
+        const PRESSURE_HISTORY_HOURS = 8;
+        let _pressureHistoryLoaded = false;
+        let _pressureLastSentTs = null;
+        let _pressureLastSentScore = null;
+
         const pressureChartResetBtn = document.getElementById('pressureChartResetBtn');
 
         function ensurePressureChart() {
@@ -1118,6 +1123,71 @@
             setTimeout(onResize, 0);
         }
 
+        function _pressureBarColor(score) {
+            const v = Number(score);
+            if (!Number.isFinite(v)) return 'rgba(119, 141, 169, 0.6)';
+            return v >= 0 ? 'rgba(45, 212, 191, 0.92)' : 'rgba(251, 113, 133, 0.92)';
+        }
+
+        async function loadPressureHistory() {
+            if (_pressureHistoryLoaded) return;
+            ensurePressureChart();
+            if (!pressureSeries) return;
+
+            try {
+                const res = await fetch(`/api/pressure-history?hours=${encodeURIComponent(PRESSURE_HISTORY_HOURS)}`);
+                const data = await res.json();
+                if (!res.ok || data.error) throw new Error(data.error || 'history fetch failed');
+
+                const points = Array.isArray(data.points) ? data.points : [];
+                pressureData.length = 0;
+                for (const p of points) {
+                    const ts = Number(p.ts);
+                    const score = Number(p.score);
+                    if (!Number.isFinite(ts) || !Number.isFinite(score)) continue;
+                    pressureData.push({ time: Math.floor(ts), value: score, color: _pressureBarColor(score) });
+                }
+
+                // Ensure sorted and within last 8h window.
+                pressureData.sort((a, b) => a.time - b.time);
+                const nowTs = Math.floor(Date.now() / 1000);
+                const cutoff = nowTs - PRESSURE_HISTORY_HOURS * 3600;
+                while (pressureData.length && pressureData[0].time < cutoff) pressureData.shift();
+
+                pressureSeries.setData(pressureData);
+                _pressureHistoryLoaded = true;
+
+                try {
+                    if (pressureChart) pressureChart.timeScale().scrollToRealTime();
+                } catch (e) {
+                    // no-op
+                }
+            } catch (e) {
+                // If Mongo isn't configured, the app should still work live.
+                _pressureHistoryLoaded = true;
+            }
+        }
+
+        async function persistPressurePoint({ ts, score, breakdown }) {
+            const t = Number(ts);
+            const s = Number(score);
+            if (!Number.isFinite(t) || !Number.isFinite(s)) return;
+            if (_pressureLastSentTs === t && _pressureLastSentScore === s) return;
+
+            _pressureLastSentTs = t;
+            _pressureLastSentScore = s;
+
+            try {
+                await fetch('/api/pressure-point', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ts: Math.floor(t), score: s, breakdown: breakdown || null }),
+                });
+            } catch (e) {
+                // ignore
+            }
+        }
+
         function resetPressureChartView() {
             ensurePressureChart();
             if (!pressureChart) return;
@@ -1197,6 +1267,7 @@
 
         function updatePressureUI() {
             ensurePressureChart();
+            loadPressureHistory();
             const es = _computeInstrumentPressure({ price: latestEsPrice, gammaFlip: latestEsGammaFlip, prevPrice: prevEsPrice });
             const spx = _computeInstrumentPressure({ price: latestSpxPrice, gammaFlip: latestSpxGammaFlip, prevPrice: prevSpxPrice });
             const spy = _computeInstrumentPressure({ price: latestSpyPrice, gammaFlip: latestSpyGammaFlip, prevPrice: prevSpyPrice });
@@ -1267,7 +1338,7 @@
 
                 // IMPORTANT: LightweightCharts expects strictly increasing times.
                 // If we get multiple updates within the same second, update the last bar instead of pushing.
-                const color = score >= 0 ? 'rgba(45, 212, 191, 0.92)' : 'rgba(251, 113, 133, 0.92)';
+                const color = _pressureBarColor(score);
                 const last = pressureData.length ? pressureData[pressureData.length - 1] : null;
 
                 if (!last) {
@@ -1279,11 +1350,33 @@
                     pressureSeries.setData(pressureData);
                 } else if (ts > last.time) {
                     pressureData.push({ time: ts, value: score, color });
-                    if (pressureData.length > 300) pressureData.splice(0, pressureData.length - 300);
+                    // Keep at least the last 8 hours of points.
+                    const cutoff = ts - PRESSURE_HISTORY_HOURS * 3600;
+                    while (pressureData.length && pressureData[0].time < cutoff) pressureData.shift();
                     pressureSeries.setData(pressureData);
                 } else {
                     // Clock skew / time went backwards; ignore this tick.
                 }
+
+                // Persist the point (async, best-effort).
+                persistPressurePoint({
+                    ts,
+                    score,
+                    breakdown: {
+                        overall: overallSide,
+                        instruments: {
+                            ES: es.side,
+                            SPX: spx.side,
+                            SPY: spy.side,
+                            XSP: xsp.side,
+                            NVDA: nvda.side,
+                            MSFT: msft.side,
+                            AAPL: aapl.side,
+                            GOOG: goog.side,
+                            AMZN: amzn.side,
+                        },
+                    },
+                });
             }
         }
 

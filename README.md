@@ -22,6 +22,27 @@ source venv/bin/activate  # Su Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+## 🧪 Configurazione locale con `.env` (consigliato)
+
+Nel repo trovi un file `.env.example`.
+
+1) Copialo in `.env`:
+
+```bash
+cp .env.example .env
+```
+
+2) Apri `.env` e inserisci i valori reali (es. MongoDB Atlas).
+
+3) Avvia l’app:
+
+```bash
+source .venv/bin/activate
+python app.py
+```
+
+L’app carica automaticamente `.env` (tramite `python-dotenv`).
+
 ## 🚀 Utilizzo
 
 ### Utilizzo Base
@@ -165,6 +186,40 @@ es_gamma_analyzer/
 - Il tool prova a identificare automaticamente le colonne rilevanti
 - Se il prezzo corrente non viene fornito, il tool cerca di estrarlo dal PDF
 - I livelli sono ordinati per importanza (gamma più alto/basso)
+
+## ☁️ Deploy su Vercel + MongoDB Atlas (free tier)
+
+Questa app può essere deployata su Vercel come Serverless Function e usare MongoDB Atlas per salvare la history del grafico “pressure” (almeno ultime 8 ore).
+
+### 1) MongoDB Atlas (gratuito)
+
+- Crea un cluster Free (M0)
+- Crea un utente DB (Database Access)
+- In Network Access abilita il tuo IP (o `0.0.0.0/0` solo per test)
+- Copia la connection string (URI)
+
+### 2) Variabili d’ambiente su Vercel
+
+In Vercel: Project → Settings → Environment Variables, aggiungi:
+
+- `MONGODB_URI` (obbligatoria)
+  - Esempio: `mongodb+srv://USER:PASSWORD@CLUSTERHOST/es_gamma_analyzer?retryWrites=true&w=majority`
+- `MONGODB_DB` (opzionale, default: `es_gamma_analyzer`)
+- `MONGODB_PRESSURE_COLLECTION` (opzionale, default: `pressure_points`)
+
+Verifica: `GET /api/health` deve mostrare `mongo_configured: true`.
+
+### 3) Deploy su Vercel
+
+Il repo include già:
+
+- `api/index.py` (entrypoint Serverless)
+- `vercel.json` (routing di tutte le route verso Flask)
+
+Puoi fare deploy collegando il repo da Vercel oppure con Vercel CLI.
+
+Nota: su Vercel lo storage locale è read-only tranne `/tmp`; l’app salva i PDF in una cartella scrivibile (fallback `/tmp/uploads`).
+
 
 ## ⚠️ Disclaimer
 
