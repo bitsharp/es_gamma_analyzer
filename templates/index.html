@@ -50,16 +50,7 @@
             font-size: 0.85rem;
         }
 
-        .upload-card #regimeCard .card-header {
-            padding: 0.35rem 0.75rem;
-            font-size: 0.9rem;
-        }
-
-        .upload-card #regimeCard .card-body {
-            padding: 0.35rem 0.6rem;
-        }
-
-        .upload-card #regimeCard .alert {
+        #esKeyLevelsCard #regimeCard .alert {
             padding: 0.4rem 0.6rem;
         }
 
@@ -595,20 +586,6 @@
                         <button class="btn btn-primary btn-sm" id="analyzeBtn" disabled>
                             <i class="bi bi-graph-up me-2"></i>Analyze
                         </button>
-
-                        <div class="mt-2 text-start">
-                            <div class="card" id="regimeCard" style="display: none;">
-                                <div class="card-header">
-                                    <i class="bi bi-graph-up me-2"></i>Market Regime
-                                </div>
-                                <div class="card-body">
-                                    <div class="alert alert-warning mb-0" style="background: rgba(234, 179, 8, 0.1); border-left: 4px solid #eab308;">
-                                        <div class="fw-semibold small mb-1" id="regimeType">-</div>
-                                        <div class="small" id="regimeStrategy">-</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
                 
@@ -657,6 +634,13 @@
                                         <div class="fw-bold" id="gammaFlipTop">--</div>
                                         <div class="box-sub">GAMMA FLIP LEVEL</div>
                                         </div>
+                                    </div>
+                                </div>
+
+                                <div id="regimeCard" style="display: none;" class="mb-2">
+                                    <div class="alert alert-warning mb-0" style="background: rgba(234, 179, 8, 0.1); border-left: 4px solid #eab308;">
+                                        <div class="fw-semibold small mb-1" id="regimeType">-</div>
+                                        <div class="small" id="regimeStrategy">-</div>
                                     </div>
                                 </div>
 
