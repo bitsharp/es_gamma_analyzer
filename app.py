@@ -1,7 +1,7 @@
 """
 Flask web application per analisi gamma exposure 0DTE
 """
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import os
 import time
 import csv
@@ -15,15 +15,24 @@ import tempfile
 import pdfplumber
 import pandas as pd
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 import re
 import importlib.util
 import sys
+from functools import wraps
+
+try:
+    from authlib.integrations.flask_client import OAuth
+except Exception:  # pragma: no cover
+    OAuth = None
 
 # Optional: load local .env for development (no-op if not installed / not present).
+# Load it from this file's directory so it works regardless of current working directory.
 try:  # pragma: no cover
     from dotenv import load_dotenv
 
-    load_dotenv()
+    _dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+    load_dotenv(dotenv_path=_dotenv_path, override=False)
 except Exception:
     pass
 
@@ -42,6 +51,113 @@ except Exception:
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+
+# Behind reverse proxies (e.g., Vercel), trust forwarded headers so url_for(..., _external=True)
+# produces the correct https://<host>/... callback URLs.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
+# Session secret (required for OAuth login). In production, set FLASK_SECRET_KEY.
+_secret_from_env = (os.getenv('FLASK_SECRET_KEY') or os.getenv('SECRET_KEY') or '').strip()
+app.secret_key = _secret_from_env or 'dev-secret-key-change-me'
+
+# Basic cookie hardening (safe defaults; secure cookie should be enabled behind HTTPS).
+app.config.setdefault('SESSION_COOKIE_HTTPONLY', True)
+app.config.setdefault('SESSION_COOKIE_SAMESITE', 'Lax')
+if os.getenv('VERCEL'):
+    app.config['SESSION_COOKIE_SECURE'] = True
+
+oauth = OAuth(app) if OAuth is not None else None
+
+
+def _ensure_google_oauth_registered() -> bool:
+    """Register the Google OAuth client if possible.
+
+    This is intentionally lazy so that config changes in .env + server restart
+    are reflected reliably, even with Flask's reloader.
+    """
+
+    global oauth
+    if oauth is None:
+        return False
+    if hasattr(oauth, 'google'):
+        return True
+
+    google_client_id = (os.getenv('GOOGLE_CLIENT_ID') or '').strip()
+    google_client_secret = (os.getenv('GOOGLE_CLIENT_SECRET') or '').strip()
+    secret_from_env = (os.getenv('FLASK_SECRET_KEY') or os.getenv('SECRET_KEY') or '').strip()
+
+    if not (secret_from_env and google_client_id and google_client_secret):
+        return False
+
+    try:
+        oauth.register(
+            name='google',
+            client_id=google_client_id,
+            client_secret=google_client_secret,
+            server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+            client_kwargs={'scope': 'openid email profile'},
+        )
+        return hasattr(oauth, 'google')
+    except Exception:
+        return False
+
+
+def _google_oauth_missing_vars():
+    missing = []
+    if not (os.getenv('GOOGLE_CLIENT_ID') or '').strip():
+        missing.append('GOOGLE_CLIENT_ID')
+    if not (os.getenv('GOOGLE_CLIENT_SECRET') or '').strip():
+        missing.append('GOOGLE_CLIENT_SECRET')
+    if not ((os.getenv('FLASK_SECRET_KEY') or os.getenv('SECRET_KEY') or '').strip()):
+        missing.append('FLASK_SECRET_KEY')
+    return missing
+
+
+def _is_authenticated() -> bool:
+    return bool(session.get('user'))
+
+
+def _wants_json() -> bool:
+    accept = (request.headers.get('Accept') or '').lower()
+    return request.path.startswith('/api/') or request.path == '/analyze' or 'application/json' in accept
+
+
+@app.before_request
+def _require_login():
+    # Allow preflight
+    if request.method == 'OPTIONS':
+        return None
+
+    path = request.path or '/'
+    public_prefixes = ('/login', '/logout', '/auth')
+    if path == '/api/health' or path.startswith(public_prefixes) or path.startswith('/static'):
+        return None
+
+    if _is_authenticated():
+        return None
+
+    if _wants_json():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    # Store next and redirect to login
+    try:
+        session['next_url'] = request.full_path if request.full_path else path
+    except Exception:
+        session['next_url'] = path
+    return redirect(url_for('login'))
+
+
+def login_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if _is_authenticated():
+            return fn(*args, **kwargs)
+        if _wants_json():
+            return jsonify({'error': 'Unauthorized'}), 401
+        session['next_url'] = request.full_path or request.path or '/'
+        return redirect(url_for('login'))
+
+    return wrapper
 
 
 _MONGO_CLIENT: Optional["MongoClient"] = None
@@ -2041,6 +2157,79 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/login')
+def login():
+    if _is_authenticated():
+        return redirect(url_for('index'))
+    return render_template('login.html')
+
+
+@app.route('/login/google')
+def login_google():
+    if oauth is None:
+        return 'OAuth non configurato. Dipendenza mancante: Authlib.', 500
+
+    _ensure_google_oauth_registered()
+    if not hasattr(oauth, 'google'):
+        missing = _google_oauth_missing_vars()
+        if missing:
+            return (
+                'OAuth non configurato. Variabili mancanti: ' + ', '.join(missing) + '.',
+                500,
+            )
+        return (
+            'OAuth non configurato. Verifica GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET e FLASK_SECRET_KEY.',
+            500,
+        )
+
+    redirect_uri = url_for('auth_callback', _external=True)
+    # prompt=select_account forces account chooser if multiple accounts.
+    return oauth.google.authorize_redirect(redirect_uri, prompt='select_account')
+
+
+@app.route('/auth/callback')
+def auth_callback():
+    if oauth is None:
+        return 'OAuth non configurato. Dipendenza mancante: Authlib.', 500
+
+    _ensure_google_oauth_registered()
+    if not hasattr(oauth, 'google'):
+        missing = _google_oauth_missing_vars()
+        if missing:
+            return 'OAuth non configurato. Variabili mancanti: ' + ', '.join(missing) + '.', 500
+        return 'OAuth non configurato.', 500
+
+    try:
+        token = oauth.google.authorize_access_token()
+        userinfo = token.get('userinfo')
+        if not userinfo:
+            # Some flows provide only an id_token.
+            userinfo = oauth.google.parse_id_token(token)
+
+        session['user'] = {
+            'sub': (userinfo.get('sub') if isinstance(userinfo, dict) else None),
+            'email': (userinfo.get('email') if isinstance(userinfo, dict) else None),
+            'name': (userinfo.get('name') if isinstance(userinfo, dict) else None),
+            'picture': (userinfo.get('picture') if isinstance(userinfo, dict) else None),
+        }
+
+        next_url = session.pop('next_url', None)
+        if next_url and isinstance(next_url, str) and next_url.startswith('/'):
+            return redirect(next_url)
+        return redirect(url_for('index'))
+    except Exception as e:
+        return f'Errore autenticazione Google: {e}', 500
+
+
+@app.route('/logout')
+def logout():
+    try:
+        session.clear()
+    except Exception:
+        pass
+    return redirect(url_for('login'))
+
+
 @app.route('/api/sp500-price', methods=['GET'])
 def sp500_price():
     data = get_sp500_price_cached()
@@ -2062,6 +2251,7 @@ def es_price():
 @app.route('/api/health', methods=['GET'], endpoint='api_health')
 def api_health():
     mongo = _get_mongo_collection()
+    google_oauth_configured = _ensure_google_oauth_registered()
     return jsonify({
         "status": "ok",
         "pymupdf_available": bool(_PYMUPDF_AVAILABLE),
@@ -2070,6 +2260,9 @@ def api_health():
         "in_venv": bool(_IN_VENV),
         "virtual_env": os.getenv("VIRTUAL_ENV"),
         "mongo_configured": mongo is not None,
+        "google_oauth_configured": google_oauth_configured,
+        "google_oauth_missing": _google_oauth_missing_vars(),
+        "authlib_available": OAuth is not None,
     })
 
 

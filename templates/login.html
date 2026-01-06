@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - ES Gamma Analyzer</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body {
+            background: #0d1b2a;
+            color: #f8f9fa;
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background: linear-gradient(135deg, #1b263b 0%, #415a77 100%);
+            border-bottom: 2px solid #778da9;
+        }
+
+        .login-card {
+            background: #1b263b;
+            border: 2px solid #415a77;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+
+        .btn-google {
+            background: #ffffff;
+            color: #111827;
+            border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .btn-google:hover {
+            background: #f3f4f6;
+            color: #111827;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar mb-4">
+        <div class="container-fluid px-2 px-lg-3">
+            <span class="navbar-brand" style="font-size: 1.6rem; font-weight: 700; color: #ffffff;">ES Gamma Analyzer</span>
+            <span class="text-muted">Sign in</span>
+        </div>
+    </nav>
+
+    <div class="container" style="max-width: 520px;">
+        <div class="card login-card">
+            <div class="card-body p-4">
+                <h4 class="mb-2">Accedi alla dashboard</h4>
+                <p class="text-muted mb-4">Usa Google per accedere alla dashboard principale.</p>
+
+                <a class="btn btn-google w-100" href="/login/google">
+                    <i class="bi bi-google me-2"></i>Continue with Google
+                </a>
+
+                <div class="mt-3 text-muted small">
+                    Se il login non funziona, verifica che siano impostate le variabili d'ambiente
+                    <span class="text-nowrap">GOOGLE_CLIENT_ID</span>, <span class="text-nowrap">GOOGLE_CLIENT_SECRET</span>,
+                    <span class="text-nowrap">FLASK_SECRET_KEY</span>.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

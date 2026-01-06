@@ -43,6 +43,21 @@ python app.py
 
 L’app carica automaticamente `.env` (tramite `python-dotenv`).
 
+### 🔐 Login con Google (OAuth)
+
+La dashboard web richiede autenticazione Google.
+
+1) Crea un OAuth Client su Google Cloud Console (tipo **Web application**)
+2) Imposta gli **Authorized redirect URIs**:
+  - Locale: `http://localhost:5005/auth/callback`
+  - Produzione: `https://<tuo-dominio>/auth/callback`
+3) Aggiungi in `.env`:
+  - `GOOGLE_CLIENT_ID=...`
+  - `GOOGLE_CLIENT_SECRET=...`
+  - `FLASK_SECRET_KEY=...` (una stringa lunga e casuale)
+
+Nota: Google richiede HTTPS in molti contesti. Se in locale hai problemi, usa un tunnel HTTPS (es. ngrok) e configura il redirect URI di conseguenza.
+
 ## 🚀 Utilizzo
 
 ### Utilizzo Base
