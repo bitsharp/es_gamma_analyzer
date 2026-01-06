@@ -1751,20 +1751,35 @@ def _find_dte_column_mapping(pdf_path: str) -> Dict[int, tuple[int, int]]:
     return {}
 
 
-def analyze_0dte(df: pd.DataFrame, current_price: float = None):
-    """Analizza i dati 0DTE e restituisce risultati strutturati"""
-    
+def analyze_0dte(df: pd.DataFrame, current_price: float = None, levels_mode: str = "flip"):
+    """Analizza i dati 0DTE e restituisce risultati strutturati.
+
+    levels_mode:
+        - "flip" (default): supporti/resistenze rispetto alla gamma flip zone
+        - "price": supporti/resistenze rispetto al prezzo corrente
+    """
+
     if df.empty:
         return {'error': 'Nessun dato 0DTE trovato'}
-    
+
+    requested_mode = (levels_mode or "").strip().lower()
+    resolved_mode = "price" if requested_mode in {"price", "current", "current_price"} else "flip"
+    if resolved_mode == "price" and current_price is None:
+        resolved_mode = "flip"
+
     results = {
         'current_price': current_price,
         'gamma_flip': None,
         'gamma_flip_zone': None,
         'supports': [],
         'resistances': [],
-        'stats': {}
+        'stats': {},
+        'levels_mode_requested': requested_mode or 'flip',
+        'levels_mode': resolved_mode,
     }
+
+    if (requested_mode in {"price", "current", "current_price"}) and current_price is None:
+        results['levels_mode_note'] = 'Modalità prezzo richiesta ma prezzo corrente mancante: uso flip zone'
 
     # Sort by strike
     df_sorted = df.sort_values('Strike').reset_index(drop=True)
@@ -1858,9 +1873,15 @@ def analyze_0dte(df: pd.DataFrame, current_price: float = None):
         zone_low = min(results['gamma_flip_zone']['low'], results['gamma_flip_zone']['high'])
         zone_high = max(results['gamma_flip_zone']['low'], results['gamma_flip_zone']['high'])
 
-        below_flip = df_sorted[df_sorted['Strike'] < zone_low].copy()
-        # include boundary in resistances (often the first call-wall is exactly on zone_high)
-        above_flip = df_sorted[df_sorted['Strike'] >= zone_high].copy()
+        # Choose the threshold for supports/resistances based on selected mode.
+        if resolved_mode == 'price' and current_price is not None:
+            threshold = float(current_price)
+            below_levels = df_sorted[df_sorted['Strike'] < threshold].copy()
+            above_levels = df_sorted[df_sorted['Strike'] >= threshold].copy()
+        else:
+            below_levels = df_sorted[df_sorted['Strike'] < zone_low].copy()
+            # include boundary in resistances (often the first call-wall is exactly on zone_high)
+            above_levels = df_sorted[df_sorted['Strike'] >= zone_high].copy()
 
         def _prefer_25pt_levels(df_levels: pd.DataFrame, side: str) -> pd.DataFrame:
             # Prefer strikes that are multiples of 25 when available (common "walls")
@@ -1879,8 +1900,8 @@ def analyze_0dte(df: pd.DataFrame, current_price: float = None):
             return combined.nlargest(3, key_col)
 
         # PUT supports below flip (largest Put OI)
-        if not below_flip.empty:
-            top_puts = _prefer_25pt_levels(below_flip, side='put')
+        if not below_levels.empty:
+            top_puts = _prefer_25pt_levels(below_levels, side='put')
             results['supports'] = [
                 {
                     'strike': float(row['Strike']),
@@ -1891,11 +1912,11 @@ def analyze_0dte(df: pd.DataFrame, current_price: float = None):
                 for _, row in top_puts.iterrows()
             ]
         else:
-            results['supports_note'] = 'Nessun livello sotto la zona di flip'
+            results['supports_note'] = 'Nessun livello sotto il prezzo corrente' if resolved_mode == 'price' else 'Nessun livello sotto la zona di flip'
 
         # CALL resistances above flip (largest Call OI)
-        if not above_flip.empty:
-            top_calls = _prefer_25pt_levels(above_flip, side='call')
+        if not above_levels.empty:
+            top_calls = _prefer_25pt_levels(above_levels, side='call')
             results['resistances'] = [
                 {
                     'strike': float(row['Strike']),
@@ -1906,7 +1927,7 @@ def analyze_0dte(df: pd.DataFrame, current_price: float = None):
                 for _, row in top_calls.iterrows()
             ]
         else:
-            results['resistances_note'] = 'Nessun livello sopra la zona di flip'
+            results['resistances_note'] = 'Nessun livello sopra il prezzo corrente' if resolved_mode == 'price' else 'Nessun livello sopra la zona di flip'
     else:
         results['gamma_flip_note'] = 'Impossibile determinare gamma flip: nessun incrocio Call/Put trovato'
     
@@ -2118,6 +2139,8 @@ def analyze():
         # Estrai prezzo corrente se fornito
         current_price = request.form.get('current_price')
         current_price = float(current_price) if current_price else None
+
+        levels_mode = (request.form.get('levels_mode') or 'flip').strip().lower()
         
         # Estrai dati: preferisci 0DTE, fallback a 1DTE; se 1DTE manca, prova la scadenza positiva più vicina.
         # Track attempts to make failures diagnosable in the UI.
@@ -2148,7 +2171,7 @@ def analyze():
             df = _attempt("nearest-positive-dte", lambda: extract_nearest_positive_dte_data(filepath))
 
         # Analizza
-        results = analyze_0dte(df, current_price)
+        results = analyze_0dte(df, current_price, levels_mode=levels_mode)
 
         # Attach extraction details to help explain "no data" situations.
         if isinstance(results, dict):

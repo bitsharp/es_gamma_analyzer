@@ -631,7 +631,15 @@
                     <div class="col-12 col-md-3">
                         <div class="card" id="esKeyLevelsCard">
                             <div class="card-header">
-                                <i class="bi bi-bullseye me-2"></i>ES Key Levels <span class="text-muted" id="esPcrLabel"></span>
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <i class="bi bi-bullseye me-2"></i>ES Key Levels <span class="text-muted" id="esPcrLabel"></span>
+                                    </div>
+                                    <div class="form-check form-switch mb-0" style="transform: scale(0.95); transform-origin: right center;">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="esLevelsModeSwitch">
+                                        <label class="form-check-label small text-nowrap" for="esLevelsModeSwitch">Use current price</label>
+                                    </div>
+                                </div>
                             </div>
                             <div class="card-body">
                                 <div class="row g-2 mb-3 price-row">
@@ -657,7 +665,7 @@
                                         <h6 class="text-support mb-3">
                                             <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
                                         </h6>
-                                        <p class="text-muted small">Below gamma flip (highest Put OI)</p>
+                                        <p class="text-muted small" id="esSupportsModeHint">Below gamma flip (highest Put OI)</p>
                                         <div id="supportsContainer">
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
@@ -667,7 +675,7 @@
                                         <h6 class="text-resistance mb-3">
                                             <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
                                         </h6>
-                                        <p class="text-muted small">Above gamma flip (highest Call OI)</p>
+                                        <p class="text-muted small" id="esResistancesModeHint">Above gamma flip (highest Call OI)</p>
                                         <div id="resistancesContainer">
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
@@ -1022,6 +1030,9 @@
         const esLiveBox = document.getElementById('esLiveBox');
         const gammaFlipBox = document.getElementById('gammaFlipBox');
         const gammaFlipTop = document.getElementById('gammaFlipTop');
+        const esLevelsModeSwitch = document.getElementById('esLevelsModeSwitch');
+        const esSupportsModeHint = document.getElementById('esSupportsModeHint');
+        const esResistancesModeHint = document.getElementById('esResistancesModeHint');
         const nvdaLivePrice = document.getElementById('nvdaLivePrice');
         const nvdaLiveTime = document.getElementById('nvdaLiveTime');
         const nvdaGammaFlipTop = document.getElementById('nvdaGammaFlipTop');
@@ -2546,6 +2557,15 @@
                 formData.append('current_price', String(latestEsPrice));
             }
 
+            if (esLevelsModeSwitch) {
+                formData.append('levels_mode', esLevelsModeSwitch.checked ? 'price' : 'flip');
+                try {
+                    localStorage.setItem('es_levels_mode', esLevelsModeSwitch.checked ? 'price' : 'flip');
+                } catch (e) {
+                    // ignore
+                }
+            }
+
             loading.style.display = 'block';
             results.style.display = 'none';
             errorMsg.style.display = 'none';
@@ -2606,6 +2626,22 @@
                 await runAnalysis();
             }
         });
+
+        if (esLevelsModeSwitch) {
+            // Restore last choice
+            try {
+                const saved = (localStorage.getItem('es_levels_mode') || 'flip').toLowerCase();
+                esLevelsModeSwitch.checked = saved === 'price';
+            } catch (e) {
+                // ignore
+            }
+
+            esLevelsModeSwitch.addEventListener('change', async () => {
+                // Re-run analysis with the same uploaded PDF so you can compare quickly.
+                if (!selectedFile) return;
+                await runAnalysis();
+            });
+        }
         
         uploadArea.addEventListener('dragover', (e) => {
             e.preventDefault();
@@ -2644,6 +2680,19 @@
         
         function displayResults(data) {
             setPutCallRatio(esPcrLabel, data && data.stats ? data.stats : null);
+
+            // Update hint text to reflect the selected basis.
+            const mode = (data && data.levels_mode ? String(data.levels_mode) : 'flip').toLowerCase();
+            if (esSupportsModeHint) {
+                esSupportsModeHint.textContent = mode === 'price'
+                    ? 'Below current price (highest Put OI)'
+                    : 'Below gamma flip (highest Put OI)';
+            }
+            if (esResistancesModeHint) {
+                esResistancesModeHint.textContent = mode === 'price'
+                    ? 'Above current price (highest Call OI)'
+                    : 'Above gamma flip (highest Call OI)';
+            }
 
             // Gamma Flip
             const gammaFlipValueEl = document.getElementById('gammaFlipValue');
