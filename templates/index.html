@@ -2859,7 +2859,6 @@
                 `).join('');
 
                 initTooltipsWithin(supportsContainer);
-                
                 if (data.supports_note) {
                     supportsNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.supports_note;
                     supportsNote.style.display = 'block';
@@ -2898,6 +2897,50 @@
             // Initialize chart
             // createChart(data);
         }
+
+        async function restoreLastAnalysisOnLoad() {
+            try {
+                const res = await fetch('/api/last-analysis', { method: 'GET' });
+                if (!res.ok) return;
+                const payload = await res.json();
+                if (!payload || !payload.has_last_analysis || !payload.analysis) return;
+
+                const data = payload.analysis;
+
+                // Keep the mode switch aligned with the restored analysis to avoid confusion.
+                if (esLevelsModeSwitch && data && data.levels_mode) {
+                    const mode = String(data.levels_mode).toLowerCase();
+                    esLevelsModeSwitch.checked = mode === 'price';
+                    try {
+                        localStorage.setItem('es_levels_mode', mode);
+                    } catch (e) {
+                        // ignore
+                    }
+                }
+
+                // Show last uploaded file name (informational; user can still click to upload a new one).
+                if (payload.filename) {
+                    const when = payload.updated_at ? `Last: ${payload.updated_at}` : 'Last upload';
+                    uploadArea.innerHTML = `
+                        <div class="d-flex align-items-center flex-wrap">
+                            <i class="bi bi-clock-history me-3" style="font-size: 2.2rem; color: #778da9;"></i>
+                            <div class="min-w-0">
+                                <h6 class="mb-1 text-truncate d-block filename-truncate">${payload.filename}</h6>
+                                <p class="text-muted small mb-0">${when}</p>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                displayResults(data);
+                results.style.display = 'block';
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        // Restore previous user's last analysis (if any)
+        restoreLastAnalysisOnLoad();
         
         function createChart(data) {
             const chartContainer = document.getElementById('chart');

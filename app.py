@@ -187,6 +187,7 @@ def login_required(fn):
 _MONGO_CLIENT: Optional["MongoClient"] = None
 _MONGO_COLLECTION = None
 _MONGO_LOGIN_COLLECTION = None
+_MONGO_LAST_ANALYSIS_COLLECTION = None
 
 
 def _get_mongo_collection():
@@ -284,6 +285,99 @@ def _log_login_event(event_type: str, user: Optional[dict] = None, extra: Option
     coll = _get_mongo_login_collection()
     if coll is None:
         return
+
+
+def _current_user_key() -> Optional[str]:
+    user = session.get('user')
+    if not isinstance(user, dict):
+        return None
+    sub = (user.get('sub') or '').strip()
+    if sub:
+        return f"google:{sub}"
+    email = (user.get('email') or '').strip().lower()
+    if email:
+        return f"email:{email}"
+    return None
+
+
+def _get_mongo_last_analysis_collection():
+    """Return Mongo collection for per-user last analysis or None if not configured."""
+
+    global _MONGO_CLIENT, _MONGO_LAST_ANALYSIS_COLLECTION
+    if _MONGO_LAST_ANALYSIS_COLLECTION is not None:
+        return _MONGO_LAST_ANALYSIS_COLLECTION
+
+    if MongoClient is None:
+        return None
+
+    uri = (os.getenv("MONGODB_URI") or "").strip()
+    if not uri:
+        return None
+
+    db_name = (os.getenv("MONGODB_DB") or "es_gamma_analyzer").strip()
+    coll_name = (os.getenv("MONGODB_LAST_ANALYSIS_COLLECTION") or "last_analysis").strip()
+
+    try:
+        if _MONGO_CLIENT is None:
+            _MONGO_CLIENT = MongoClient(uri, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+
+        db = _MONGO_CLIENT[db_name]
+        coll = db[coll_name]
+
+        try:
+            coll.create_index("user_key", unique=True)
+        except Exception:
+            pass
+
+        _MONGO_LAST_ANALYSIS_COLLECTION = coll
+        return _MONGO_LAST_ANALYSIS_COLLECTION
+    except Exception:
+        return None
+
+
+def _save_last_analysis(filename: str, analysis: dict) -> None:
+    coll = _get_mongo_last_analysis_collection()
+    if coll is None:
+        return
+
+    user_key = _current_user_key()
+    if not user_key:
+        return
+
+    try:
+        # Ensure Mongo-safe JSON primitives.
+        payload = json.loads(json.dumps(analysis, default=str))
+    except Exception:
+        payload = analysis
+
+    doc = {
+        "user_key": user_key,
+        "user": session.get('user'),
+        "filename": filename,
+        "updated_at": _dt.datetime.utcnow(),
+        "analysis": payload,
+    }
+
+    try:
+        coll.replace_one({"user_key": user_key}, doc, upsert=True)
+    except Exception:
+        return
+
+
+def _load_last_analysis() -> Optional[dict]:
+    coll = _get_mongo_last_analysis_collection()
+    if coll is None:
+        return None
+    user_key = _current_user_key()
+    if not user_key:
+        return None
+    try:
+        doc = coll.find_one({"user_key": user_key})
+        if not doc:
+            return None
+        return doc
+    except Exception:
+        return None
 
     try:
         login_session_id = session.get('login_session_id')
@@ -2441,6 +2535,31 @@ def api_health():
     })
 
 
+@app.route('/api/last-analysis', methods=['GET'])
+@login_required
+def api_last_analysis():
+    doc = _load_last_analysis()
+    if not doc:
+        return jsonify({"has_last_analysis": False})
+
+    updated_at = doc.get('updated_at')
+    try:
+        updated_at_str = updated_at.isoformat() if updated_at else None
+    except Exception:
+        updated_at_str = None
+
+    analysis = doc.get('analysis')
+    if not isinstance(analysis, dict):
+        analysis = None
+
+    return jsonify({
+        "has_last_analysis": True,
+        "filename": doc.get('filename'),
+        "updated_at": updated_at_str,
+        "analysis": analysis,
+    })
+
+
 @app.route('/api/nvda-snapshot', methods=['GET'])
 def nvda_snapshot():
     levels_mode = (request.args.get('levels_mode') or 'price').strip().lower()
@@ -2584,6 +2703,7 @@ def analyze():
         return jsonify({'error': 'Nessun file caricato'}), 400
     
     file = request.files['file']
+    original_filename = file.filename or 'upload.pdf'
     if file.filename == '':
         return jsonify({'error': 'Nessun file selezionato'}), 400
     
@@ -2650,6 +2770,13 @@ def analyze():
         
         # Rimuovi il file temporaneo
         os.remove(filepath)
+
+        # Persist the last successful analysis per user (best-effort; no-op if Mongo not configured).
+        try:
+            if isinstance(results, dict) and not results.get('error'):
+                _save_last_analysis(original_filename, results)
+        except Exception:
+            pass
         
         return jsonify(results)
         
