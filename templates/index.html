@@ -309,10 +309,12 @@
 
         .pressure-buy {
             border-color: rgba(45, 212, 191, 0.85) !important;
+            background: rgba(45, 212, 191, 0.08) !important;
         }
 
         .pressure-sell {
             border-color: rgba(251, 113, 133, 0.85) !important;
+            background: rgba(251, 113, 133, 0.08) !important;
         }
 
         .price-box * {
@@ -932,6 +934,7 @@
         const pressureAmznValue = document.getElementById('pressureAmznValue');
         const pressureAmznMeta = document.getElementById('pressureAmznMeta');
         const pressureAmznBox = document.getElementById('pressureAmznBox');
+        const overallPressureBox = document.getElementById('overallPressureBox');
         const overallPressureValue = document.getElementById('overallPressureValue');
         const overallPressureTime = document.getElementById('overallPressureTime');
 
@@ -1151,6 +1154,7 @@
 
             const overallSide = sides.length === 0 ? null : (buyCount >= sellCount ? 'BUY' : 'SELL');
             _setPressureText(overallPressureValue, overallSide);
+            _setPressureBorder(overallPressureBox, overallSide);
             if (overallPressureTime) {
                 const now = new Date();
                 overallPressureTime.textContent = `Updated ${now.toLocaleTimeString()}`;
