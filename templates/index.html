@@ -694,7 +694,7 @@
                                 <div class="row g-2 mb-2">
                                     <div class="col-12">
                                         <div class="price-box text-start" id="overallPressureBox">
-                                            <div class="box-label">Overall</div>
+                                            <div class="box-label">Overall <span class="pressure-inline-meta" id="overallPressureInlineMeta"></span></div>
                                             <div class="fw-bold" id="overallPressureValue">--</div>
                                             <div class="box-sub" id="overallPressureTime">--</div>
                                         </div>
@@ -1070,6 +1070,7 @@
         const overallPressureBox = document.getElementById('overallPressureBox');
         const overallPressureValue = document.getElementById('overallPressureValue');
         const overallPressureTime = document.getElementById('overallPressureTime');
+        const overallPressureInlineMeta = document.getElementById('overallPressureInlineMeta');
 
         const esPcrLabel = document.getElementById('esPcrLabel');
         const spxPcrLabel = document.getElementById('spxPcrLabel');
@@ -1132,6 +1133,20 @@
             } catch (e) {
                 // no-op
             }
+        }
+
+        function clearTooltip(el) {
+            if (!el) return;
+            try {
+                if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
+                    const inst = bootstrap.Tooltip.getInstance(el);
+                    if (inst) inst.dispose();
+                }
+            } catch (e) {
+                // no-op
+            }
+            try { el.removeAttribute('data-bs-title'); } catch (e) {}
+            try { el.removeAttribute('data-bs-toggle'); } catch (e) {}
         }
 
         function ensurePressureChart() {
@@ -1431,7 +1446,8 @@
                 const now = new Date();
                 const t = `Updated ${now.toLocaleTimeString()}`;
                 overallPressureTime.textContent = '';
-                setTooltip(overallPressureBox, t);
+                if (overallPressureInlineMeta) overallPressureInlineMeta.textContent = `(${t})`;
+                clearTooltip(overallPressureBox);
             }
 
             // Chart: combined score across instruments (-4..+4)
