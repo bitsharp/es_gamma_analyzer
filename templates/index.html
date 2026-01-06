@@ -63,6 +63,41 @@
             padding: 0.4rem 0.6rem;
         }
 
+        /* Compact ES Key Levels (move details to hover tooltips) */
+        #esKeyLevelsCard .price-box {
+            padding: 0.45rem 0.65rem;
+        }
+
+        #esKeyLevelsCard .price-box .fw-bold {
+            font-size: 1.15rem;
+            line-height: 1.05;
+        }
+
+        #esKeyLevelsCard #esLiveTime {
+            display: none;
+        }
+
+        #esKeyLevelsCard #gammaFlipBox .box-sub {
+            display: none;
+        }
+
+        #esKeyLevelsCard .level-item {
+            padding: 0.45rem 0.6rem;
+            margin-bottom: 0.4rem;
+            cursor: help;
+        }
+
+        #esKeyLevelsCard .level-item .fw-bold {
+            font-size: 0.95rem !important;
+            line-height: 1.1;
+            white-space: nowrap;
+        }
+
+        #esKeyLevelsCard #esLiveBox,
+        #esKeyLevelsCard #gammaFlipBox {
+            cursor: help;
+        }
+
         /* Compact Market Pressure panel to free space for chart */
         #pressureCard .card-body {
             padding: 0.6rem;
@@ -581,7 +616,7 @@
                             <div class="card-body">
                                 <div class="row g-2 mb-3 price-row">
                                     <div class="col-6">
-                                        <div class="price-box text-start" id="esLiveBox">
+                                        <div class="price-box text-start" id="esLiveBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
                                         <div class="box-label">ES live</div>
                                         <div class="fw-bold" id="esLivePrice">--</div>
                                         <div class="box-sub" id="esLiveTime">--</div>
@@ -589,7 +624,7 @@
                                     </div>
 
                                     <div class="col-6">
-                                        <div class="price-box text-start" id="gammaFlipBox">
+                                        <div class="price-box text-start" id="gammaFlipBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
                                         <div class="box-label">ES Gamma Flip</div>
                                         <div class="fw-bold" id="gammaFlipTop">--</div>
                                         <div class="box-sub">GAMMA FLIP LEVEL</div>
@@ -964,6 +999,8 @@
         const errorMsg = document.getElementById('errorMsg');
         const esLivePrice = document.getElementById('esLivePrice');
         const esLiveTime = document.getElementById('esLiveTime');
+        const esLiveBox = document.getElementById('esLiveBox');
+        const gammaFlipBox = document.getElementById('gammaFlipBox');
         const gammaFlipTop = document.getElementById('gammaFlipTop');
         const nvdaLivePrice = document.getElementById('nvdaLivePrice');
         const nvdaLiveTime = document.getElementById('nvdaLiveTime');
@@ -1031,6 +1068,42 @@
         let _pressureLastSentScore = null;
 
         const pressureChartResetBtn = document.getElementById('pressureChartResetBtn');
+
+        function initTooltipsWithin(rootEl) {
+            if (!rootEl || typeof bootstrap === 'undefined' || !bootstrap.Tooltip) return;
+            const els = rootEl.querySelectorAll('[data-bs-toggle="tooltip"]');
+            els.forEach((el) => {
+                try {
+                    bootstrap.Tooltip.getOrCreateInstance(el, { trigger: 'hover', container: 'body' });
+                } catch (e) {
+                    // no-op
+                }
+            });
+        }
+
+        function setTooltip(el, text) {
+            if (!el) return;
+            const t = (text || '').toString();
+            el.setAttribute('data-bs-title', t);
+            el.setAttribute('data-bs-toggle', 'tooltip');
+
+            if (typeof bootstrap === 'undefined' || !bootstrap.Tooltip) return;
+            try {
+                const inst = bootstrap.Tooltip.getInstance(el);
+                if (inst) {
+                    try {
+                        inst.setContent({ '.tooltip-inner': t });
+                    } catch (e) {
+                        try { inst.dispose(); } catch (e2) {}
+                        bootstrap.Tooltip.getOrCreateInstance(el, { trigger: 'hover', container: 'body' });
+                    }
+                } else {
+                    bootstrap.Tooltip.getOrCreateInstance(el, { trigger: 'hover', container: 'body' });
+                }
+            } catch (e) {
+                // no-op
+            }
+        }
 
         function ensurePressureChart() {
             const el = document.getElementById('pressureChart');
@@ -1640,6 +1713,8 @@
                         esLiveTime.textContent = (when || '--') + note;
                     }
 
+                    setTooltip(esLiveBox, `Updated: ${(when || '--')}${note}`);
+
                     updateEsNearSignals();
                     updatePressureUI();
 
@@ -1648,6 +1723,7 @@
                     if (esLivePrice) esLivePrice.textContent = '--';
                     if (esLiveTime) esLiveTime.textContent = '--';
                     latestEsPrice = null;
+                    setTooltip(esLiveBox, '--');
                     updatePressureUI();
                     return null;
                 }
@@ -2532,6 +2608,11 @@
                 gammaFlipTop.textContent = data.gamma_flip ? data.gamma_flip.toFixed(2) : '--';
             }
 
+            setTooltip(
+                gammaFlipBox,
+                `Gamma Flip: ${data && data.gamma_flip ? Number(data.gamma_flip).toFixed(2) : '--'}${data && data.regime ? `\nRegime: ${data.regime}` : ''}`
+            );
+
             latestEsGammaFlip = (data && Number.isFinite(Number(data.gamma_flip))) ? Number(data.gamma_flip) : null;
             
             // Regime
@@ -2551,16 +2632,14 @@
             const supportsNote = document.getElementById('supportsNote');
             if (data.supports && data.supports.length > 0) {
                 supportsContainer.innerHTML = data.supports.map((s, i) => `
-                    <div class="level-item support-item ${heatClassForIndex(i)}" data-strike="${Number(s.strike)}">
+                    <div class="level-item support-item ${heatClassForIndex(i)}" data-strike="${Number(s.strike)}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Call: ${Number(s.call_oi).toLocaleString()} | Put: ${Number(s.put_oi).toLocaleString()} | Gamma: ${(Number(s.gamma) / 1000).toFixed(0)}K">
                         <div class="d-flex justify-content-between align-items-center level-row">
-                            <div>
-                                <div class="fw-bold text-support fs-5">S${i+1}  ${s.strike.toFixed(2)}</div>
-                                <div class="text-muted small">Call: ${s.call_oi.toLocaleString()} | Put: ${s.put_oi.toLocaleString()}</div>
-                            </div>
-                            <div class="fw-bold text-support fs-5 level-metric">+${(s.gamma / 1000).toFixed(0)}K</div>
+                            <div class="fw-bold text-support">S${i+1}  ${Number(s.strike).toFixed(2)}</div>
                         </div>
                     </div>
                 `).join('');
+
+                initTooltipsWithin(supportsContainer);
                 
                 if (data.supports_note) {
                     supportsNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.supports_note;
@@ -2575,16 +2654,14 @@
             const resistancesNote = document.getElementById('resistancesNote');
             if (data.resistances && data.resistances.length > 0) {
                 resistancesContainer.innerHTML = data.resistances.map((r, i) => `
-                    <div class="level-item resistance-item ${heatClassForIndex(i)}" data-strike="${Number(r.strike)}">
+                    <div class="level-item resistance-item ${heatClassForIndex(i)}" data-strike="${Number(r.strike)}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Call: ${Number(r.call_oi).toLocaleString()} | Put: ${Number(r.put_oi).toLocaleString()} | Gamma: ${(Number(r.gamma) / 1000).toFixed(0)}K">
                         <div class="d-flex justify-content-between align-items-center level-row">
-                            <div>
-                                <div class="fw-bold text-resistance fs-5">R${i+1}  ${r.strike.toFixed(2)}</div>
-                                <div class="text-muted small">Call: ${r.call_oi.toLocaleString()} | Put: ${r.put_oi.toLocaleString()}</div>
-                            </div>
-                            <div class="fw-bold text-resistance fs-5 level-metric">${(r.gamma / 1000).toFixed(0)}K</div>
+                            <div class="fw-bold text-resistance">R${i+1}  ${Number(r.strike).toFixed(2)}</div>
                         </div>
                     </div>
                 `).join('');
+
+                initTooltipsWithin(resistancesContainer);
                 
                 if (data.resistances_note) {
                     resistancesNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.resistances_note;
