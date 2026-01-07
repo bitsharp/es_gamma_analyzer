@@ -286,6 +286,28 @@ def _log_login_event(event_type: str, user: Optional[dict] = None, extra: Option
     if coll is None:
         return
 
+    try:
+        login_session_id = session.get('login_session_id')
+        if not login_session_id:
+            login_session_id = str(uuid.uuid4())
+            session['login_session_id'] = login_session_id
+
+        doc = {
+            "event": event_type,
+            "login_session_id": login_session_id,
+            "created_at": _dt.datetime.utcnow(),
+            "ts": int(time.time()),
+            "user": (user if isinstance(user, dict) else session.get('user')),
+            "ip": request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr,
+            "user_agent": request.headers.get('User-Agent'),
+        }
+        if extra and isinstance(extra, dict):
+            doc["extra"] = extra
+        coll.insert_one(doc)
+    except Exception:
+        # Never break login/logout due to logging.
+        return
+
 
 def _current_user_key() -> Optional[str]:
     user = session.get('user')
