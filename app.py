@@ -1,6 +1,11 @@
 """
 Flask web application per analisi gamma exposure 0DTE
 """
+
+# ============================================================================
+# IMPORTS
+# ============================================================================
+
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import os
 import time
@@ -42,6 +47,10 @@ try:
 except Exception:  # pragma: no cover
     MongoClient = None
 
+# ============================================================================
+# CONFIGURATION & GLOBALS
+# ============================================================================
+
 _PYMUPDF_AVAILABLE = importlib.util.find_spec("fitz") is not None
 _RUNTIME_PYTHON = sys.executable
 _IN_VENV = getattr(sys, "base_prefix", sys.prefix) != sys.prefix
@@ -69,6 +78,9 @@ if os.getenv('VERCEL'):
 
 oauth = OAuth(app) if OAuth is not None else None
 
+# ============================================================================
+# AUTHENTICATION & SESSION MANAGEMENT
+# ============================================================================
 
 def _ensure_google_oauth_registered() -> bool:
     """Register the Google OAuth client if possible.
@@ -183,6 +195,10 @@ def login_required(fn):
 
     return wrapper
 
+
+# ============================================================================
+# MONGODB HELPERS
+# ============================================================================
 
 _MONGO_CLIENT: Optional["MongoClient"] = None
 _MONGO_COLLECTION = None
@@ -424,6 +440,10 @@ def _load_last_analysis() -> Optional[dict]:
         return
 
 
+# ============================================================================
+# FILE SYSTEM HELPERS
+# ============================================================================
+
 def _is_writable_dir(path: str) -> bool:
     try:
         os.makedirs(path, exist_ok=True)
@@ -458,6 +478,9 @@ def get_upload_folder() -> str:
 
 app.config['UPLOAD_FOLDER'] = get_upload_folder()
 
+# ============================================================================
+# CACHE GLOBALS (Market Data)
+# ============================================================================
 
 _SP500_PRICE_CACHE = {
     "value": None,
@@ -517,6 +540,10 @@ _AMZN_SNAPSHOT_CACHE = {
     "value": None,
     "fetched_at": 0.0,
 }
+
+# ============================================================================
+# DATA PARSING & EXTRACTION UTILITIES
+# ============================================================================
 
 
 def _parse_pdf_number(value: object) -> float:
@@ -799,6 +826,10 @@ def get_goog_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, An
 
 def get_amzn_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
     return _get_nasdaq_stock_snapshot_cached("AMZN", _AMZN_SNAPSHOT_CACHE, max_age_seconds=max_age_seconds)
+
+# ============================================================================
+# MARKET DATA FETCHERS (NASDAQ Options & Stocks)
+# ============================================================================
 
 
 def get_nvda_snapshot_cached(max_age_seconds: int = 60, levels_mode: str = "price") -> Optional[Dict[str, Any]]:
@@ -1457,6 +1488,10 @@ def get_es_price_cached(max_age_seconds: int = 5) -> Optional[Dict[str, Any]]:
     _ES_PRICE_CACHE["value"] = data
     _ES_PRICE_CACHE["fetched_at"] = now
     return data
+
+# ============================================================================
+# PDF EXTRACTION FUNCTIONS (0DTE, 1DTE, Multi-DTE)
+# ============================================================================
 
 def extract_0dte_data(pdf_path: str) -> pd.DataFrame:
     """Estrae solo i dati 0DTE dal PDF Open Interest Matrix."""
@@ -2156,6 +2191,10 @@ def _find_dte_column_mapping(pdf_path: str) -> Dict[int, tuple[int, int]]:
 
     return {}
 
+# ============================================================================
+# GAMMA ANALYSIS CORE FUNCTIONS
+# ============================================================================
+
 
 def analyze_0dte(
     df: pd.DataFrame,
@@ -2371,6 +2410,10 @@ def analyze_0dte(
     
     return results
 
+# ============================================================================
+# WEB ROUTES - Authentication & Admin
+# ============================================================================
+
 
 @app.route('/')
 def index():
@@ -2519,6 +2562,10 @@ def admin_login_sessions():
         mongo_enabled=True,
         admin_emails=(os.getenv('ADMIN_EMAILS') or '').strip(),
     )
+
+# ============================================================================
+# WEB ROUTES - API Endpoints (Market Data & MongoDB)
+# ============================================================================
 
 
 @app.route('/api/sp500-price', methods=['GET'])
@@ -2718,6 +2765,10 @@ def pressure_point():
     except Exception as e:
         return jsonify({"error": f"Errore MongoDB: {e}"}), 503
 
+# ============================================================================
+# WEB ROUTES - Main Application (PDF Analysis)
+# ============================================================================
+
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
@@ -2804,6 +2855,10 @@ def analyze():
         
     except Exception as e:
         return jsonify({'error': f'Errore durante l\'analisi: {str(e)}'}), 500
+
+# ============================================================================
+# APPLICATION ENTRY POINT
+# ============================================================================
 
 
 if __name__ == '__main__':
