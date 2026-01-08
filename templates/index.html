@@ -783,6 +783,13 @@
                             </div>
                         </div>
 
+                        <div id="spxRegimeCard" style="display: none;" class="mb-2">
+                            <div class="alert alert-warning mb-0" style="background: rgba(234, 179, 8, 0.1); border-left: 4px solid #eab308;">
+                                <div class="fw-semibold small mb-1" id="spxRegimeType">-</div>
+                                <div class="small" id="spxRegimeStrategy">-</div>
+                            </div>
+                        </div>
+
                         <div class="row g-2 mb-2">
                             <div class="col-6">
                                 <div class="level-item support-item" id="spxS1Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
@@ -1856,6 +1863,20 @@
             }
 
             setPutCallRatio(spxPcrLabel, data.stats);
+
+            // Regime
+            const spxRegimeCard = document.getElementById('spxRegimeCard');
+            if (spxRegimeCard) {
+                if (data.regime) {
+                    spxRegimeCard.style.display = 'block';
+                    const regimeTypeEl = document.getElementById('spxRegimeType');
+                    const regimeStrategyEl = document.getElementById('spxRegimeStrategy');
+                    if (regimeTypeEl) regimeTypeEl.textContent = data.regime;
+                    if (regimeStrategyEl) regimeStrategyEl.innerHTML = '<i class="bi bi-info-circle me-2"></i>' + (data.strategy || '');
+                } else {
+                    spxRegimeCard.style.display = 'none';
+                }
+            }
 
             // Update price and gamma flip
             const price = Number(data.price);
