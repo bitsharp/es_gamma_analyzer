@@ -614,6 +614,22 @@
         .resistance-box .level-value {
             color: #fb7185;
         }
+
+        /* SPX Key Levels - match ES font sizes */
+        #spxKeyLevelsCard .price-box {
+            padding: 0.45rem 0.65rem;
+        }
+
+        #spxKeyLevelsCard .price-box .fw-bold {
+            font-size: 1.15rem;
+            line-height: 1.05;
+        }
+
+        #spxKeyLevelsCard .level-item .fw-bold {
+            font-size: 0.95rem !important;
+            line-height: 1.1;
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
@@ -760,8 +776,8 @@
                 <div class="card" id="spxKeyLevelsCard">
                     <div class="card-header">
                         <div class="d-flex align-items-center justify-content-between">
-                            <div>
-                                <i class="bi bi-graph-up me-2"></i>SPX Key Levels <span class="text-muted" id="spxPcrLabel"></span> <span class="text-muted small" id="spxExpiryLabel"></span> <span class="text-muted small" id="spxMetricLabel"></span>
+                            <div id="spxKeyLevelsHeader" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="">
+                                <i class="bi bi-graph-up me-2"></i>SPX Key Levels <span class="text-muted" id="spxPcrLabel"></span> <span class="text-muted small" id="spxExpiryLabel" style="display: none;"></span> <span class="text-muted small" id="spxMetricLabel" style="display: none;"></span>
                             </div>
                             <div class="form-check form-switch mb-0" style="transform: scale(0.85); transform-origin: right center;">
                                 <input class="form-check-input" type="checkbox" role="switch" id="spxMetricSwitch">
@@ -770,19 +786,20 @@
                         </div>
                     </div>
                     <div class="card-body">
-                        <div class="row g-2 mb-2 price-row">
+                        <div class="row g-2 mb-3 price-row">
                             <div class="col-6">
                                 <div class="price-box text-start" id="spxLiveBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
                                     <div class="box-label">SPX live</div>
                                     <div class="fw-bold" id="spxLivePrice">--</div>
-                                    <div class="box-sub" id="spxLiveTime">--</div>
+                                    <div class="box-sub" id="spxLiveTime" style="display: none;">--</div>
                                 </div>
                             </div>
+
                             <div class="col-6">
                                 <div class="price-box text-start" id="spxGammaFlipBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                    <div class="box-label">Gamma flip</div>
+                                    <div class="box-label">SPX Gamma Flip</div>
                                     <div class="fw-bold" id="spxGammaFlipTop">--</div>
-                                    <div class="box-sub" id="spxPutCallRatio">--</div>
+                                    <div class="box-sub" id="spxPutCallRatio" style="display: none;">GAMMA FLIP LEVEL</div>
                                 </div>
                             </div>
                         </div>
@@ -794,41 +811,37 @@
                             </div>
                         </div>
 
-                        <div class="row g-2 mb-2">
-                            <div class="col-6">
-                                <div class="level-item support-item" id="spxS1Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                    <div class="fw-bold text-support fs-5" id="spxS1">--</div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6 class="text-support mb-3">
+                                    <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
+                                </h6>
+                                <div id="spxSupportsContainer">
+                                    <div class="level-item support-item mb-2" id="spxS1Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                        <div class="fw-bold text-support fs-5" id="spxS1">--</div>
+                                    </div>
+                                    <div class="level-item support-item mb-2" id="spxS2Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                        <div class="fw-bold text-support fs-5" id="spxS2">--</div>
+                                    </div>
+                                    <div class="level-item support-item" id="spxS3Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                        <div class="fw-bold text-support fs-5" id="spxS3">--</div>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="col-6">
-                                <div class="level-item resistance-item" id="spxR1Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                    <div class="fw-bold text-resistance fs-5" id="spxR1">--</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="row g-2 mb-2">
-                            <div class="col-6">
-                                <div class="level-item support-item" id="spxS2Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                    <div class="fw-bold text-support fs-5" id="spxS2">--</div>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="level-item resistance-item" id="spxR2Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                    <div class="fw-bold text-resistance fs-5" id="spxR2">--</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="row g-2">
-                            <div class="col-6">
-                                <div class="level-item support-item" id="spxS3Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                    <div class="fw-bold text-support fs-5" id="spxS3">--</div>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="level-item resistance-item" id="spxR3Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                    <div class="fw-bold text-resistance fs-5" id="spxR3">--</div>
+                            <div class="col-md-6">
+                                <h6 class="text-resistance mb-3">
+                                    <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
+                                </h6>
+                                <div id="spxResistancesContainer">
+                                    <div class="level-item resistance-item mb-2" id="spxR1Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                        <div class="fw-bold text-resistance fs-5" id="spxR1">--</div>
+                                    </div>
+                                    <div class="level-item resistance-item mb-2" id="spxR2Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                        <div class="fw-bold text-resistance fs-5" id="spxR2">--</div>
+                                    </div>
+                                    <div class="level-item resistance-item" id="spxR3Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                        <div class="fw-bold text-resistance fs-5" id="spxR3">--</div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -842,7 +855,7 @@
                     <div class="card-header">
                         <div class="d-flex align-items-center justify-content-between">
                             <div>
-                                <i class="bi bi-speedometer2 me-2"></i>Market Pressure (ES + SPX + SPY + XSP)
+                                <i class="bi bi-speedometer2 me-2"></i>Market Pressure (ES + SPX + SPY + XSP + NVDA + MSFT + AAPL + GOOG + AMZN)
                             </div>
                             <button type="button" class="btn btn-sm btn-outline-light" data-bs-toggle="modal" data-bs-target="#pressureInfoModal" aria-label="Info pressure">
                                         <i class="bi bi-info-circle"></i>
@@ -1837,22 +1850,28 @@
         }
 
         function displaySpxKeyLevels(data) {
-            // Update expiry label
-            if (spxExpiryLabel) {
-                if (data && data.expiration) {
-                    let expiryText = `(exp: ${formatExpiryDate(data.expiration)})`;
-                    
-                    // Mostra la fonte dati
-                    if (data.source === "yahoo") {
-                        expiryText += ` (Yahoo)`;
-                    } else if (data.note && data.note.toLowerCase().includes("proxy")) {
-                        expiryText += ` ⚠️ Using SPY as proxy`;
-                    }
-                    
-                    spxExpiryLabel.textContent = expiryText;
-                } else {
-                    spxExpiryLabel.textContent = '';
+            // Update header tooltip with expiry, source, and metric info
+            const spxHeader = document.getElementById('spxKeyLevelsHeader');
+            if (spxHeader && data && data.expiration) {
+                let tooltipParts = [];
+                
+                // Expiry date
+                tooltipParts.push(`Expiry: ${formatExpiryDate(data.expiration)}`);
+                
+                // Source
+                if (data.source === "yahoo") {
+                    tooltipParts.push('Source: Yahoo Finance');
+                } else if (data.note && data.note.toLowerCase().includes("proxy")) {
+                    tooltipParts.push('Source: SPY Proxy ⚠️');
                 }
+                
+                // Metric
+                if (data.metric) {
+                    const metricText = data.metric === 'volume' ? 'Volume' : 'Open Interest';
+                    tooltipParts.push(`Metric: ${metricText}`);
+                }
+                
+                spxHeader.setAttribute('data-bs-title', tooltipParts.join(' | '));
             }
 
             if (!data || data.error) {
@@ -1868,12 +1887,6 @@
             }
 
             setPutCallRatio(spxPcrLabel, data.stats);
-
-            // Show metric being used
-            if (spxMetricLabel && data.metric) {
-                const metricText = data.metric === 'volume' ? '(Volume)' : '(Open Interest)';
-                spxMetricLabel.textContent = metricText;
-            }
 
             // Regime
             const spxRegimeCard = document.getElementById('spxRegimeCard');
@@ -1896,16 +1909,25 @@
             if (spxLivePrice) {
                 spxLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
             }
-            if (spxLiveTime) {
+            
+            // Set tooltip for SPX live box with time/date info
+            const spxLiveBox = document.getElementById('spxLiveBox');
+            if (spxLiveBox) {
                 const timeText = data.time || data.expiration || '--';
-                spxLiveTime.textContent = data.note ? `SPY Proxy` : timeText;
+                const tooltipText = data.note ? `SPY Proxy - ${timeText}` : timeText;
+                spxLiveBox.setAttribute('data-bs-title', tooltipText);
             }
+            
             if (spxGammaFlipTop) {
                 spxGammaFlipTop.textContent = Number.isFinite(gammaFlip) ? `${gammaFlip.toFixed(2)}` : '--';
             }
-            if (spxPutCallRatio && data.stats) {
+            
+            // Set tooltip for Gamma flip box with PCR info
+            const spxGammaFlipBox = document.getElementById('spxGammaFlipBox');
+            if (spxGammaFlipBox && data.stats) {
                 const pcr = Number(data.stats.put_call_ratio);
-                spxPutCallRatio.textContent = Number.isFinite(pcr) ? `${pcr.toFixed(2)}` : '--';
+                const pcrText = Number.isFinite(pcr) ? `PCR: ${pcr.toFixed(2)}` : '--';
+                spxGammaFlipBox.setAttribute('data-bs-title', pcrText);
             }
 
             const supports = Array.isArray(data.supports) ? data.supports : [];
