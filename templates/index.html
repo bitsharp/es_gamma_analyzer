@@ -2962,6 +2962,10 @@
             }
         });
 
+        // Restore switch states from localStorage BEFORE starting polling
+        _restoreLevelsModeSwitch(nvdaLevelsModeSwitch, 'nvda_levels_mode');
+        _restoreLevelsModeSwitch(msftLevelsModeSwitch, 'msft_levels_mode');
+
         // Kick off price fetch on page load.
         startEsPricePolling();
         startNvdaPolling();
@@ -3081,9 +3085,6 @@
                 loadSpxSnapshot();
             });
         }
-
-        _restoreLevelsModeSwitch(nvdaLevelsModeSwitch, 'nvda_levels_mode');
-        _restoreLevelsModeSwitch(msftLevelsModeSwitch, 'msft_levels_mode');
 
         if (nvdaLevelsModeSwitch) {
             nvdaLevelsModeSwitch.addEventListener('change', async () => {
