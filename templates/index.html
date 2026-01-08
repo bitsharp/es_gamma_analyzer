@@ -761,7 +761,11 @@
                     <div class="card-header">
                         <div class="d-flex align-items-center justify-content-between">
                             <div>
-                                <i class="bi bi-graph-up me-2"></i>SPX Key Levels <span class="text-muted" id="spxPcrLabel"></span> <span class="text-muted small" id="spxExpiryLabel"></span>
+                                <i class="bi bi-graph-up me-2"></i>SPX Key Levels <span class="text-muted" id="spxPcrLabel"></span> <span class="text-muted small" id="spxExpiryLabel"></span> <span class="text-muted small" id="spxMetricLabel"></span>
+                            </div>
+                            <div class="form-check form-switch mb-0" style="transform: scale(0.85); transform-origin: right center;">
+                                <input class="form-check-input" type="checkbox" role="switch" id="spxMetricSwitch">
+                                <label class="form-check-label small text-nowrap" for="spxMetricSwitch">Use Open Interest</label>
                             </div>
                         </div>
                     </div>
@@ -1271,6 +1275,7 @@
         const spxGammaFlipTop = document.getElementById('spxGammaFlipTop');
         const spxPutCallRatio = document.getElementById('spxPutCallRatio');
         const spxExpiryLabel = document.getElementById('spxExpiryLabel');
+        const spxMetricLabel = document.getElementById('spxMetricLabel');
 
         let pressureChart = null;
         let pressureSeries = null;
@@ -1864,6 +1869,12 @@
 
             setPutCallRatio(spxPcrLabel, data.stats);
 
+            // Show metric being used
+            if (spxMetricLabel && data.metric) {
+                const metricText = data.metric === 'volume' ? '(Volume)' : '(Open Interest)';
+                spxMetricLabel.textContent = metricText;
+            }
+
             // Regime
             const spxRegimeCard = document.getElementById('spxRegimeCard');
             if (spxRegimeCard) {
@@ -2308,7 +2319,12 @@
 
             spxLoadPromise = (async () => {
                 try {
-                    const response = await fetch('/api/spx-snapshot');
+                    // Check if user wants to use Open Interest instead of Volume
+                    const spxMetricSwitch = document.getElementById('spxMetricSwitch');
+                    const useOpenInterest = spxMetricSwitch ? spxMetricSwitch.checked : false;
+                    const metric = useOpenInterest ? 'openInterest' : 'volume';
+                    
+                    const response = await fetch(`/api/spx-snapshot?metric=${metric}`);
                     const data = await response.json();
 
                     console.log('SPX API Response:', data);
@@ -3055,6 +3071,14 @@
                 // Re-run analysis with the same uploaded PDF so you can compare quickly.
                 if (!selectedFile) return;
                 await runAnalysis();
+            });
+        }
+
+        const spxMetricSwitch = document.getElementById('spxMetricSwitch');
+        if (spxMetricSwitch) {
+            spxMetricSwitch.addEventListener('change', () => {
+                spxLoadPromise = null;
+                loadSpxSnapshot();
             });
         }
 

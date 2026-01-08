@@ -1387,11 +1387,15 @@ def get_msft_snapshot_cached(max_age_seconds: int = 60, levels_mode: str = "pric
     return _MSFT_SNAPSHOT_CACHE["value"]
 
 
-def get_spx_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
+def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
     """Fetch SPX last price + option-chain derived gamma flip for the nearest expiry.
 
     Yahoo Finance data is fetched only at 8:00 AM and 2:30 PM ET to avoid rate limits.
     Between these times, cached data is served.
+    
+    Args:
+        metric: 'volume' or 'openInterest' - which metric to use for level calculation
+        max_age_seconds: maximum age of cached data in seconds
     """
 
     now_ts = time.time()
@@ -1409,16 +1413,20 @@ def get_spx_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any
     elif current_hour == 14 and 30 <= current_minute < 35:
         should_fetch = True
     
-    cached = _SPX_SNAPSHOT_CACHE.get("value")
-    fetched_at = float(_SPX_SNAPSHOT_CACHE.get("fetched_at") or 0.0)
+    # Use metric-specific cache key
+    cache_key = f"value_{metric}"
+    fetched_at_key = f"fetched_at_{metric}"
+    
+    cached = _SPX_SNAPSHOT_CACHE.get(cache_key)
+    fetched_at = float(_SPX_SNAPSHOT_CACHE.get(fetched_at_key) or 0.0)
     
     # If we're in a fetch window and haven't fetched recently (within 5 minutes)
     if should_fetch and (now_ts - fetched_at) > 300:
-        print(f"[DEBUG] SPX scheduled fetch time: {current_hour}:{current_minute:02d}")
+        print(f"[DEBUG] SPX scheduled fetch time: {current_hour}:{current_minute:02d} with metric={metric}")
         pass  # Continue to fetch
     # Otherwise return cached data if available
     elif cached:
-        print(f"[DEBUG] Using cached SPX data (fetched {int((now_ts - fetched_at)/60)} minutes ago)")
+        print(f"[DEBUG] Using cached SPX data with metric={metric} (fetched {int((now_ts - fetched_at)/60)} minutes ago)")
         return cached
 
     # Try Yahoo Finance first
@@ -1441,13 +1449,13 @@ def get_spx_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any
                 put_ois = []
                 gammas = []
                 
-                # Combina calls e puts per strike - usa VOLUME invece di Open Interest per SPX
+                # Combina calls e puts per strike - usa metric (volume o openInterest)
                 strike_data = {}
                 for call in calls:
                     strike = float(call.get("strike", 0))
                     if strike > 0:
                         strike_data[strike] = {
-                            "call_oi": float(call.get("volume", 0) or 0),  # Volume per SPX
+                            "call_oi": float(call.get(metric, 0) or 0),
                             "put_oi": 0
                         }
                 
@@ -1455,11 +1463,11 @@ def get_spx_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any
                     strike = float(put.get("strike", 0))
                     if strike > 0:
                         if strike in strike_data:
-                            strike_data[strike]["put_oi"] = float(put.get("volume", 0) or 0)  # Volume per SPX
+                            strike_data[strike]["put_oi"] = float(put.get(metric, 0) or 0)
                         else:
                             strike_data[strike] = {
                                 "call_oi": 0,
-                                "put_oi": float(put.get("volume", 0) or 0)  # Volume per SPX
+                                "put_oi": float(put.get(metric, 0) or 0)
                             }
                 
                 for strike in sorted(strike_data.keys()):
@@ -1486,14 +1494,15 @@ def get_spx_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any
                         "expiration_date": expiration_date.isoformat(),
                         "price": last_price,
                         "time": None,
+                        "metric": metric,  # Add metric info to snapshot
                     }
                     
                     if isinstance(results, dict):
                         snapshot.update(results)
                     
-                    _SPX_SNAPSHOT_CACHE["value"] = snapshot
-                    _SPX_SNAPSHOT_CACHE["fetched_at"] = now_ts
-                    print(f"[DEBUG] Yahoo Finance SUCCESS - returning SPX snapshot with price {last_price}")
+                    _SPX_SNAPSHOT_CACHE[cache_key] = snapshot
+                    _SPX_SNAPSHOT_CACHE[fetched_at_key] = now_ts
+                    print(f"[DEBUG] Yahoo Finance SUCCESS - returning SPX snapshot with price {last_price} and metric={metric}")
                     return snapshot
         except Exception as e:
             print(f"[DEBUG] Yahoo Finance parsing failed: {e}")
@@ -2981,7 +2990,12 @@ def spx_snapshot():
         print("[DEBUG] Force refresh SPX data requested")
         _SPX_SNAPSHOT_CACHE["fetched_at"] = 0.0  # Reset cache timestamp
     
-    data = get_spx_snapshot_cached()
+    # Get metric parameter (volume or openInterest)
+    metric = request.args.get('metric', 'volume')
+    if metric not in ['volume', 'openInterest']:
+        metric = 'volume'
+    
+    data = get_spx_snapshot_cached(metric=metric)
     if not data:
         return jsonify({"error": "Impossibile recuperare SPX option chain in questo momento"}), 503
     return jsonify(data)
