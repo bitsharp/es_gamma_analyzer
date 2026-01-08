@@ -47,6 +47,11 @@ try:
 except Exception:  # pragma: no cover
     MongoClient = None
 
+try:
+    import yfinance as yf
+except Exception:  # pragma: no cover
+    yf = None
+
 # ============================================================================
 # CONFIGURATION & GLOBALS
 # ============================================================================
@@ -204,6 +209,7 @@ _MONGO_CLIENT: Optional["MongoClient"] = None
 _MONGO_COLLECTION = None
 _MONGO_LOGIN_COLLECTION = None
 _MONGO_LAST_ANALYSIS_COLLECTION = None
+_MONGO_GAMMA_STATS_COLLECTION = None
 
 
 def _get_mongo_collection():
@@ -416,6 +422,154 @@ def _load_last_analysis() -> Optional[dict]:
         return doc
     except Exception:
         return None
+
+
+def _get_mongo_gamma_stats_collection():
+    """Return Mongo collection for gamma statistics tracking or None if not configured."""
+    
+    global _MONGO_CLIENT, _MONGO_GAMMA_STATS_COLLECTION
+    if _MONGO_GAMMA_STATS_COLLECTION is not None:
+        return _MONGO_GAMMA_STATS_COLLECTION
+    
+    if MongoClient is None:
+        return None
+    
+    uri = (os.getenv("MONGODB_URI") or "").strip()
+    if not uri:
+        return None
+    
+    db_name = (os.getenv("MONGODB_DB") or "es_gamma_analyzer").strip()
+    coll_name = (os.getenv("MONGODB_GAMMA_STATS_COLLECTION") or "gamma_statistics").strip()
+    
+    try:
+        if _MONGO_CLIENT is None:
+            _MONGO_CLIENT = MongoClient(uri, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+        
+        db = _MONGO_CLIENT[db_name]
+        coll = db[coll_name]
+        
+        # Indici per query efficienti
+        try:
+            coll.create_index([("strike", 1), ("timestamp", -1)])
+            coll.create_index("timestamp")
+        except Exception:
+            pass
+        
+        _MONGO_GAMMA_STATS_COLLECTION = coll
+        return _MONGO_GAMMA_STATS_COLLECTION
+    except Exception:
+        return None
+
+
+def _save_gamma_statistics(supports: list, resistances: list, price: float = None) -> None:
+    """Salva statistiche gamma nel database per tracking storico."""
+    coll = _get_mongo_gamma_stats_collection()
+    if coll is None:
+        return
+    
+    timestamp = _dt.datetime.utcnow()
+    user_key = _current_user_key()
+    
+    # Salva ogni livello con le sue statistiche
+    documents = []
+    
+    for level in supports:
+        if isinstance(level, dict):
+            doc = {
+                "strike": float(level.get("strike", 0)),
+                "type": "support",
+                "gamma": float(level.get("gamma", 0)),
+                "call_oi": float(level.get("call_oi", 0)),
+                "put_oi": float(level.get("put_oi", 0)),
+                "timestamp": timestamp,
+                "user_key": user_key,
+                "current_price": float(price) if price else None,
+            }
+            documents.append(doc)
+    
+    for level in resistances:
+        if isinstance(level, dict):
+            doc = {
+                "strike": float(level.get("resistance", 0) or level.get("strike", 0)),
+                "type": "resistance",
+                "gamma": float(level.get("gamma", 0)),
+                "call_oi": float(level.get("call_oi", 0)),
+                "put_oi": float(level.get("put_oi", 0)),
+                "timestamp": timestamp,
+                "user_key": user_key,
+                "current_price": float(price) if price else None,
+            }
+            documents.append(doc)
+    
+    if documents:
+        try:
+            coll.insert_many(documents)
+        except Exception:
+            pass
+
+
+def _get_gamma_statistics(strike: float, days_back: int = 30) -> dict:
+    """Recupera statistiche storiche per uno strike specifico."""
+    coll = _get_mongo_gamma_stats_collection()
+    if coll is None:
+        return {}
+    
+    cutoff = _dt.datetime.utcnow() - _dt.timedelta(days=days_back)
+    
+    try:
+        docs = list(coll.find({
+            "strike": {"$gte": strike - 5, "$lte": strike + 5},  # Range di 10 punti
+            "timestamp": {"$gte": cutoff}
+        }).sort("timestamp", -1).limit(100))
+        
+        if not docs:
+            return {}
+        
+        gammas = [abs(d.get("gamma", 0)) for d in docs]
+        
+        return {
+            "count": len(gammas),
+            "avg_gamma": sum(gammas) / len(gammas) if gammas else 0,
+            "max_gamma": max(gammas) if gammas else 0,
+            "min_gamma": min(gammas) if gammas else 0,
+            "recent_gamma": gammas[0] if gammas else 0,
+        }
+    except Exception:
+        return {}
+
+
+def _get_top_gamma_levels(limit: int = 10, days_back: int = 7) -> list:
+    """Recupera i livelli con i gamma più alti degli ultimi giorni."""
+    coll = _get_mongo_gamma_stats_collection()
+    if coll is None:
+        return []
+    
+    cutoff = _dt.datetime.utcnow() - _dt.timedelta(days=days_back)
+    
+    try:
+        # Aggregazione per ottenere i gamma medi per strike
+        pipeline = [
+            {"$match": {"timestamp": {"$gte": cutoff}}},
+            {"$group": {
+                "_id": "$strike",
+                "avg_gamma": {"$avg": {"$abs": "$gamma"}},
+                "count": {"$sum": 1},
+                "type": {"$first": "$type"}
+            }},
+            {"$sort": {"avg_gamma": -1}},
+            {"$limit": limit}
+        ]
+        
+        results = list(coll.aggregate(pipeline))
+        
+        return [{
+            "strike": r["_id"],
+            "avg_gamma": r["avg_gamma"],
+            "count": r["count"],
+            "type": r.get("type", "unknown")
+        } for r in results]
+    except Exception:
+        return []
 
     try:
         login_session_id = session.get('login_session_id')
@@ -679,6 +833,68 @@ def _fetch_nasdaq_json(url: str, referer: str) -> Optional[Dict[str, Any]]:
             raw = response.read().decode("utf-8", errors="replace")
         return json.loads(raw)
     except Exception:
+        return None
+
+
+def _fetch_yahoo_options(symbol: str) -> Optional[Dict[str, Any]]:
+    """Fetch options data from Yahoo Finance using yfinance library."""
+    if not yf:
+        print("[DEBUG] yfinance library not available")
+        return None
+    
+    print(f"[DEBUG] Fetching Yahoo Finance options for {symbol} using yfinance")
+    try:
+        ticker = yf.Ticker(symbol)
+        
+        # Get current price
+        info = ticker.info
+        current_price = info.get("regularMarketPrice") or info.get("currentPrice")
+        
+        # Get available expiration dates
+        expirations = ticker.options
+        if not expirations:
+            print(f"[DEBUG] No expirations found for {symbol}")
+            return None
+        
+        # Get nearest expiration (0DTE or closest)
+        nearest_exp = expirations[0]
+        print(f"[DEBUG] Using expiration: {nearest_exp}")
+        
+        # Get options chain for nearest expiration
+        opt_chain = ticker.option_chain(nearest_exp)
+        calls_df = opt_chain.calls
+        puts_df = opt_chain.puts
+        
+        # Filter strikes: keep only 15 above and 15 below current price
+        if current_price:
+            # Get all unique strikes
+            all_strikes = sorted(set(calls_df['strike'].tolist() + puts_df['strike'].tolist()))
+            
+            # Find strikes around current price
+            strikes_below = [s for s in all_strikes if s < current_price][-15:]  # Last 15 below
+            strikes_above = [s for s in all_strikes if s >= current_price][:15]  # First 15 above
+            relevant_strikes = set(strikes_below + strikes_above)
+            
+            # Filter calls and puts
+            calls_df = calls_df[calls_df['strike'].isin(relevant_strikes)]
+            puts_df = puts_df[puts_df['strike'].isin(relevant_strikes)]
+            
+            print(f"[DEBUG] Filtered to {len(relevant_strikes)} strikes around price {current_price}")
+        
+        print(f"[DEBUG] Yahoo Finance fetch SUCCESS - {len(calls_df)} calls, {len(puts_df)} puts")
+        
+        # Convert to the expected format
+        return {
+            "symbol": symbol,
+            "price": current_price,
+            "expiration": nearest_exp,
+            "calls": calls_df.to_dict('records'),
+            "puts": puts_df.to_dict('records'),
+        }
+    except Exception as e:
+        print(f"[DEBUG] Yahoo Finance fetch FAILED: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -1174,18 +1390,119 @@ def get_msft_snapshot_cached(max_age_seconds: int = 60, levels_mode: str = "pric
 def get_spx_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
     """Fetch SPX last price + option-chain derived gamma flip for the nearest expiry.
 
-    Nasdaq may not expose SPX option chains reliably; when unavailable, falls back
-    to SPY option chain as a proxy.
+    Yahoo Finance data is fetched only at 8:00 AM and 2:30 PM ET to avoid rate limits.
+    Between these times, cached data is served.
     """
 
     now_ts = time.time()
+    now_dt = _dt.datetime.now()
+    
+    # Check if we should fetch new data (only at 8:00 AM or 2:30 PM)
+    should_fetch = False
+    current_hour = now_dt.hour
+    current_minute = now_dt.minute
+    
+    # 8:00 AM window (8:00-8:05)
+    if current_hour == 8 and current_minute < 5:
+        should_fetch = True
+    # 2:30 PM window (14:30-14:35)
+    elif current_hour == 14 and 30 <= current_minute < 35:
+        should_fetch = True
+    
     cached = _SPX_SNAPSHOT_CACHE.get("value")
     fetched_at = float(_SPX_SNAPSHOT_CACHE.get("fetched_at") or 0.0)
-    if cached and (now_ts - fetched_at) <= max_age_seconds:
+    
+    # If we're in a fetch window and haven't fetched recently (within 5 minutes)
+    if should_fetch and (now_ts - fetched_at) > 300:
+        print(f"[DEBUG] SPX scheduled fetch time: {current_hour}:{current_minute:02d}")
+        pass  # Continue to fetch
+    # Otherwise return cached data if available
+    elif cached:
+        print(f"[DEBUG] Using cached SPX data (fetched {int((now_ts - fetched_at)/60)} minutes ago)")
         return cached
 
+    # Try Yahoo Finance first
+    yahoo_data = _fetch_yahoo_options("^SPX")
+    print(f"[DEBUG] Yahoo Finance data received: {yahoo_data is not None}")
+    if yahoo_data:
+        print(f"[DEBUG] Yahoo data keys: {yahoo_data.keys()}")
+        try:
+            calls = yahoo_data.get("calls", [])
+            puts = yahoo_data.get("puts", [])
+            last_price = yahoo_data.get("price")
+            expiration_str = yahoo_data.get("expiration")
+            
+            if calls and puts and last_price:
+                # Parse expiration date (YYYY-MM-DD format from yfinance)
+                expiration_date = _dt.datetime.strptime(expiration_str, "%Y-%m-%d").date()
+                
+                strikes = []
+                call_ois = []
+                put_ois = []
+                gammas = []
+                
+                # Combina calls e puts per strike - usa VOLUME invece di Open Interest per SPX
+                strike_data = {}
+                for call in calls:
+                    strike = float(call.get("strike", 0))
+                    if strike > 0:
+                        strike_data[strike] = {
+                            "call_oi": float(call.get("volume", 0) or 0),  # Volume per SPX
+                            "put_oi": 0
+                        }
+                
+                for put in puts:
+                    strike = float(put.get("strike", 0))
+                    if strike > 0:
+                        if strike in strike_data:
+                            strike_data[strike]["put_oi"] = float(put.get("volume", 0) or 0)  # Volume per SPX
+                        else:
+                            strike_data[strike] = {
+                                "call_oi": 0,
+                                "put_oi": float(put.get("volume", 0) or 0)  # Volume per SPX
+                            }
+                
+                for strike in sorted(strike_data.keys()):
+                    data = strike_data[strike]
+                    strikes.append(strike)
+                    call_ois.append(data["call_oi"])
+                    put_ois.append(data["put_oi"])
+                    gammas.append((data["call_oi"] - data["put_oi"]) * 100)
+                
+                if strikes:
+                    df = pd.DataFrame({
+                        "Strike": strikes,
+                        "Call_OI": call_ois,
+                        "Put_OI": put_ois,
+                        "Gamma_Exposure": gammas,
+                    }).sort_values("Strike").reset_index(drop=True)
+                    
+                    results = analyze_0dte(df, current_price=last_price)
+                    
+                    snapshot = {
+                        "symbol": "SPX",
+                        "source": "yahoo",
+                        "expiration": expiration_date.strftime("%B %d, %Y"),
+                        "expiration_date": expiration_date.isoformat(),
+                        "price": last_price,
+                        "time": None,
+                    }
+                    
+                    if isinstance(results, dict):
+                        snapshot.update(results)
+                    
+                    _SPX_SNAPSHOT_CACHE["value"] = snapshot
+                    _SPX_SNAPSHOT_CACHE["fetched_at"] = now_ts
+                    print(f"[DEBUG] Yahoo Finance SUCCESS - returning SPX snapshot with price {last_price}")
+                    return snapshot
+        except Exception as e:
+            print(f"[DEBUG] Yahoo Finance parsing failed: {e}")
+            import traceback
+            traceback.print_exc()
+            pass  # Fall through to Nasdaq
+
+    # Try Nasdaq as fallback
     payload = None
-    # Try likely Nasdaq index endpoints.
     candidates = [
         (
             "https://www.nasdaq.com/market-activity/index/spx/option-chain",
@@ -1206,6 +1523,7 @@ def get_spx_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any
             break
 
     if not payload:
+        # Final fallback to SPY
         proxy = get_spy_snapshot_cached(max_age_seconds=max_age_seconds)
         if not proxy:
             return None
@@ -2657,6 +2975,12 @@ def msft_snapshot():
 
 @app.route('/api/spx-snapshot', methods=['GET'])
 def spx_snapshot():
+    # Allow force refresh for testing (add ?force=1 to URL)
+    force = request.args.get('force') == '1'
+    if force:
+        print("[DEBUG] Force refresh SPX data requested")
+        _SPX_SNAPSHOT_CACHE["fetched_at"] = 0.0  # Reset cache timestamp
+    
     data = get_spx_snapshot_cached()
     if not data:
         return jsonify({"error": "Impossibile recuperare SPX option chain in questo momento"}), 503
@@ -2765,6 +3089,43 @@ def pressure_point():
     except Exception as e:
         return jsonify({"error": f"Errore MongoDB: {e}"}), 503
 
+
+@app.route('/api/top-gamma-levels', methods=['GET'])
+def top_gamma_levels():
+    """Restituisce i livelli con i gamma più alti degli ultimi giorni."""
+    try:
+        days = int(request.args.get('days', '7'))
+        limit = int(request.args.get('limit', '10'))
+        days = max(1, min(days, 30))  # Limita tra 1 e 30 giorni
+        limit = max(1, min(limit, 50))  # Limita tra 1 e 50 risultati
+    except Exception:
+        days = 7
+        limit = 10
+    
+    levels = _get_top_gamma_levels(limit=limit, days_back=days)
+    return jsonify({
+        "levels": levels,
+        "days": days,
+        "limit": limit
+    })
+
+
+@app.route('/api/gamma-stats/<float:strike>', methods=['GET'])
+def gamma_stats(strike):
+    """Restituisce le statistiche storiche per uno strike specifico."""
+    try:
+        days = int(request.args.get('days', '30'))
+        days = max(1, min(days, 90))  # Limita tra 1 e 90 giorni
+    except Exception:
+        days = 30
+    
+    stats = _get_gamma_statistics(strike, days_back=days)
+    return jsonify({
+        "strike": strike,
+        "days": days,
+        "stats": stats
+    })
+
 # ============================================================================
 # WEB ROUTES - Main Application (PDF Analysis)
 # ============================================================================
@@ -2848,6 +3209,10 @@ def analyze():
         try:
             if isinstance(results, dict) and not results.get('error'):
                 _save_last_analysis(original_filename, results)
+                # Salva anche le statistiche gamma per tracking storico
+                supports = results.get('supports', [])
+                resistances = results.get('resistances', [])
+                _save_gamma_statistics(supports, resistances, current_price)
         except Exception:
             pass
         

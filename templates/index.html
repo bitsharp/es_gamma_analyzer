@@ -252,31 +252,44 @@
         }
 
         /* Heat scale (yellow -> orange -> red). Top levels are red. */
-        .heat-1,
-        .heat-2 {
-            /* Most important: red */
-            background: rgba(251, 113, 133, 0.20) !important;
-            border-color: rgba(251, 113, 133, 0.80) !important;
-            border-left-color: #fb7185 !important;
+        .heat-1 {
+            /* Gamma altissimo: rosso intenso */
+            background: rgba(220, 38, 38, 0.35) !important;
+            border-color: rgba(220, 38, 38, 1.0) !important;
+            border-left-color: #dc2626 !important;
+            border-left-width: 4px !important;
+            box-shadow: 0 0 8px rgba(220, 38, 38, 0.4) !important;
         }
 
-        .heat-1 {
-            background: rgba(251, 113, 133, 0.26) !important;
-            border-color: rgba(251, 113, 133, 0.90) !important;
+        .heat-2 {
+            /* Gamma alto: rosso medio */
+            background: rgba(239, 68, 68, 0.28) !important;
+            border-color: rgba(239, 68, 68, 0.90) !important;
+            border-left-color: #ef4444 !important;
+            border-left-width: 3px !important;
+            box-shadow: 0 0 5px rgba(239, 68, 68, 0.3) !important;
         }
 
         .heat-3 {
-            /* Medium: orange */
-            background: rgba(234, 179, 8, 0.18) !important;
-            border-color: rgba(234, 179, 8, 0.70) !important;
-            border-left-color: #eab308 !important;
+            /* Gamma medio: arancione */
+            background: rgba(249, 115, 22, 0.22) !important;
+            border-color: rgba(249, 115, 22, 0.80) !important;
+            border-left-color: #f97316 !important;
+            border-left-width: 2px !important;
         }
 
         .heat-4 {
-            /* Lower: yellow */
-            background: rgba(250, 204, 21, 0.14) !important;
-            border-color: rgba(250, 204, 21, 0.60) !important;
+            /* Gamma basso: giallo */
+            background: rgba(250, 204, 21, 0.16) !important;
+            border-color: rgba(250, 204, 21, 0.65) !important;
             border-left-color: #facc15 !important;
+        }
+
+        .heat-5 {
+            /* Gamma molto basso: verde chiaro */
+            background: rgba(163, 230, 53, 0.12) !important;
+            border-color: rgba(163, 230, 53, 0.50) !important;
+            border-left-color: #a3e635 !important;
         }
 
         /* Blinking signal when price is near a level */
@@ -554,6 +567,53 @@
                 align-self: flex-end;
             }
         }
+
+        /* SPX compact box styles */
+        .level-box {
+            background: #0d1b2a;
+            border: 2px solid;
+            border-radius: 10px;
+            padding: 0.6rem 0.8rem;
+            text-align: center;
+            transition: all 0.3s;
+            cursor: help;
+        }
+
+        .level-box:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+
+        .support-box {
+            border-color: rgba(45, 212, 191, 0.6);
+            background: rgba(45, 212, 191, 0.08);
+        }
+
+        .resistance-box {
+            border-color: rgba(251, 113, 133, 0.6);
+            background: rgba(251, 113, 133, 0.08);
+        }
+
+        .level-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #adb5bd;
+            margin-bottom: 0.2rem;
+        }
+
+        .level-value {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #f8f9fa;
+        }
+
+        .support-box .level-value {
+            color: #2dd4bf;
+        }
+
+        .resistance-box .level-value {
+            color: #fb7185;
+        }
     </style>
 </head>
 <body>
@@ -627,35 +687,33 @@
             </div>
         </div>
 
-        <!-- Levels Row: ES/SPX/SPY/XSP + NVDA/MSFT -->
+        <!-- Levels Row: ES/SPX + Market Pressure on same row -->
         <div class="row g-2 mb-4" id="levelsRow">
-            <!-- Row 1: ES + SPX + SPY + XSP -->
-            <div class="col-12">
-                <div class="row g-2">
-                    <div class="col-12 col-md-3">
-                        <div class="card" id="esKeyLevelsCard">
-                            <div class="card-header">
-                                <div class="d-flex align-items-center justify-content-between">
-                                    <div>
-                                        <i class="bi bi-bullseye me-2"></i>ES Key Levels <span class="text-muted" id="esPcrLabel"></span>
-                                    </div>
-                                    <div class="form-check form-switch mb-0" style="transform: scale(0.95); transform-origin: right center;">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="esLevelsModeSwitch">
-                                        <label class="form-check-label small text-nowrap" for="esLevelsModeSwitch">Use current price</label>
-                                    </div>
+            <!-- ES Key Levels -->
+            <div class="col-12 col-md-3">
+                <div class="card" id="esKeyLevelsCard">
+                    <div class="card-header">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <i class="bi bi-bullseye me-2"></i>ES Key Levels <span class="text-muted" id="esPcrLabel"></span>
+                            </div>
+                            <div class="form-check form-switch mb-0" style="transform: scale(0.95); transform-origin: right center;">
+                                <input class="form-check-input" type="checkbox" role="switch" id="esLevelsModeSwitch">
+                                <label class="form-check-label small text-nowrap" for="esLevelsModeSwitch">Use current price</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-2 mb-3 price-row">
+                            <div class="col-6">
+                                <div class="price-box text-start" id="esLiveBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                <div class="box-label">ES live</div>
+                                <div class="fw-bold" id="esLivePrice">--</div>
+                                <div class="box-sub" id="esLiveTime">--</div>
                                 </div>
                             </div>
-                            <div class="card-body">
-                                <div class="row g-2 mb-3 price-row">
-                                    <div class="col-6">
-                                        <div class="price-box text-start" id="esLiveBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                        <div class="box-label">ES live</div>
-                                        <div class="fw-bold" id="esLivePrice">--</div>
-                                        <div class="box-sub" id="esLiveTime">--</div>
-                                        </div>
-                                    </div>
 
-                                    <div class="col-6">
+                            <div class="col-6">
                                         <div class="price-box text-start" id="gammaFlipBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
                                         <div class="box-label">ES Gamma Flip</div>
                                         <div class="fw-bold" id="gammaFlipTop">--</div>
@@ -697,14 +755,85 @@
                         </div>
                     </div>
 
-                    <div class="col-12 col-md-9">
-                        <div class="card" id="pressureCard">
-                            <div class="card-header">
-                                <div class="d-flex align-items-center justify-content-between">
-                                    <div>
-                                        <i class="bi bi-speedometer2 me-2"></i>Market Pressure (ES + SPX + SPY + XSP)
-                                    </div>
-                                    <button type="button" class="btn btn-sm btn-outline-light" data-bs-toggle="modal" data-bs-target="#pressureInfoModal" aria-label="Info pressure">
+            <!-- SPX Key Levels -->
+            <div class="col-12 col-md-3">
+                <div class="card" id="spxKeyLevelsCard">
+                    <div class="card-header">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <i class="bi bi-graph-up me-2"></i>SPX Key Levels <span class="text-muted" id="spxPcrLabel"></span> <span class="text-muted small" id="spxExpiryLabel"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-2 mb-2 price-row">
+                            <div class="col-6">
+                                <div class="price-box text-start" id="spxLiveBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                    <div class="box-label">SPX live</div>
+                                    <div class="fw-bold" id="spxLivePrice">--</div>
+                                    <div class="box-sub" id="spxLiveTime">--</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="price-box text-start" id="spxGammaFlipBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                    <div class="box-label">Gamma flip</div>
+                                    <div class="fw-bold" id="spxGammaFlipTop">--</div>
+                                    <div class="box-sub" id="spxPutCallRatio">--</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <div class="level-item support-item" id="spxS1Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                    <div class="fw-bold text-support fs-5" id="spxS1">--</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="level-item resistance-item" id="spxR1Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                    <div class="fw-bold text-resistance fs-5" id="spxR1">--</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <div class="level-item support-item" id="spxS2Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                    <div class="fw-bold text-support fs-5" id="spxS2">--</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="level-item resistance-item" id="spxR2Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                    <div class="fw-bold text-resistance fs-5" id="spxR2">--</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <div class="level-item support-item" id="spxS3Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                    <div class="fw-bold text-support fs-5" id="spxS3">--</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="level-item resistance-item" id="spxR3Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                    <div class="fw-bold text-resistance fs-5" id="spxR3">--</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Market Pressure -->
+            <div class="col-12 col-md-6">
+                <div class="card" id="pressureCard">
+                    <div class="card-header">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <i class="bi bi-speedometer2 me-2"></i>Market Pressure (ES + SPX + SPY + XSP)
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-light" data-bs-toggle="modal" data-bs-target="#pressureInfoModal" aria-label="Info pressure">
                                         <i class="bi bi-info-circle"></i>
                                     </button>
                                 </div>
@@ -803,8 +932,6 @@
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
 
             <!-- Row 2: NVDA + MSFT -->
             <div class="col-12">
@@ -1132,6 +1259,12 @@
         const msftResistancesContainer = document.getElementById('msftResistancesContainer');
         const msftResistancesNote = document.getElementById('msftResistancesNote');
 
+        const spxLivePrice = document.getElementById('spxLivePrice');
+        const spxLiveTime = document.getElementById('spxLiveTime');
+        const spxGammaFlipTop = document.getElementById('spxGammaFlipTop');
+        const spxPutCallRatio = document.getElementById('spxPutCallRatio');
+        const spxExpiryLabel = document.getElementById('spxExpiryLabel');
+
         let pressureChart = null;
         let pressureSeries = null;
         const pressureData = [];
@@ -1222,6 +1355,21 @@
             const k = Number.isFinite(Number(gamma)) ? (Number(gamma) / 1000) : 0;
             const kStr = `${k >= 0 ? '+' : ''}${k.toFixed(0)}K`;
             return `Call: ${callStr} | Put: ${putStr}\n${kStr}`;
+        }
+
+        function formatExpiryDate(dateStr) {
+            if (!dateStr) return '';
+            // dateStr può essere in formato "January 10, 2026" o simile
+            try {
+                const date = new Date(dateStr);
+                if (isNaN(date.getTime())) return dateStr; // Fallback al formato originale
+                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                const month = months[date.getMonth()];
+                const day = date.getDate();
+                return `${month} ${day}`;
+            } catch (e) {
+                return dateStr;
+            }
         }
 
         function ensurePressureChart() {
@@ -1579,7 +1727,24 @@
             if (i <= 0) return 'heat-1';
             if (i === 1) return 'heat-2';
             if (i === 2) return 'heat-3';
-            return 'heat-4';
+            if (i === 3) return 'heat-4';
+            return 'heat-5';
+        }
+
+        function heatClassForGamma(gammaValue, maxGamma) {
+            // Calcola classe di colore basata sul valore gamma assoluto
+            if (!gammaValue || !maxGamma || maxGamma === 0) return 'heat-5';
+            
+            const absGamma = Math.abs(gammaValue);
+            const absMax = Math.abs(maxGamma);
+            const ratio = absGamma / absMax;
+            
+            // 5 livelli basati su percentuale del massimo gamma
+            if (ratio >= 0.80) return 'heat-1';  // Top 20%
+            if (ratio >= 0.60) return 'heat-2';  // 60-80%
+            if (ratio >= 0.40) return 'heat-3';  // 40-60%
+            if (ratio >= 0.20) return 'heat-4';  // 20-40%
+            return 'heat-5';                     // Bottom 20%
         }
 
         function setPutCallRatio(labelEl, stats) {
@@ -1637,7 +1802,7 @@
         }
 
         function updateSpxNearSignals() {
-            // SPX key levels removed from UI; kept for backward compatibility.
+            // SPX now uses compact box format, no near signals needed
         }
 
         function updateXspNearSignals() {
@@ -1645,9 +1810,19 @@
         }
 
         function displaySpxKeyLevels(data) {
+            // Update expiry label
             if (spxExpiryLabel) {
                 if (data && data.expiration) {
-                    spxExpiryLabel.textContent = `(nearest expiry: ${data.expiration})`;
+                    let expiryText = `(exp: ${formatExpiryDate(data.expiration)})`;
+                    
+                    // Mostra la fonte dati
+                    if (data.source === "yahoo") {
+                        expiryText += ` (Yahoo)`;
+                    } else if (data.note && data.note.toLowerCase().includes("proxy")) {
+                        expiryText += ` ⚠️ Using SPY as proxy`;
+                    }
+                    
+                    spxExpiryLabel.textContent = expiryText;
                 } else {
                     spxExpiryLabel.textContent = '';
                 }
@@ -1655,73 +1830,126 @@
 
             if (!data || data.error) {
                 setPutCallRatio(spxPcrLabel, null);
-                if (spxSupportsContainer) spxSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
-                if (spxResistancesContainer) spxResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
-                if (spxSupportsNote) spxSupportsNote.style.display = 'none';
-                if (spxResistancesNote) spxResistancesNote.style.display = 'none';
+                // Reset all boxes
+                const boxes = ['spxLivePrice', 'spxLiveTime', 'spxGammaFlipTop', 'spxPutCallRatio',
+                              'spxS1', 'spxS2', 'spxS3', 'spxR1', 'spxR2', 'spxR3'];
+                boxes.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = '--';
+                });
                 return;
             }
 
             setPutCallRatio(spxPcrLabel, data.stats);
 
+            // Update price and gamma flip
+            const price = Number(data.price);
+            const gammaFlip = Number(data.gamma_flip);
+            
+            if (spxLivePrice) {
+                spxLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
+            }
+            if (spxLiveTime) {
+                const timeText = data.time || data.expiration || '--';
+                spxLiveTime.textContent = data.note ? `SPY Proxy` : timeText;
+            }
+            if (spxGammaFlipTop) {
+                spxGammaFlipTop.textContent = Number.isFinite(gammaFlip) ? `${gammaFlip.toFixed(2)}` : '--';
+            }
+            if (spxPutCallRatio && data.stats) {
+                const pcr = Number(data.stats.put_call_ratio);
+                spxPutCallRatio.textContent = Number.isFinite(pcr) ? `${pcr.toFixed(2)}` : '--';
+            }
+
             const supports = Array.isArray(data.supports) ? data.supports : [];
             const resistances = Array.isArray(data.resistances) ? data.resistances : [];
 
-            if (spxSupportsContainer) {
-                if (supports.length > 0) {
-                    spxSupportsContainer.innerHTML = supports.map((s, i) => `
-                        <div class="level-item support-item ${heatClassForIndex(i)}" data-strike="${Number(s.strike)}">
-                            <div class="d-flex justify-content-between align-items-center level-row">
-                                <div>
-                                    <div class="fw-bold text-support fs-5">S${i + 1}  ${Number(s.strike).toFixed(2)}</div>
-                                    <div class="text-muted small">Call: ${Number(s.call_oi).toLocaleString()} | Put: ${Number(s.put_oi).toLocaleString()}</div>
-                                </div>
-                                <div class="fw-bold text-support fs-5 level-metric">+${(Number(s.gamma) / 1000).toFixed(0)}K</div>
-                            </div>
-                        </div>
-                    `).join('');
-                } else {
-                    spxSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No support below price</p>';
-                }
-            }
+            // Calculate max gamma for heat scale
+            const allGammas = [
+                ...supports.map(s => Math.abs(Number(s.gamma) || 0)),
+                ...resistances.map(r => Math.abs(Number(r.gamma) || 0))
+            ];
+            const maxGamma = Math.max(...allGammas, 1);
 
-            if (spxSupportsNote) {
-                if (data.supports_note) {
-                    spxSupportsNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.supports_note;
-                    spxSupportsNote.style.display = 'block';
-                } else {
-                    spxSupportsNote.style.display = 'none';
+            // Populate S1, S2, S3
+            const supportIds = ['spxS1', 'spxS2', 'spxS3'];
+            const supportBoxIds = ['spxS1Box', 'spxS2Box', 'spxS3Box'];
+            supportIds.forEach((id, i) => {
+                const el = document.getElementById(id);
+                const box = document.getElementById(supportBoxIds[i]);
+                if (el) {
+                    if (supports[i]) {
+                        const strike = Number(supports[i].strike);
+                        const gamma = Number(supports[i].gamma);
+                        
+                        el.textContent = Number.isFinite(strike) ? `S${i + 1}  ${strike.toFixed(2)}` : '--';
+                        
+                        // Apply heat class based on gamma
+                        if (box) {
+                            const heatClass = heatClassForGamma(gamma, maxGamma);
+                            
+                            // Remove old heat classes
+                            box.classList.remove('heat-1', 'heat-2', 'heat-3', 'heat-4', 'heat-5');
+                            box.classList.add(heatClass);
+                            
+                            // Tooltip
+                            const callOi = Number(supports[i].call_oi).toLocaleString();
+                            const putOi = Number(supports[i].put_oi).toLocaleString();
+                            box.setAttribute('data-bs-title', `Call: ${callOi} | Put: ${putOi} | Gamma: ${(gamma / 1000).toFixed(0)}K`);
+                        }
+                    } else {
+                        el.textContent = '--';
+                        if (box) {
+                            box.setAttribute('data-bs-title', '--');
+                            box.classList.remove('heat-1', 'heat-2', 'heat-3', 'heat-4', 'heat-5');
+                        }
+                    }
                 }
-            }
+            });
 
-            if (spxResistancesContainer) {
-                if (resistances.length > 0) {
-                    spxResistancesContainer.innerHTML = resistances.map((r, i) => `
-                        <div class="level-item resistance-item ${heatClassForIndex(i)}" data-strike="${Number(r.strike)}">
-                            <div class="d-flex justify-content-between align-items-center level-row">
-                                <div>
-                                    <div class="fw-bold text-resistance fs-5">R${i + 1}  ${Number(r.strike).toFixed(2)}</div>
-                                    <div class="text-muted small">Call: ${Number(r.call_oi).toLocaleString()} | Put: ${Number(r.put_oi).toLocaleString()}</div>
-                                </div>
-                                <div class="fw-bold text-resistance fs-5 level-metric">${(Number(r.gamma) / 1000).toFixed(0)}K</div>
-                            </div>
-                        </div>
-                    `).join('');
-                } else {
-                    spxResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No resistance above price</p>';
+            // Populate R1, R2, R3
+            const resistanceIds = ['spxR1', 'spxR2', 'spxR3'];
+            const resistanceBoxIds = ['spxR1Box', 'spxR2Box', 'spxR3Box'];
+            resistanceIds.forEach((id, i) => {
+                const el = document.getElementById(id);
+                const box = document.getElementById(resistanceBoxIds[i]);
+                if (el) {
+                    if (resistances[i]) {
+                        const strike = Number(resistances[i].strike);
+                        const gamma = Number(resistances[i].gamma);
+                        
+                        el.textContent = Number.isFinite(strike) ? `R${i + 1}  ${strike.toFixed(2)}` : '--';
+                        
+                        // Apply heat class based on gamma
+                        if (box) {
+                            const heatClass = heatClassForGamma(gamma, maxGamma);
+                            
+                            // Remove old heat classes
+                            box.classList.remove('heat-1', 'heat-2', 'heat-3', 'heat-4', 'heat-5');
+                            box.classList.add(heatClass);
+                            
+                            // Tooltip
+                            const callOi = Number(resistances[i].call_oi).toLocaleString();
+                            const putOi = Number(resistances[i].put_oi).toLocaleString();
+                            box.setAttribute('data-bs-title', `Call: ${callOi} | Put: ${putOi} | Gamma: ${(gamma / 1000).toFixed(0)}K`);
+                        }
+                    } else {
+                        el.textContent = '--';
+                        if (box) {
+                            box.setAttribute('data-bs-title', '--');
+                            box.classList.remove('heat-1', 'heat-2', 'heat-3', 'heat-4', 'heat-5');
+                        }
+                    }
                 }
-            }
+            });
 
-            if (spxResistancesNote) {
-                if (data.resistances_note) {
-                    spxResistancesNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.resistances_note;
-                    spxResistancesNote.style.display = 'block';
-                } else {
-                    spxResistancesNote.style.display = 'none';
-                }
-            }
-
-            updateSpxNearSignals();
+            // Initialize tooltips for SPX boxes
+            const tooltipElements = document.querySelectorAll('[id^="spx"][data-bs-toggle="tooltip"]');
+            tooltipElements.forEach(el => {
+                const tooltip = bootstrap.Tooltip.getInstance(el);
+                if (tooltip) tooltip.dispose();
+                new bootstrap.Tooltip(el);
+            });
         }
 
         function displayXspKeyLevels(data) {
@@ -1747,10 +1975,17 @@
             const supports = Array.isArray(data.supports) ? data.supports : [];
             const resistances = Array.isArray(data.resistances) ? data.resistances : [];
 
+            // Calcola il gamma massimo per determinare i colori dinamici
+            const allGammas = [
+                ...supports.map(s => Math.abs(Number(s.gamma) || 0)),
+                ...resistances.map(r => Math.abs(Number(r.gamma) || 0))
+            ];
+            const maxGamma = Math.max(...allGammas, 1); // Evita divisione per zero
+
             if (xspSupportsContainer) {
                 if (supports.length > 0) {
                     xspSupportsContainer.innerHTML = supports.map((s, i) => `
-                        <div class="level-item support-item ${heatClassForIndex(i)}" data-strike="${Number(s.strike)}">
+                        <div class="level-item support-item ${heatClassForGamma(Number(s.gamma), maxGamma)}" data-strike="${Number(s.strike)}">
                             <div class="d-flex justify-content-between align-items-center level-row">
                                 <div>
                                     <div class="fw-bold text-support fs-5">S${i + 1}  ${Number(s.strike).toFixed(2)}</div>
@@ -1777,7 +2012,7 @@
             if (xspResistancesContainer) {
                 if (resistances.length > 0) {
                     xspResistancesContainer.innerHTML = resistances.map((r, i) => `
-                        <div class="level-item resistance-item ${heatClassForIndex(i)}" data-strike="${Number(r.strike)}">
+                        <div class="level-item resistance-item ${heatClassForGamma(Number(r.gamma), maxGamma)}" data-strike="${Number(r.strike)}">
                             <div class="d-flex justify-content-between align-items-center level-row">
                                 <div>
                                     <div class="fw-bold text-resistance fs-5">R${i + 1}  ${Number(r.strike).toFixed(2)}</div>
@@ -2030,7 +2265,10 @@
                     const response = await fetch('/api/spx-snapshot');
                     const data = await response.json();
 
+                    console.log('SPX API Response:', data);
+
                     if (!response.ok || data.error) {
+                        console.error('SPX API Error:', data.error || 'SPX fetch failed');
                         throw new Error(data.error || 'SPX fetch failed');
                     }
 
@@ -2046,12 +2284,16 @@
                     }
                     latestSpxGammaFlip = Number.isFinite(gammaFlip) ? gammaFlip : null;
 
+                    console.log('Calling displaySpxKeyLevels with data:', data);
+                    displaySpxKeyLevels(data);
                     updatePressureUI();
 
                     return data;
                 } catch (e) {
+                    console.error('SPX load error:', e);
                     latestSpxPrice = null;
                     latestSpxGammaFlip = null;
+                    displaySpxKeyLevels(null);
                     updatePressureUI();
                     return null;
                 }
@@ -2218,10 +2460,17 @@
             const supports = Array.isArray(data.supports) ? data.supports : [];
             const resistances = Array.isArray(data.resistances) ? data.resistances : [];
 
+            // Calcola il gamma massimo per determinare i colori dinamici
+            const allGammas = [
+                ...supports.map(s => Math.abs(Number(s.gamma) || 0)),
+                ...resistances.map(r => Math.abs(Number(r.gamma) || 0))
+            ];
+            const maxGamma = Math.max(...allGammas, 1); // Evita divisione per zero
+
             if (nvdaSupportsContainer) {
                 if (supports.length > 0) {
                     nvdaSupportsContainer.innerHTML = supports.map((s, i) => `
-                        <div class="level-item support-item ${heatClassForIndex(i)}" data-strike="${Number(s.strike)}">
+                        <div class="level-item support-item ${heatClassForGamma(Number(s.gamma), maxGamma)}" data-strike="${Number(s.strike)}">
                             <div class="d-flex justify-content-between align-items-center level-row">
                                 <div class="fw-bold text-support">S${i + 1}  ${Number(s.strike).toFixed(2)}</div>
                             </div>
@@ -2252,7 +2501,7 @@
             if (nvdaResistancesContainer) {
                 if (resistances.length > 0) {
                     nvdaResistancesContainer.innerHTML = resistances.map((r, i) => `
-                        <div class="level-item resistance-item ${heatClassForIndex(i)}" data-strike="${Number(r.strike)}">
+                        <div class="level-item resistance-item ${heatClassForGamma(Number(r.gamma), maxGamma)}" data-strike="${Number(r.strike)}">
                             <div class="d-flex justify-content-between align-items-center level-row">
                                 <div class="fw-bold text-resistance">R${i + 1}  ${Number(r.strike).toFixed(2)}</div>
                             </div>
@@ -2306,10 +2555,17 @@
             const supports = Array.isArray(data.supports) ? data.supports : [];
             const resistances = Array.isArray(data.resistances) ? data.resistances : [];
 
+            // Calcola il gamma massimo per determinare i colori dinamici
+            const allGammas = [
+                ...supports.map(s => Math.abs(Number(s.gamma) || 0)),
+                ...resistances.map(r => Math.abs(Number(r.gamma) || 0))
+            ];
+            const maxGamma = Math.max(...allGammas, 1); // Evita divisione per zero
+
             if (spySupportsContainer) {
                 if (supports.length > 0) {
                     spySupportsContainer.innerHTML = supports.map((s, i) => `
-                        <div class="level-item support-item ${heatClassForIndex(i)}" data-strike="${Number(s.strike)}">
+                        <div class="level-item support-item ${heatClassForGamma(Number(s.gamma), maxGamma)}" data-strike="${Number(s.strike)}">
                             <div class="d-flex justify-content-between align-items-center level-row">
                                 <div>
                                     <div class="fw-bold text-support fs-5">S${i + 1}  ${Number(s.strike).toFixed(2)}</div>
@@ -2336,7 +2592,7 @@
             if (spyResistancesContainer) {
                 if (resistances.length > 0) {
                     spyResistancesContainer.innerHTML = resistances.map((r, i) => `
-                        <div class="level-item resistance-item ${heatClassForIndex(i)}" data-strike="${Number(r.strike)}">
+                        <div class="level-item resistance-item ${heatClassForGamma(Number(r.gamma), maxGamma)}" data-strike="${Number(r.strike)}">
                             <div class="d-flex justify-content-between align-items-center level-row">
                                 <div>
                                     <div class="fw-bold text-resistance fs-5">R${i + 1}  ${Number(r.strike).toFixed(2)}</div>
@@ -2398,10 +2654,17 @@
             const supports = Array.isArray(data.supports) ? data.supports : [];
             const resistances = Array.isArray(data.resistances) ? data.resistances : [];
 
+            // Calcola il gamma massimo per determinare i colori dinamici
+            const allGammas = [
+                ...supports.map(s => Math.abs(Number(s.gamma) || 0)),
+                ...resistances.map(r => Math.abs(Number(r.gamma) || 0))
+            ];
+            const maxGamma = Math.max(...allGammas, 1); // Evita divisione per zero
+
             if (msftSupportsContainer) {
                 if (supports.length > 0) {
                     msftSupportsContainer.innerHTML = supports.map((s, i) => `
-                        <div class="level-item support-item ${heatClassForIndex(i)}" data-strike="${Number(s.strike)}">
+                        <div class="level-item support-item ${heatClassForGamma(Number(s.gamma), maxGamma)}" data-strike="${Number(s.strike)}">
                             <div class="d-flex justify-content-between align-items-center level-row">
                                 <div class="fw-bold text-support">S${i + 1}  ${Number(s.strike).toFixed(2)}</div>
                             </div>
@@ -2432,7 +2695,7 @@
             if (msftResistancesContainer) {
                 if (resistances.length > 0) {
                     msftResistancesContainer.innerHTML = resistances.map((r, i) => `
-                        <div class="level-item resistance-item ${heatClassForIndex(i)}" data-strike="${Number(r.strike)}">
+                        <div class="level-item resistance-item ${heatClassForGamma(Number(r.gamma), maxGamma)}" data-strike="${Number(r.strike)}">
                             <div class="d-flex justify-content-between align-items-center level-row">
                                 <div class="fw-bold text-resistance">R${i + 1}  ${Number(r.strike).toFixed(2)}</div>
                             </div>
