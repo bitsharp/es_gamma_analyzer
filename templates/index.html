@@ -1802,7 +1802,22 @@
         }
 
         function updateSpxNearSignals() {
-            // SPX now uses compact box format, no near signals needed
+            if (!latestSpxPrice) return;
+            const threshold = getNearThreshold(latestSpxPrice, { minAbs: 10, rel: 0.001 });
+            if (!Number.isFinite(threshold)) return;
+
+            const boxIds = ['spxS1Box', 'spxS2Box', 'spxS3Box', 'spxR1Box', 'spxR2Box', 'spxR3Box'];
+            boxIds.forEach(id => {
+                const box = document.getElementById(id);
+                if (!box) return;
+                const strike = Number(box.getAttribute('data-strike'));
+                if (!Number.isFinite(strike)) {
+                    box.classList.remove('near-level');
+                    return;
+                }
+                const near = Math.abs(strike - latestSpxPrice) <= threshold;
+                box.classList.toggle('near-level', near);
+            });
         }
 
         function updateXspNearSignals() {
@@ -1892,6 +1907,9 @@
                             box.classList.remove('heat-1', 'heat-2', 'heat-3', 'heat-4', 'heat-5');
                             box.classList.add(heatClass);
                             
+                            // Set data-strike for near signal detection
+                            box.setAttribute('data-strike', strike);
+                            
                             // Tooltip
                             const callOi = Number(supports[i].call_oi).toLocaleString();
                             const putOi = Number(supports[i].put_oi).toLocaleString();
@@ -1901,6 +1919,7 @@
                         el.textContent = '--';
                         if (box) {
                             box.setAttribute('data-bs-title', '--');
+                            box.removeAttribute('data-strike');
                             box.classList.remove('heat-1', 'heat-2', 'heat-3', 'heat-4', 'heat-5');
                         }
                     }
@@ -1928,6 +1947,9 @@
                             box.classList.remove('heat-1', 'heat-2', 'heat-3', 'heat-4', 'heat-5');
                             box.classList.add(heatClass);
                             
+                            // Set data-strike for near signal detection
+                            box.setAttribute('data-strike', strike);
+                            
                             // Tooltip
                             const callOi = Number(resistances[i].call_oi).toLocaleString();
                             const putOi = Number(resistances[i].put_oi).toLocaleString();
@@ -1937,6 +1959,7 @@
                         el.textContent = '--';
                         if (box) {
                             box.setAttribute('data-bs-title', '--');
+                            box.removeAttribute('data-strike');
                             box.classList.remove('heat-1', 'heat-2', 'heat-3', 'heat-4', 'heat-5');
                         }
                     }
@@ -1950,6 +1973,8 @@
                 if (tooltip) tooltip.dispose();
                 new bootstrap.Tooltip(el);
             });
+
+            updateSpxNearSignals();
         }
 
         function displayXspKeyLevels(data) {
