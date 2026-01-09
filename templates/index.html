@@ -2006,8 +2006,122 @@
             return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
         }
 
-        function _esSpxOiConversionStorageKey(dateKey) {
+        function _esSpxOiConversionStorageKey(dateKey, kind = 'main') {
+            if (kind === 'close') return `es_spx_oi_to_es_${dateKey}_close`;
             return `es_spx_oi_to_es_${dateKey}`;
+        }
+
+        function _findLatestEsSpxOiConversionBefore(dateKey, maxDaysBack = 10) {
+            // Walk backwards (including weekends) to find the most recent stored conversion.
+            // Prefer cash-close capture if present.
+            try {
+                const base = new Date(`${dateKey}T00:00:00`);
+                if (Number.isNaN(base.getTime())) return null;
+
+                for (let i = 1; i <= maxDaysBack; i++) {
+                    const d = new Date(base);
+                    d.setDate(d.getDate() - i);
+                    const k = _localDateKey(d);
+
+                    const closeKey = _esSpxOiConversionStorageKey(k, 'close');
+                    const mainKey = _esSpxOiConversionStorageKey(k, 'main');
+
+                    const closeRaw = localStorage.getItem(closeKey);
+                    if (closeRaw) {
+                        const parsed = JSON.parse(closeRaw);
+                        if (parsed && typeof parsed === 'object') return parsed;
+                    }
+
+                    const mainRaw = localStorage.getItem(mainKey);
+                    if (mainRaw) {
+                        const parsed = JSON.parse(mainRaw);
+                        if (parsed && typeof parsed === 'object') return parsed;
+                    }
+                }
+            } catch (e) {
+                // ignore
+            }
+            return null;
+        }
+
+        function _computeConvertedLevelsFromRawStrikes(rawStrikes, spread) {
+            const s = Number(spread);
+            if (!Array.isArray(rawStrikes) || !Number.isFinite(s)) return [];
+            return rawStrikes
+                .map(n => Number(n))
+                .filter(Number.isFinite)
+                .map(n => n + s);
+        }
+
+        function maybeComputeMorningEsSpxOiConvertedLevels(now = new Date()) {
+            // Goal: show a "morning" provisional ES-converted view using yesterday/close SPX raw strikes,
+            // but shifted by today's ES–SPX spread. It will be overwritten at 14:30.
+
+            const todayKey = _localDateKey(now);
+            const storageKey = _esSpxOiConversionStorageKey(todayKey, 'main');
+
+            // Don't override a final 14:30 capture.
+            if (lastEsSpxOiConversion && lastEsSpxOiConversion.date_key === todayKey && lastEsSpxOiConversion.capture_kind === '1430') {
+                return;
+            }
+
+            // If we already stored something today (provisional), keep it until 14:30.
+            try {
+                const raw = localStorage.getItem(storageKey);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (parsed && typeof parsed === 'object') {
+                        lastEsSpxOiConversion = parsed;
+                        renderEsSpxOiConvertedLevels(parsed);
+                        return;
+                    }
+                }
+            } catch (e) {
+                // ignore
+            }
+
+            if (!Number.isFinite(latestEsPrice)) return;
+
+            const oi = lastSpxSnapshotCombined && lastSpxSnapshotCombined.openInterest ? lastSpxSnapshotCombined.openInterest : null;
+            if (!oi || oi.error) return;
+
+            const spxPrice = Number(oi.price);
+            if (!Number.isFinite(spxPrice)) return;
+
+            const spread = Number(latestEsPrice) - spxPrice;
+            if (!Number.isFinite(spread)) return;
+
+            const prev = _findLatestEsSpxOiConversionBefore(todayKey);
+            if (!prev) return;
+
+            const rawSupports = Array.isArray(prev.spx_supports_raw) ? prev.spx_supports_raw : null;
+            const rawResistances = Array.isArray(prev.spx_resistances_raw) ? prev.spx_resistances_raw : null;
+            if (!rawSupports || !rawResistances) return;
+
+            const convertedSupports = _computeConvertedLevelsFromRawStrikes(rawSupports, spread);
+            const convertedResistances = _computeConvertedLevelsFromRawStrikes(rawResistances, spread);
+
+            const conversion = {
+                date_key: todayKey,
+                captured_at: _formatLocalHHMM(now),
+                capture_kind: 'morning',
+                based_on_date_key: String(prev.date_key || ''),
+                spread,
+                es_price: Number(latestEsPrice),
+                spx_price: spxPrice,
+                supports: convertedSupports,
+                resistances: convertedResistances,
+                spx_supports_raw: rawSupports,
+                spx_resistances_raw: rawResistances,
+            };
+
+            lastEsSpxOiConversion = conversion;
+            renderEsSpxOiConvertedLevels(conversion);
+            try {
+                localStorage.setItem(storageKey, JSON.stringify(conversion));
+            } catch (e) {
+                // ignore
+            }
         }
 
         function renderEsSpxOiConvertedLevels(conversion) {
@@ -2031,16 +2145,22 @@
             const spread = Number(conversion.spread);
             const spreadText = Number.isFinite(spread) ? (spread >= 0 ? `+${spread.toFixed(2)}` : spread.toFixed(2)) : '--';
             const capturedAt = (conversion.captured_at || '--').toString();
+            const kind = (conversion.capture_kind || '1430').toString();
+            const basedOn = (conversion.based_on_date_key || '').toString();
+            const label = kind === '1430'
+                ? '@14:30'
+                : (kind === 'close' ? '@cash close' : (kind === 'morning' ? (basedOn ? `morning (from ${basedOn})` : 'morning') : kind));
 
             esSpxOiConvertedRow.classList.remove('text-muted');
             esSpxOiConvertedRow.innerHTML = `
                 <span class="badge text-bg-secondary me-2">SPX OI→ES</span>
-                <span class="text-muted me-2">@14:30 (spread ${spreadText})</span>
+                <span class="text-muted me-2">${label} (spread ${spreadText})</span>
                 <span class="text-support me-3"><span class="fw-semibold">S:</span> ${supportsText || '--'}</span>
                 <span class="text-resistance"><span class="fw-semibold">R:</span> ${resistancesText || '--'}</span>
             `;
 
-            const tooltip = `Captured ${capturedAt} | ES ${Number(conversion.es_price).toFixed(2)} | SPX ${Number(conversion.spx_price).toFixed(2)} | Spread ${spreadText}`;
+            const basedText = basedOn ? ` | Based on ${basedOn}` : '';
+            const tooltip = `Captured ${capturedAt} (${label})${basedText} | ES ${Number(conversion.es_price).toFixed(2)} | SPX ${Number(conversion.spx_price).toFixed(2)} | Spread ${spreadText}`;
             esSpxOiConvertedRow.setAttribute('data-bs-toggle', 'tooltip');
             esSpxOiConvertedRow.setAttribute('data-bs-placement', 'top');
             esSpxOiConvertedRow.setAttribute('data-bs-title', tooltip);
@@ -2057,13 +2177,25 @@
 
         function loadStoredEsSpxOiConvertedLevels() {
             try {
-                const key = _esSpxOiConversionStorageKey(_localDateKey());
+                const todayKey = _localDateKey();
+                const key = _esSpxOiConversionStorageKey(todayKey, 'main');
                 const raw = localStorage.getItem(key);
-                if (!raw) return;
-                const parsed = JSON.parse(raw);
-                if (!parsed || typeof parsed !== 'object') return;
-                lastEsSpxOiConversion = parsed;
-                renderEsSpxOiConvertedLevels(parsed);
+
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (parsed && typeof parsed === 'object') {
+                        lastEsSpxOiConversion = parsed;
+                        renderEsSpxOiConvertedLevels(parsed);
+                        return;
+                    }
+                }
+
+                // No data for today yet: show last available (yesterday/close) if present.
+                const prev = _findLatestEsSpxOiConversionBefore(todayKey);
+                if (prev) {
+                    lastEsSpxOiConversion = prev;
+                    renderEsSpxOiConvertedLevels(prev);
+                }
             } catch (e) {
                 // ignore
             }
@@ -2071,7 +2203,7 @@
 
         function maybeCaptureEsSpxOiConvertedLevels(now = new Date()) {
             const dateKey = _localDateKey(now);
-            const storageKey = _esSpxOiConversionStorageKey(dateKey);
+            const storageKey = _esSpxOiConversionStorageKey(dateKey, 'main');
 
             try {
                 if (localStorage.getItem(storageKey)) {
@@ -2085,6 +2217,7 @@
             }
 
             // Capture at 14:30 local time (cash open in user's reference).
+            // This overwrites any morning provisional data for the same day.
             if (!_isWithinLocalWindow(14, 30, 3, now)) return;
             if (!Number.isFinite(latestEsPrice)) return;
 
@@ -2100,28 +2233,89 @@
             const supports = Array.isArray(oi.supports) ? oi.supports : [];
             const resistances = Array.isArray(oi.resistances) ? oi.resistances : [];
 
-            const convertedSupports = supports
+            const rawSupports = supports
                 .map(s => Number(s.strike))
-                .filter(Number.isFinite)
-                .map(strike => strike + spread);
+                .filter(Number.isFinite);
 
-            const convertedResistances = resistances
+            const rawResistances = resistances
                 .map(r => Number(r.strike))
-                .filter(Number.isFinite)
-                .map(strike => strike + spread);
+                .filter(Number.isFinite);
+
+            const convertedSupports = rawSupports.map(strike => strike + spread);
+            const convertedResistances = rawResistances.map(strike => strike + spread);
 
             const conversion = {
                 date_key: dateKey,
                 captured_at: _formatLocalHHMM(now),
+                capture_kind: '1430',
                 spread,
                 es_price: Number(latestEsPrice),
                 spx_price: spxPrice,
                 supports: convertedSupports,
                 resistances: convertedResistances,
+                spx_supports_raw: rawSupports,
+                spx_resistances_raw: rawResistances,
             };
 
             lastEsSpxOiConversion = conversion;
             renderEsSpxOiConvertedLevels(conversion);
+
+            try {
+                localStorage.setItem(storageKey, JSON.stringify(conversion));
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        function maybeCaptureEsSpxOiConvertedLevelsAtClose(now = new Date()) {
+            // Best-effort: if the dashboard is open around cash close, store a "close" snapshot
+            // to be used next morning as a preferred baseline.
+            const dateKey = _localDateKey(now);
+            const storageKey = _esSpxOiConversionStorageKey(dateKey, 'close');
+
+            try {
+                if (localStorage.getItem(storageKey)) return;
+            } catch (e) {
+                // ignore
+            }
+
+            if (!_isWithinLocalWindow(16, 0, 5, now)) return;
+            if (!Number.isFinite(latestEsPrice)) return;
+
+            const oi = lastSpxSnapshotCombined && lastSpxSnapshotCombined.openInterest ? lastSpxSnapshotCombined.openInterest : null;
+            if (!oi || oi.error) return;
+
+            const spxPrice = Number(oi.price);
+            if (!Number.isFinite(spxPrice)) return;
+
+            const spread = Number(latestEsPrice) - spxPrice;
+            if (!Number.isFinite(spread)) return;
+
+            const supports = Array.isArray(oi.supports) ? oi.supports : [];
+            const resistances = Array.isArray(oi.resistances) ? oi.resistances : [];
+
+            const rawSupports = supports
+                .map(s => Number(s.strike))
+                .filter(Number.isFinite);
+            const rawResistances = resistances
+                .map(r => Number(r.strike))
+                .filter(Number.isFinite);
+
+            const convertedSupports = rawSupports.map(strike => strike + spread);
+            const convertedResistances = rawResistances.map(strike => strike + spread);
+
+            const conversion = {
+                date_key: dateKey,
+                captured_at: _formatLocalHHMM(now),
+                capture_kind: 'close',
+                spread,
+                es_price: Number(latestEsPrice),
+                spx_price: spxPrice,
+                supports: convertedSupports,
+                resistances: convertedResistances,
+                spx_supports_raw: rawSupports,
+                spx_resistances_raw: rawResistances,
+            };
 
             try {
                 localStorage.setItem(storageKey, JSON.stringify(conversion));
@@ -2503,6 +2697,8 @@
                     updateEsNearSignals();
                     updatePressureUI();
                     maybeCaptureEsSpxOiConvertedLevels();
+                    maybeComputeMorningEsSpxOiConvertedLevels();
+                    maybeCaptureEsSpxOiConvertedLevelsAtClose();
 
                     return price;
                 } catch (e) {
@@ -2738,6 +2934,8 @@
                     displaySpxKeyLevels(combined);
                     updatePressureUI();
                     maybeCaptureEsSpxOiConvertedLevels();
+                    maybeComputeMorningEsSpxOiConvertedLevels();
+                    maybeCaptureEsSpxOiConvertedLevelsAtClose();
 
                     return combined;
                 } catch (e) {
