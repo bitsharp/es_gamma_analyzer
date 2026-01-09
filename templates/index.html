@@ -769,6 +769,8 @@
                                 </div>
                             </div>
                         </div>
+
+                                <div id="esSpxOiConvertedRow" class="mt-2 small text-muted">SPX OI→ES @14:30: in attesa…</div>
                     </div>
 
             <!-- SPX Key Levels -->
@@ -814,34 +816,18 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <h6 class="text-support mb-3">
-                                    <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
+                                    <i class="bi bi-shield-check me-2"></i>PUT Supports
                                 </h6>
                                 <div id="spxSupportsContainer">
-                                    <div class="level-item support-item mb-2" id="spxS1Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                        <div class="fw-bold text-support fs-5" id="spxS1">--</div>
-                                    </div>
-                                    <div class="level-item support-item mb-2" id="spxS2Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                        <div class="fw-bold text-support fs-5" id="spxS2">--</div>
-                                    </div>
-                                    <div class="level-item support-item" id="spxS3Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                        <div class="fw-bold text-support fs-5" id="spxS3">--</div>
-                                    </div>
+                                    <p class="text-muted text-center py-3">No data</p>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <h6 class="text-resistance mb-3">
-                                    <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
+                                    <i class="bi bi-shield-x me-2"></i>CALL Resistances
                                 </h6>
                                 <div id="spxResistancesContainer">
-                                    <div class="level-item resistance-item mb-2" id="spxR1Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                        <div class="fw-bold text-resistance fs-5" id="spxR1">--</div>
-                                    </div>
-                                    <div class="level-item resistance-item mb-2" id="spxR2Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                        <div class="fw-bold text-resistance fs-5" id="spxR2">--</div>
-                                    </div>
-                                    <div class="level-item resistance-item" id="spxR3Box" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                        <div class="fw-bold text-resistance fs-5" id="spxR3">--</div>
-                                    </div>
+                                    <p class="text-muted text-center py-3">No data</p>
                                 </div>
                             </div>
                         </div>
@@ -1173,6 +1159,8 @@
         let latestSpxPrice = null;
         let latestSpxGammaFlip = null;
         let prevSpxPrice = null;
+        let lastSpxSnapshotCombined = null;
+        let lastEsSpxOiConversion = null;
         let xspLoadPromise = null;
         let xspPollIntervalId = null;
         let latestXspPrice = null;
@@ -1211,6 +1199,7 @@
         const esLevelsModeSwitch = document.getElementById('esLevelsModeSwitch');
         const esSupportsModeHint = document.getElementById('esSupportsModeHint');
         const esResistancesModeHint = document.getElementById('esResistancesModeHint');
+        const esSpxOiConvertedRow = document.getElementById('esSpxOiConvertedRow');
         const nvdaLivePrice = document.getElementById('nvdaLivePrice');
         const nvdaLiveTime = document.getElementById('nvdaLiveTime');
         const nvdaGammaFlipTop = document.getElementById('nvdaGammaFlipTop');
@@ -1812,6 +1801,147 @@
             applyNearSignals(resistancesContainer, latestEsPrice, { minAbs: 5, rel: 0.00075 });
         }
 
+        function _localDateKey(date = new Date()) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        function _isWithinLocalWindow(targetHour, targetMinute, toleranceMinutes = 3, date = new Date()) {
+            const nowMins = date.getHours() * 60 + date.getMinutes();
+            const targetMins = targetHour * 60 + targetMinute;
+            return Math.abs(nowMins - targetMins) <= toleranceMinutes;
+        }
+
+        function _formatLocalHHMM(date = new Date()) {
+            return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+        }
+
+        function _esSpxOiConversionStorageKey(dateKey) {
+            return `es_spx_oi_to_es_${dateKey}`;
+        }
+
+        function renderEsSpxOiConvertedLevels(conversion) {
+            if (!esSpxOiConvertedRow) return;
+            if (!conversion || !Array.isArray(conversion.supports) || !Array.isArray(conversion.resistances)) {
+                esSpxOiConvertedRow.classList.add('text-muted');
+                esSpxOiConvertedRow.innerHTML = 'SPX OI→ES @14:30: in attesa…';
+                try {
+                    if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
+                        const tip = bootstrap.Tooltip.getInstance(esSpxOiConvertedRow);
+                        if (tip) tip.dispose();
+                    }
+                } catch (e) {
+                    // ignore
+                }
+                return;
+            }
+
+            const supportsText = conversion.supports.map(n => Number(n).toFixed(2)).join(', ');
+            const resistancesText = conversion.resistances.map(n => Number(n).toFixed(2)).join(', ');
+            const spread = Number(conversion.spread);
+            const spreadText = Number.isFinite(spread) ? (spread >= 0 ? `+${spread.toFixed(2)}` : spread.toFixed(2)) : '--';
+            const capturedAt = (conversion.captured_at || '--').toString();
+
+            esSpxOiConvertedRow.classList.remove('text-muted');
+            esSpxOiConvertedRow.innerHTML = `
+                <span class="badge text-bg-secondary me-2">SPX OI→ES</span>
+                <span class="text-muted me-2">@14:30 (spread ${spreadText})</span>
+                <span class="text-support me-3"><span class="fw-semibold">S:</span> ${supportsText || '--'}</span>
+                <span class="text-resistance"><span class="fw-semibold">R:</span> ${resistancesText || '--'}</span>
+            `;
+
+            const tooltip = `Captured ${capturedAt} | ES ${Number(conversion.es_price).toFixed(2)} | SPX ${Number(conversion.spx_price).toFixed(2)} | Spread ${spreadText}`;
+            esSpxOiConvertedRow.setAttribute('data-bs-toggle', 'tooltip');
+            esSpxOiConvertedRow.setAttribute('data-bs-placement', 'top');
+            esSpxOiConvertedRow.setAttribute('data-bs-title', tooltip);
+            try {
+                if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
+                    bootstrap.Tooltip.getOrCreateInstance(esSpxOiConvertedRow, { trigger: 'hover', container: 'body' });
+                }
+            } catch (e) {
+                // ignore
+            }
+
+            esSpxOiConvertedRow.style.display = 'block';
+        }
+
+        function loadStoredEsSpxOiConvertedLevels() {
+            try {
+                const key = _esSpxOiConversionStorageKey(_localDateKey());
+                const raw = localStorage.getItem(key);
+                if (!raw) return;
+                const parsed = JSON.parse(raw);
+                if (!parsed || typeof parsed !== 'object') return;
+                lastEsSpxOiConversion = parsed;
+                renderEsSpxOiConvertedLevels(parsed);
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        function maybeCaptureEsSpxOiConvertedLevels(now = new Date()) {
+            const dateKey = _localDateKey(now);
+            const storageKey = _esSpxOiConversionStorageKey(dateKey);
+
+            try {
+                if (localStorage.getItem(storageKey)) {
+                    if (!lastEsSpxOiConversion) {
+                        loadStoredEsSpxOiConvertedLevels();
+                    }
+                    return;
+                }
+            } catch (e) {
+                // ignore
+            }
+
+            // Capture at 14:30 local time (cash open in user's reference).
+            if (!_isWithinLocalWindow(14, 30, 3, now)) return;
+            if (!Number.isFinite(latestEsPrice)) return;
+
+            const oi = lastSpxSnapshotCombined && lastSpxSnapshotCombined.openInterest ? lastSpxSnapshotCombined.openInterest : null;
+            if (!oi || oi.error) return;
+
+            const spxPrice = Number(oi.price);
+            if (!Number.isFinite(spxPrice)) return;
+
+            const spread = Number(latestEsPrice) - spxPrice;
+            if (!Number.isFinite(spread)) return;
+
+            const supports = Array.isArray(oi.supports) ? oi.supports : [];
+            const resistances = Array.isArray(oi.resistances) ? oi.resistances : [];
+
+            const convertedSupports = supports
+                .map(s => Number(s.strike))
+                .filter(Number.isFinite)
+                .map(strike => strike + spread);
+
+            const convertedResistances = resistances
+                .map(r => Number(r.strike))
+                .filter(Number.isFinite)
+                .map(strike => strike + spread);
+
+            const conversion = {
+                date_key: dateKey,
+                captured_at: _formatLocalHHMM(now),
+                spread,
+                es_price: Number(latestEsPrice),
+                spx_price: spxPrice,
+                supports: convertedSupports,
+                resistances: convertedResistances,
+            };
+
+            lastEsSpxOiConversion = conversion;
+            renderEsSpxOiConvertedLevels(conversion);
+
+            try {
+                localStorage.setItem(storageKey, JSON.stringify(conversion));
+            } catch (e) {
+                // ignore
+            }
+        }
+
         function updateNvdaNearSignals() {
             applyNearSignals(nvdaSupportsContainer, latestNvdaPrice, { minAbs: 0.5, rel: 0.00075 });
             applyNearSignals(nvdaResistancesContainer, latestNvdaPrice, { minAbs: 0.5, rel: 0.00075 });
@@ -1827,84 +1957,86 @@
         }
 
         function updateSpxNearSignals() {
-            if (!latestSpxPrice) return;
-            const threshold = getNearThreshold(latestSpxPrice, { minAbs: 10, rel: 0.001 });
-            if (!Number.isFinite(threshold)) return;
-
-            const boxIds = ['spxS1Box', 'spxS2Box', 'spxS3Box', 'spxR1Box', 'spxR2Box', 'spxR3Box'];
-            boxIds.forEach(id => {
-                const box = document.getElementById(id);
-                if (!box) return;
-                const strike = Number(box.getAttribute('data-strike'));
-                if (!Number.isFinite(strike)) {
-                    box.classList.remove('near-level');
-                    return;
-                }
-                const near = Math.abs(strike - latestSpxPrice) <= threshold;
-                box.classList.toggle('near-level', near);
-            });
+            const supportsContainer = document.getElementById('spxSupportsContainer');
+            const resistancesContainer = document.getElementById('spxResistancesContainer');
+            applyNearSignals(supportsContainer, latestSpxPrice, { minAbs: 10, rel: 0.001 });
+            applyNearSignals(resistancesContainer, latestSpxPrice, { minAbs: 10, rel: 0.001 });
         }
 
         function updateXspNearSignals() {
             // XSP key levels removed from UI; kept for backward compatibility.
         }
 
-        function displaySpxKeyLevels(data) {
+        function displaySpxKeyLevels(payload) {
+            const spxMetricSwitch = document.getElementById('spxMetricSwitch');
+            const useOpenInterest = spxMetricSwitch ? spxMetricSwitch.checked : false;
+            const primaryMetric = useOpenInterest ? 'openInterest' : 'volume';
+
+            const isCombined = !!(payload && typeof payload === 'object' && (payload.volume || payload.openInterest || payload.primary_metric));
+            const volData = isCombined ? (payload.volume || null) : ((payload && payload.metric === 'volume') ? payload : null);
+            const oiData = isCombined ? (payload.openInterest || null) : ((payload && payload.metric === 'openInterest') ? payload : null);
+
+            const baseData = isCombined
+                ? (payload[primaryMetric] || payload.volume || payload.openInterest || null)
+                : (payload || null);
+
             // Update header tooltip with expiry, source, and metric info
             const spxHeader = document.getElementById('spxKeyLevelsHeader');
-            if (spxHeader && data && data.expiration) {
+            if (spxHeader && baseData && baseData.expiration) {
                 let tooltipParts = [];
-                
-                // Expiry date
-                tooltipParts.push(`Expiry: ${formatExpiryDate(data.expiration)}`);
-                
-                // Source
-                if (data.source === "yahoo") {
+                tooltipParts.push(`Expiry: ${formatExpiryDate(baseData.expiration)}`);
+
+                if (baseData.source === "yahoo") {
                     tooltipParts.push('Source: Yahoo Finance');
-                } else if (data.note && data.note.toLowerCase().includes("proxy")) {
+                } else if (baseData.note && String(baseData.note).toLowerCase().includes("proxy")) {
                     tooltipParts.push('Source: SPY Proxy ⚠️');
                 }
-                
-                // Metric
-                if (data.metric) {
-                    const metricText = data.metric === 'volume' ? 'Volume' : 'Open Interest';
-                    tooltipParts.push(`Metric: ${metricText}`);
+
+                const hasVl = !!(volData && !volData.error);
+                const hasOi = !!(oiData && !oiData.error);
+                if (hasVl && hasOi) {
+                    tooltipParts.push(`Levels: VL+OI`);
+                    tooltipParts.push(`Primary: ${useOpenInterest ? 'OI' : 'VL'}`);
+                } else if (hasOi) {
+                    tooltipParts.push('Levels: OI');
+                } else if (hasVl) {
+                    tooltipParts.push('Levels: VL');
                 }
-                
+
                 spxHeader.setAttribute('data-bs-title', tooltipParts.join(' | '));
             }
 
-            if (!data || data.error) {
+            const spxSupportsContainer = document.getElementById('spxSupportsContainer');
+            const spxResistancesContainer = document.getElementById('spxResistancesContainer');
+
+            if (!baseData || baseData.error) {
                 setPutCallRatio(spxPcrLabel, null);
-                // Reset all boxes
-                const boxes = ['spxLivePrice', 'spxLiveTime', 'spxGammaFlipTop', 'spxPutCallRatio',
-                              'spxS1', 'spxS2', 'spxS3', 'spxR1', 'spxR2', 'spxR3'];
-                boxes.forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el) el.textContent = '--';
-                });
+                if (spxLivePrice) spxLivePrice.textContent = '--';
+                if (spxGammaFlipTop) spxGammaFlipTop.textContent = '--';
+                if (spxSupportsContainer) spxSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+                if (spxResistancesContainer) spxResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
                 return;
             }
 
-            setPutCallRatio(spxPcrLabel, data.stats);
+            setPutCallRatio(spxPcrLabel, baseData.stats);
 
             // Regime
             const spxRegimeCard = document.getElementById('spxRegimeCard');
             if (spxRegimeCard) {
-                if (data.regime) {
+                if (baseData.regime) {
                     spxRegimeCard.style.display = 'block';
                     const regimeTypeEl = document.getElementById('spxRegimeType');
                     const regimeStrategyEl = document.getElementById('spxRegimeStrategy');
-                    if (regimeTypeEl) regimeTypeEl.textContent = data.regime;
-                    if (regimeStrategyEl) regimeStrategyEl.innerHTML = '<i class="bi bi-info-circle me-2"></i>' + (data.strategy || '');
+                    if (regimeTypeEl) regimeTypeEl.textContent = baseData.regime;
+                    if (regimeStrategyEl) regimeStrategyEl.innerHTML = '<i class="bi bi-info-circle me-2"></i>' + (baseData.strategy || '');
                 } else {
                     spxRegimeCard.style.display = 'none';
                 }
             }
 
             // Update price and gamma flip
-            const price = Number(data.price);
-            const gammaFlip = Number(data.gamma_flip);
+            const price = Number(baseData.price);
+            const gammaFlip = Number(baseData.gamma_flip);
             
             if (spxLivePrice) {
                 spxLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
@@ -1913,8 +2045,8 @@
             // Set tooltip for SPX live box with time/date info
             const spxLiveBox = document.getElementById('spxLiveBox');
             if (spxLiveBox) {
-                const timeText = data.time || data.expiration || '--';
-                const tooltipText = data.note ? `SPY Proxy - ${timeText}` : timeText;
+                const timeText = baseData.time || baseData.expiration || '--';
+                const tooltipText = baseData.note ? `SPY Proxy - ${timeText}` : timeText;
                 spxLiveBox.setAttribute('data-bs-title', tooltipText);
             }
             
@@ -1924,109 +2056,122 @@
             
             // Set tooltip for Gamma flip box with PCR info
             const spxGammaFlipBox = document.getElementById('spxGammaFlipBox');
-            if (spxGammaFlipBox && data.stats) {
-                const pcr = Number(data.stats.put_call_ratio);
+            if (spxGammaFlipBox && baseData.stats) {
+                const pcr = Number(baseData.stats.put_call_ratio);
                 const pcrText = Number.isFinite(pcr) ? `PCR: ${pcr.toFixed(2)}` : '--';
                 spxGammaFlipBox.setAttribute('data-bs-title', pcrText);
             }
 
-            const supports = Array.isArray(data.supports) ? data.supports : [];
-            const resistances = Array.isArray(data.resistances) ? data.resistances : [];
+            // Aggregate supports/resistances for Volume (VL) and Open Interest (OI)
+            const supportsVl = Array.isArray(volData && volData.supports) ? volData.supports : [];
+            const resistancesVl = Array.isArray(volData && volData.resistances) ? volData.resistances : [];
+            const supportsOi = Array.isArray(oiData && oiData.supports) ? oiData.supports : [];
+            const resistancesOi = Array.isArray(oiData && oiData.resistances) ? oiData.resistances : [];
 
-            // Calculate max gamma for heat scale
-            const allGammas = [
-                ...supports.map(s => Math.abs(Number(s.gamma) || 0)),
-                ...resistances.map(r => Math.abs(Number(r.gamma) || 0))
+            const primaryTag = useOpenInterest ? 'OI' : 'VL';
+            const groups = useOpenInterest
+                ? [{ tag: 'OI', supports: supportsOi, resistances: resistancesOi }, { tag: 'VL', supports: supportsVl, resistances: resistancesVl }]
+                : [{ tag: 'VL', supports: supportsVl, resistances: resistancesVl }, { tag: 'OI', supports: supportsOi, resistances: resistancesOi }];
+
+            const mergeLevels = (itemsByGroup, kindLabel) => {
+                const merged = [];
+                const byStrike = new Map();
+                itemsByGroup.forEach(({ tag, items }) => {
+                    (Array.isArray(items) ? items : []).forEach((it, i) => {
+                        const strike = Number(it.strike);
+                        const strikeKey = Number.isFinite(strike) ? strike.toFixed(2) : `${tag}:${kindLabel}:${i}`;
+                        const existing = byStrike.get(strikeKey);
+                        if (existing) {
+                            existing.tags.add(tag);
+                            existing.data[tag] = it;
+                            return;
+                        }
+                        const entry = {
+                            strike,
+                            strikeKey,
+                            rank: i,
+                            tags: new Set([tag]),
+                            data: { [tag]: it },
+                        };
+                        byStrike.set(strikeKey, entry);
+                        merged.push(entry);
+                    });
+                });
+                // Prefer to keep the original first-seen ordering.
+                return merged;
+            };
+
+            const mergedSupports = mergeLevels(
+                [{ tag: groups[0].tag, items: groups[0].supports }, { tag: groups[1].tag, items: groups[1].supports }],
+                'S'
+            );
+            const mergedResistances = mergeLevels(
+                [{ tag: groups[0].tag, items: groups[0].resistances }, { tag: groups[1].tag, items: groups[1].resistances }],
+                'R'
+            );
+
+            const gammaForEntry = (entry) => {
+                const a = entry.data && entry.data[primaryTag] ? Number(entry.data[primaryTag].gamma) : NaN;
+                if (Number.isFinite(a)) return a;
+                const tagsArr = Array.from(entry.tags);
+                const firstTag = tagsArr.length ? tagsArr[0] : null;
+                const b = firstTag && entry.data && entry.data[firstTag] ? Number(entry.data[firstTag].gamma) : NaN;
+                return Number.isFinite(b) ? b : 0;
+            };
+
+            const maxAbsGammaForEntry = (entry) => {
+                let maxAbs = 0;
+                Array.from(entry.tags).forEach(t => {
+                    const g = entry.data && entry.data[t] ? Number(entry.data[t].gamma) : 0;
+                    const a = Math.abs(Number(g) || 0);
+                    if (a > maxAbs) maxAbs = a;
+                });
+                return maxAbs;
+            };
+
+            const allAbsGammas = [
+                ...mergedSupports.map(maxAbsGammaForEntry),
+                ...mergedResistances.map(maxAbsGammaForEntry),
             ];
-            const maxGamma = Math.max(...allGammas, 1);
+            const maxGamma = Math.max(...allAbsGammas, 1);
 
-            // Populate S1, S2, S3
-            const supportIds = ['spxS1', 'spxS2', 'spxS3'];
-            const supportBoxIds = ['spxS1Box', 'spxS2Box', 'spxS3Box'];
-            supportIds.forEach((id, i) => {
-                const el = document.getElementById(id);
-                const box = document.getElementById(supportBoxIds[i]);
-                if (el) {
-                    if (supports[i]) {
-                        const strike = Number(supports[i].strike);
-                        const gamma = Number(supports[i].gamma);
-                        
-                        el.textContent = Number.isFinite(strike) ? `S${i + 1}  ${strike.toFixed(2)}` : '--';
-                        
-                        // Apply heat class based on gamma
-                        if (box) {
-                            const heatClass = heatClassForGamma(gamma, maxGamma);
-                            
-                            // Remove old heat classes
-                            box.classList.remove('heat-1', 'heat-2', 'heat-3', 'heat-4', 'heat-5');
-                            box.classList.add(heatClass);
-                            
-                            // Set data-strike for near signal detection
-                            box.setAttribute('data-strike', strike);
-                            
-                            // Tooltip
-                            const callOi = Number(supports[i].call_oi).toLocaleString();
-                            const putOi = Number(supports[i].put_oi).toLocaleString();
-                            box.setAttribute('data-bs-title', `Call: ${callOi} | Put: ${putOi} | Gamma: ${(gamma / 1000).toFixed(0)}K`);
-                        }
-                    } else {
-                        el.textContent = '--';
-                        if (box) {
-                            box.setAttribute('data-bs-title', '--');
-                            box.removeAttribute('data-strike');
-                            box.classList.remove('heat-1', 'heat-2', 'heat-3', 'heat-4', 'heat-5');
-                        }
-                    }
+            const renderList = (container, merged, prefix) => {
+                if (!container) return;
+                if (!merged.length) {
+                    container.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+                    return;
                 }
-            });
 
-            // Populate R1, R2, R3
-            const resistanceIds = ['spxR1', 'spxR2', 'spxR3'];
-            const resistanceBoxIds = ['spxR1Box', 'spxR2Box', 'spxR3Box'];
-            resistanceIds.forEach((id, i) => {
-                const el = document.getElementById(id);
-                const box = document.getElementById(resistanceBoxIds[i]);
-                if (el) {
-                    if (resistances[i]) {
-                        const strike = Number(resistances[i].strike);
-                        const gamma = Number(resistances[i].gamma);
-                        
-                        el.textContent = Number.isFinite(strike) ? `R${i + 1}  ${strike.toFixed(2)}` : '--';
-                        
-                        // Apply heat class based on gamma
-                        if (box) {
-                            const heatClass = heatClassForGamma(gamma, maxGamma);
-                            
-                            // Remove old heat classes
-                            box.classList.remove('heat-1', 'heat-2', 'heat-3', 'heat-4', 'heat-5');
-                            box.classList.add(heatClass);
-                            
-                            // Set data-strike for near signal detection
-                            box.setAttribute('data-strike', strike);
-                            
-                            // Tooltip
-                            const callOi = Number(resistances[i].call_oi).toLocaleString();
-                            const putOi = Number(resistances[i].put_oi).toLocaleString();
-                            box.setAttribute('data-bs-title', `Call: ${callOi} | Put: ${putOi} | Gamma: ${(gamma / 1000).toFixed(0)}K`);
-                        }
-                    } else {
-                        el.textContent = '--';
-                        if (box) {
-                            box.setAttribute('data-bs-title', '--');
-                            box.removeAttribute('data-strike');
-                            box.classList.remove('heat-1', 'heat-2', 'heat-3', 'heat-4', 'heat-5');
-                        }
-                    }
-                }
-            });
+                container.innerHTML = merged.map((entry, idx) => {
+                    const strike = Number(entry.strike);
+                    const tagsArr = Array.from(entry.tags);
+                    // Stable tag order: primary first, then the other.
+                    tagsArr.sort((a, b) => (a === primaryTag ? -1 : (b === primaryTag ? 1 : a.localeCompare(b))));
+                    const badges = tagsArr.map(t => `<span class="badge text-bg-secondary ms-2">${t}</span>`).join('');
 
-            // Initialize tooltips for SPX boxes
-            const tooltipElements = document.querySelectorAll('[id^="spx"][data-bs-toggle="tooltip"]');
-            tooltipElements.forEach(el => {
-                const tooltip = bootstrap.Tooltip.getInstance(el);
-                if (tooltip) tooltip.dispose();
-                new bootstrap.Tooltip(el);
-            });
+                    const preferred = entry.data && entry.data[primaryTag] ? entry.data[primaryTag] : (entry.data[tagsArr[0]] || {});
+                    const callVal = Number(preferred.call_oi).toLocaleString();
+                    const putVal = Number(preferred.put_oi).toLocaleString();
+                    const gamma = Number(preferred.gamma);
+
+                    const tagsText = tagsArr.join('+');
+                    const tooltip = `${tagsText} | Call: ${callVal} | Put: ${putVal} | Gamma: ${(gamma / 1000).toFixed(0)}K`;
+                    const heatClass = heatClassForGamma(maxAbsGammaForEntry(entry), maxGamma);
+
+                    return `
+                        <div class="level-item ${prefix === 'S' ? 'support-item' : 'resistance-item'} ${heatClass}" data-strike="${strike}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${tooltip}">
+                            <div class="d-flex justify-content-between align-items-center level-row">
+                                <div class="fw-bold ${prefix === 'S' ? 'text-support' : 'text-resistance'}">${prefix}${idx + 1}  ${Number.isFinite(strike) ? strike.toFixed(2) : '--'} ${badges}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                initTooltipsWithin(container);
+            };
+
+            renderList(spxSupportsContainer, mergedSupports, 'S');
+            renderList(spxResistancesContainer, mergedResistances, 'R');
 
             updateSpxNearSignals();
         }
@@ -2153,6 +2298,7 @@
 
                     updateEsNearSignals();
                     updatePressureUI();
+                    maybeCaptureEsSpxOiConvertedLevels();
 
                     return price;
                 } catch (e) {
@@ -2341,24 +2487,43 @@
 
             spxLoadPromise = (async () => {
                 try {
-                    // Check if user wants to use Open Interest instead of Volume
                     const spxMetricSwitch = document.getElementById('spxMetricSwitch');
                     const useOpenInterest = spxMetricSwitch ? spxMetricSwitch.checked : false;
-                    const metric = useOpenInterest ? 'openInterest' : 'volume';
-                    
-                    const response = await fetch(`/api/spx-snapshot?metric=${metric}`);
-                    const data = await response.json();
+                    const primaryMetric = useOpenInterest ? 'openInterest' : 'volume';
 
-                    console.log('SPX API Response:', data);
+                    const fetchOne = async (metric) => {
+                        const response = await fetch(`/api/spx-snapshot?metric=${metric}`);
+                        const data = await response.json();
+                        if (!response.ok || !data || data.error) {
+                            throw new Error((data && data.error) ? data.error : `SPX ${metric} fetch failed`);
+                        }
+                        return data;
+                    };
 
-                    if (!response.ok || data.error) {
-                        console.error('SPX API Error:', data.error || 'SPX fetch failed');
-                        throw new Error(data.error || 'SPX fetch failed');
+                    const [volRes, oiRes] = await Promise.allSettled([
+                        fetchOne('volume'),
+                        fetchOne('openInterest'),
+                    ]);
+
+                    const volumeData = volRes.status === 'fulfilled' ? volRes.value : null;
+                    const openInterestData = oiRes.status === 'fulfilled' ? oiRes.value : null;
+
+                    if (!volumeData && !openInterestData) {
+                        const reason = (volRes.status === 'rejected' && volRes.reason) ? volRes.reason : (oiRes.status === 'rejected' && oiRes.reason ? oiRes.reason : null);
+                        throw (reason instanceof Error ? reason : new Error('SPX fetch failed'));
                     }
 
-                    const price = Number(data.price);
-                    const gammaFlip = Number(data.gamma_flip);
-                    const when = (data.time || '').toString();
+                    const combined = {
+                        primary_metric: primaryMetric,
+                        volume: volumeData,
+                        openInterest: openInterestData,
+                    };
+
+                    lastSpxSnapshotCombined = combined;
+
+                    const baseData = combined[primaryMetric] || combined.volume || combined.openInterest;
+                    const price = Number(baseData && baseData.price);
+                    const gammaFlip = Number(baseData && baseData.gamma_flip);
 
                     if (Number.isFinite(price)) {
                         if (latestSpxPrice != null) prevSpxPrice = latestSpxPrice;
@@ -2368,11 +2533,11 @@
                     }
                     latestSpxGammaFlip = Number.isFinite(gammaFlip) ? gammaFlip : null;
 
-                    console.log('Calling displaySpxKeyLevels with data:', data);
-                    displaySpxKeyLevels(data);
+                    displaySpxKeyLevels(combined);
                     updatePressureUI();
+                    maybeCaptureEsSpxOiConvertedLevels();
 
-                    return data;
+                    return combined;
                 } catch (e) {
                     console.error('SPX load error:', e);
                     latestSpxPrice = null;
@@ -2987,6 +3152,9 @@
         // Restore switch states from localStorage BEFORE starting polling
         _restoreLevelsModeSwitch(nvdaLevelsModeSwitch, 'nvda_levels_mode');
         _restoreLevelsModeSwitch(msftLevelsModeSwitch, 'msft_levels_mode');
+
+        // Restore today's stored cash-open conversion (if any)
+        loadStoredEsSpxOiConvertedLevels();
 
         // Kick off price fetch on page load.
         startEsPricePolling();
