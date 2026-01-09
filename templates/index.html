@@ -709,13 +709,9 @@
             <div class="col-12 col-md-3">
                 <div class="card" id="esKeyLevelsCard">
                     <div class="card-header">
-                        <div class="d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center">
                             <div>
                                 <i class="bi bi-bullseye me-2"></i>ES Key Levels <span class="text-muted" id="esPcrLabel"></span>
-                            </div>
-                            <div class="form-check form-switch mb-0" style="transform: scale(0.95); transform-origin: right center;">
-                                <input class="form-check-input" type="checkbox" role="switch" id="esLevelsModeSwitch">
-                                <label class="form-check-label small text-nowrap" for="esLevelsModeSwitch">Use current price</label>
                             </div>
                         </div>
                     </div>
@@ -777,13 +773,9 @@
             <div class="col-12 col-md-3">
                 <div class="card" id="spxKeyLevelsCard">
                     <div class="card-header">
-                        <div class="d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center">
                             <div id="spxKeyLevelsHeader" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="">
                                 <i class="bi bi-graph-up me-2"></i>SPX Key Levels <span class="text-muted" id="spxPcrLabel"></span> <span class="text-muted small" id="spxExpiryLabel" style="display: none;"></span> <span class="text-muted small" id="spxMetricLabel" style="display: none;"></span>
-                            </div>
-                            <div class="form-check form-switch mb-0" style="transform: scale(0.85); transform-origin: right center;">
-                                <input class="form-check-input" type="checkbox" role="switch" id="spxMetricSwitch">
-                                <label class="form-check-label small text-nowrap" for="spxMetricSwitch">Use Open Interest</label>
                             </div>
                         </div>
                     </div>
@@ -1196,7 +1188,6 @@
         const esLiveBox = document.getElementById('esLiveBox');
         const gammaFlipBox = document.getElementById('gammaFlipBox');
         const gammaFlipTop = document.getElementById('gammaFlipTop');
-        const esLevelsModeSwitch = document.getElementById('esLevelsModeSwitch');
         const esSupportsModeHint = document.getElementById('esSupportsModeHint');
         const esResistancesModeHint = document.getElementById('esResistancesModeHint');
         const esSpxOiConvertedRow = document.getElementById('esSpxOiConvertedRow');
@@ -1968,9 +1959,7 @@
         }
 
         function displaySpxKeyLevels(payload) {
-            const spxMetricSwitch = document.getElementById('spxMetricSwitch');
-            const useOpenInterest = spxMetricSwitch ? spxMetricSwitch.checked : false;
-            const primaryMetric = useOpenInterest ? 'openInterest' : 'volume';
+            const primaryMetric = 'openInterest';
 
             const isCombined = !!(payload && typeof payload === 'object' && (payload.volume || payload.openInterest || payload.primary_metric));
             const volData = isCombined ? (payload.volume || null) : ((payload && payload.metric === 'volume') ? payload : null);
@@ -1994,14 +1983,9 @@
 
                 const hasVl = !!(volData && !volData.error);
                 const hasOi = !!(oiData && !oiData.error);
-                if (hasVl && hasOi) {
-                    tooltipParts.push(`Levels: VL+OI`);
-                    tooltipParts.push(`Primary: ${useOpenInterest ? 'OI' : 'VL'}`);
-                } else if (hasOi) {
-                    tooltipParts.push('Levels: OI');
-                } else if (hasVl) {
-                    tooltipParts.push('Levels: VL');
-                }
+                if (hasVl && hasOi) tooltipParts.push('Levels: OI+VL');
+                else if (hasOi) tooltipParts.push('Levels: OI');
+                else if (hasVl) tooltipParts.push('Levels: VL');
 
                 spxHeader.setAttribute('data-bs-title', tooltipParts.join(' | '));
             }
@@ -2068,10 +2052,8 @@
             const supportsOi = Array.isArray(oiData && oiData.supports) ? oiData.supports : [];
             const resistancesOi = Array.isArray(oiData && oiData.resistances) ? oiData.resistances : [];
 
-            const primaryTag = useOpenInterest ? 'OI' : 'VL';
-            const groups = useOpenInterest
-                ? [{ tag: 'OI', supports: supportsOi, resistances: resistancesOi }, { tag: 'VL', supports: supportsVl, resistances: resistancesVl }]
-                : [{ tag: 'VL', supports: supportsVl, resistances: resistancesVl }, { tag: 'OI', supports: supportsOi, resistances: resistancesOi }];
+            const primaryTag = 'OI';
+            const groups = [{ tag: 'OI', supports: supportsOi, resistances: resistancesOi }, { tag: 'VL', supports: supportsVl, resistances: resistancesVl }];
 
             const mergeLevels = (itemsByGroup, kindLabel) => {
                 const merged = [];
@@ -2147,7 +2129,14 @@
                     const tagsArr = Array.from(entry.tags);
                     // Stable tag order: primary first, then the other.
                     tagsArr.sort((a, b) => (a === primaryTag ? -1 : (b === primaryTag ? 1 : a.localeCompare(b))));
-                    const badges = tagsArr.map(t => `<span class="badge text-bg-secondary ms-2">${t}</span>`).join('');
+                    const badgeTitle = (t) => {
+                        if (t === 'OI') return 'OI = Open Interest (open contracts)';
+                        if (t === 'VL') return 'VL = Volume (contracts traded)';
+                        return '';
+                    };
+                    const badges = tagsArr
+                        .map(t => `<span class="badge text-bg-secondary" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${badgeTitle(t)}">${t}</span>`)
+                        .join('');
 
                     const preferred = entry.data && entry.data[primaryTag] ? entry.data[primaryTag] : (entry.data[tagsArr[0]] || {});
                     const callVal = Number(preferred.call_oi).toLocaleString();
@@ -2161,7 +2150,10 @@
                     return `
                         <div class="level-item ${prefix === 'S' ? 'support-item' : 'resistance-item'} ${heatClass}" data-strike="${strike}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${tooltip}">
                             <div class="d-flex justify-content-between align-items-center level-row">
-                                <div class="fw-bold ${prefix === 'S' ? 'text-support' : 'text-resistance'}">${prefix}${idx + 1}  ${Number.isFinite(strike) ? strike.toFixed(2) : '--'} ${badges}</div>
+                                <div>
+                                    <div class="fw-bold ${prefix === 'S' ? 'text-support' : 'text-resistance'}">${prefix}${idx + 1}  ${Number.isFinite(strike) ? strike.toFixed(2) : '--'}</div>
+                                    <div class="d-flex flex-wrap gap-1 mt-1">${badges}</div>
+                                </div>
                             </div>
                         </div>
                     `;
@@ -2487,9 +2479,7 @@
 
             spxLoadPromise = (async () => {
                 try {
-                    const spxMetricSwitch = document.getElementById('spxMetricSwitch');
-                    const useOpenInterest = spxMetricSwitch ? spxMetricSwitch.checked : false;
-                    const primaryMetric = useOpenInterest ? 'openInterest' : 'volume';
+                    const primaryMetric = 'openInterest';
 
                     const fetchOne = async (metric) => {
                         const response = await fetch(`/api/spx-snapshot?metric=${metric}`);
@@ -3184,15 +3174,6 @@
                 formData.append('current_price', String(latestEsPrice));
             }
 
-            if (esLevelsModeSwitch) {
-                formData.append('levels_mode', esLevelsModeSwitch.checked ? 'price' : 'flip');
-                try {
-                    localStorage.setItem('es_levels_mode', esLevelsModeSwitch.checked ? 'price' : 'flip');
-                } catch (e) {
-                    // ignore
-                }
-            }
-
             loading.style.display = 'block';
             results.style.display = 'none';
             errorMsg.style.display = 'none';
@@ -3255,34 +3236,6 @@
             }
         });
 
-        if (esLevelsModeSwitch) {
-            // Restore last choice
-            try {
-                const saved = (localStorage.getItem('es_levels_mode') || 'price').toLowerCase();
-                esLevelsModeSwitch.checked = saved === 'price';
-            } catch (e) {
-                // ignore
-            }
-
-            esLevelsModeSwitch.addEventListener('change', async () => {
-                // Keep the user's preference but just re-render (we now have both CP+GF levels).
-                try {
-                    localStorage.setItem('es_levels_mode', esLevelsModeSwitch.checked ? 'price' : 'flip');
-                } catch (e) {
-                    // ignore
-                }
-                if (lastEsAnalysisData) displayResults(lastEsAnalysisData);
-            });
-        }
-
-        const spxMetricSwitch = document.getElementById('spxMetricSwitch');
-        if (spxMetricSwitch) {
-            spxMetricSwitch.addEventListener('change', () => {
-                spxLoadPromise = null;
-                loadSpxSnapshot();
-            });
-        }
-
         if (nvdaLevelsModeSwitch) {
             nvdaLevelsModeSwitch.addEventListener('change', async () => {
                 _persistLevelsModeSwitch(nvdaLevelsModeSwitch, 'nvda_levels_mode');
@@ -3335,8 +3288,8 @@
         function displayResults(data) {
             setPutCallRatio(esPcrLabel, data && data.stats ? data.stats : null);
 
-            // We now show both CP and GF levels. The switch only controls ordering.
-            const preferCpFirst = !!(esLevelsModeSwitch && esLevelsModeSwitch.checked);
+            // We show both CP and GF levels; keep a stable ordering.
+            const preferCpFirst = true;
 
             // Gamma Flip
             const gammaFlipValueEl = document.getElementById('gammaFlipValue');
@@ -3414,12 +3367,22 @@
                     const putOi = Number(it.put_oi).toLocaleString();
                     const gamma = Number(it.gamma);
                     const tagsText = it.tags.join('+');
-                    const badges = it.tags.map(t => `<span class="badge text-bg-secondary ms-2">${t}</span>`).join('');
+                    const badgeTitle = (t) => {
+                        if (t === 'CP') return 'CP = Levels computed vs current ES price';
+                        if (t === 'GF') return 'GF = Levels computed vs ES Gamma Flip';
+                        return '';
+                    };
+                    const badges = it.tags
+                        .map(t => `<span class="badge text-bg-secondary" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${badgeTitle(t)}">${t}</span>`)
+                        .join('');
                     const labelIdx = Number.isFinite(it.rank) ? (it.rank + 1) : 1;
                     return `
                         <div class="level-item support-item ${heatClassForIndex(it.rank)}" data-strike="${strike}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${tagsText} | Call: ${callOi} | Put: ${putOi} | Gamma: ${(gamma / 1000).toFixed(0)}K">
                             <div class="d-flex justify-content-between align-items-center level-row">
-                                <div class="fw-bold text-support">S${labelIdx}  ${Number.isFinite(strike) ? strike.toFixed(2) : '--'} ${badges}</div>
+                                <div>
+                                    <div class="fw-bold text-support">S${labelIdx}  ${Number.isFinite(strike) ? strike.toFixed(2) : '--'}</div>
+                                    <div class="d-flex flex-wrap gap-1 mt-1">${badges}</div>
+                                </div>
                             </div>
                         </div>
                     `;
@@ -3494,12 +3457,22 @@
                     const putOi = Number(it.put_oi).toLocaleString();
                     const gamma = Number(it.gamma);
                     const tagsText = it.tags.join('+');
-                    const badges = it.tags.map(t => `<span class="badge text-bg-secondary ms-2">${t}</span>`).join('');
+                    const badgeTitle = (t) => {
+                        if (t === 'CP') return 'CP = Levels computed vs current ES price';
+                        if (t === 'GF') return 'GF = Levels computed vs ES Gamma Flip';
+                        return '';
+                    };
+                    const badges = it.tags
+                        .map(t => `<span class="badge text-bg-secondary" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${badgeTitle(t)}">${t}</span>`)
+                        .join('');
                     const labelIdx = Number.isFinite(it.rank) ? (it.rank + 1) : 1;
                     return `
                         <div class="level-item resistance-item ${heatClassForIndex(it.rank)}" data-strike="${strike}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${tagsText} | Call: ${callOi} | Put: ${putOi} | Gamma: ${(gamma / 1000).toFixed(0)}K">
                             <div class="d-flex justify-content-between align-items-center level-row">
-                                <div class="fw-bold text-resistance">R${labelIdx}  ${Number.isFinite(strike) ? strike.toFixed(2) : '--'} ${badges}</div>
+                                <div>
+                                    <div class="fw-bold text-resistance">R${labelIdx}  ${Number.isFinite(strike) ? strike.toFixed(2) : '--'}</div>
+                                    <div class="d-flex flex-wrap gap-1 mt-1">${badges}</div>
+                                </div>
                             </div>
                         </div>
                     `;
