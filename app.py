@@ -26,6 +26,7 @@ import importlib.util
 import sys
 from functools import wraps
 import uuid
+import threading
 
 try:
     from authlib.integrations.flask_client import OAuth
@@ -210,6 +211,438 @@ _MONGO_COLLECTION = None
 _MONGO_LOGIN_COLLECTION = None
 _MONGO_LAST_ANALYSIS_COLLECTION = None
 _MONGO_GAMMA_STATS_COLLECTION = None
+
+# ==========================================================================
+# MONGODB PERSISTENCE (ES←SPX OI→ES converted levels)
+# ==========================================================================
+
+_MONGO_CONVERSIONS_COLLECTION = None
+
+
+def _get_mongo_conversions_collection():
+    """Return Mongo collection for ES←SPX conversions, or None if not configured."""
+
+    global _MONGO_CLIENT, _MONGO_CONVERSIONS_COLLECTION
+    if _MONGO_CONVERSIONS_COLLECTION is not None:
+        return _MONGO_CONVERSIONS_COLLECTION
+
+    if MongoClient is None:
+        return None
+
+    uri = (os.getenv("MONGODB_URI") or "").strip()
+    if not uri:
+        return None
+
+    db_name = (os.getenv("MONGODB_DB") or "es_gamma_analyzer").strip()
+    coll_name = (os.getenv("MONGODB_CONVERSIONS_COLLECTION") or "es_spx_conversions").strip()
+
+    try:
+        if _MONGO_CLIENT is None:
+            _MONGO_CLIENT = MongoClient(uri, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+
+        db = _MONGO_CLIENT[db_name]
+        coll = db[coll_name]
+
+        # Unique per date+kind.
+        try:
+            coll.create_index([("date_key", 1), ("capture_kind", 1)], unique=True)
+        except Exception:
+            pass
+
+        # Helpful query indexes
+        try:
+            coll.create_index([("date_key", -1), ("capture_rank", 1)])
+        except Exception:
+            pass
+
+        # Optional TTL
+        ttl_days_raw = (os.getenv("CONVERSIONS_TTL_DAYS") or "").strip()
+        if ttl_days_raw:
+            try:
+                ttl_days = int(ttl_days_raw)
+                if ttl_days > 0:
+                    coll.create_index("created_at", expireAfterSeconds=60 * 60 * 24 * ttl_days)
+            except Exception:
+                pass
+
+        _MONGO_CONVERSIONS_COLLECTION = coll
+        return _MONGO_CONVERSIONS_COLLECTION
+    except Exception:
+        return None
+
+
+def _capture_rank(kind: str) -> int:
+    if kind == 'close':
+        return 0
+    if kind == '1430':
+        return 1
+    if kind == 'morning':
+        return 2
+    return 9
+
+
+def _conv_mongo_upsert(doc: Dict[str, Any]) -> bool:
+    coll = _get_mongo_conversions_collection()
+    if coll is None:
+        return False
+
+    date_key = (doc.get('date_key') or '').strip()
+    capture_kind = (doc.get('capture_kind') or '').strip()
+    if not (date_key and capture_kind):
+        return False
+
+    now_dt = _dt.datetime.utcnow()
+
+    def _as_float_or_none(v):
+        try:
+            return float(v)
+        except Exception:
+            return None
+
+    def _as_float_list(v):
+        out = []
+        if not isinstance(v, list):
+            return out
+        for n in v:
+            try:
+                out.append(float(n))
+            except Exception:
+                continue
+        return out
+
+    payload = {
+        'date_key': date_key,
+        'capture_kind': capture_kind,
+        'capture_rank': _capture_rank(capture_kind),
+        'is_seed': bool(doc.get('is_seed')),
+        'captured_at': doc.get('captured_at'),
+        'based_on_date_key': doc.get('based_on_date_key'),
+        'es_price': _as_float_or_none(doc.get('es_price')),
+        'spx_price': _as_float_or_none(doc.get('spx_price')),
+        'spread': _as_float_or_none(doc.get('spread')),
+        'supports': _as_float_list(doc.get('supports') or []),
+        'resistances': _as_float_list(doc.get('resistances') or []),
+        'spx_supports_raw': _as_float_list(doc.get('spx_supports_raw') or []),
+        'spx_resistances_raw': _as_float_list(doc.get('spx_resistances_raw') or []),
+        'updated_at': now_dt,
+    }
+
+    try:
+        coll.update_one(
+            {'date_key': date_key, 'capture_kind': capture_kind},
+            {
+                '$set': payload,
+                '$setOnInsert': {'created_at': now_dt},
+            },
+            upsert=True,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _conv_mongo_get(date_key: str, capture_kind: str) -> Optional[Dict[str, Any]]:
+    coll = _get_mongo_conversions_collection()
+    if coll is None:
+        return None
+
+    if not (date_key and capture_kind):
+        return None
+
+    try:
+        doc = coll.find_one({'date_key': date_key, 'capture_kind': capture_kind})
+    except Exception:
+        doc = None
+    if not doc or not isinstance(doc, dict):
+        return None
+
+    def _iso(v):
+        try:
+            return v.isoformat() if v else None
+        except Exception:
+            return None
+
+    return {
+        'date_key': doc.get('date_key'),
+        'capture_kind': doc.get('capture_kind'),
+        'is_seed': bool(doc.get('is_seed')),
+        'captured_at': doc.get('captured_at'),
+        'based_on_date_key': doc.get('based_on_date_key'),
+        'es_price': doc.get('es_price'),
+        'spx_price': doc.get('spx_price'),
+        'spread': doc.get('spread'),
+        'supports': doc.get('supports') if isinstance(doc.get('supports'), list) else [],
+        'resistances': doc.get('resistances') if isinstance(doc.get('resistances'), list) else [],
+        'spx_supports_raw': doc.get('spx_supports_raw') if isinstance(doc.get('spx_supports_raw'), list) else [],
+        'spx_resistances_raw': doc.get('spx_resistances_raw') if isinstance(doc.get('spx_resistances_raw'), list) else [],
+        'created_at': _iso(doc.get('created_at')),
+        'updated_at': _iso(doc.get('updated_at')),
+    }
+
+
+def _conv_mongo_find_latest_before(date_key: str) -> Optional[Dict[str, Any]]:
+    coll = _get_mongo_conversions_collection()
+    if coll is None:
+        return None
+
+    if not date_key:
+        return None
+
+    try:
+        doc = coll.find(
+            {
+                'date_key': {'$lt': date_key},
+                'capture_kind': {'$in': ['close', '1430']},
+            }
+        ).sort([('date_key', -1), ('capture_rank', 1)]).limit(1)
+        doc = next(doc, None)
+    except Exception:
+        doc = None
+
+    if not doc or not isinstance(doc, dict):
+        return None
+
+    return _conv_mongo_get(str(doc.get('date_key') or ''), str(doc.get('capture_kind') or ''))
+
+
+def _conv_mongo_get_best_for_date(date_key: str) -> Optional[Dict[str, Any]]:
+    """Return best available baseline doc for a specific date.
+
+    Prefer cash close over 14:30 when both exist.
+    """
+
+    if not date_key:
+        return None
+    return _conv_mongo_get(date_key, 'close') or _conv_mongo_get(date_key, '1430')
+
+
+def _find_previous_baseline_date_key(today_key: str, max_days_back: int = 7) -> Optional[str]:
+    """Find the most recent prior date_key (preferring yesterday) that has a baseline.
+
+    We intentionally walk backwards day-by-day so that "yesterday" is preferred when available.
+    This handles weekends by naturally landing on the previous trading day.
+    """
+
+    if not today_key:
+        return None
+    try:
+        d0 = _dt.date.fromisoformat(today_key)
+    except Exception:
+        return None
+
+    for i in range(1, max(1, int(max_days_back)) + 1):
+        dk = (d0 - _dt.timedelta(days=i)).isoformat()
+        if _conv_mongo_get_best_for_date(dk):
+            return dk
+    return None
+
+
+def _compute_es_spx_conversion_from_baseline(today_key: str) -> Optional[Dict[str, Any]]:
+    """Compute a morning/provisional conversion using stored baseline raw strikes."""
+
+    # Prefer yesterday's SPX options (or previous available day) when present.
+    prev_key = _find_previous_baseline_date_key(today_key)
+    baseline = _conv_mongo_get_best_for_date(prev_key) if prev_key else None
+    if not baseline:
+        baseline = _conv_mongo_find_latest_before(today_key)
+    if not baseline:
+        return None
+
+    raw_s = baseline.get('spx_supports_raw') or []
+    raw_r = baseline.get('spx_resistances_raw') or []
+    if not (isinstance(raw_s, list) and isinstance(raw_r, list) and raw_s and raw_r):
+        return None
+
+    # Prices: prefer live values, but fall back to baseline prices (useful pre-market).
+    es = get_es_price_cached(max_age_seconds=5) or {}
+    spx = get_spx_snapshot_cached(metric='openInterest', max_age_seconds=60) or {}
+
+    es_price = None
+    spx_price = None
+    try:
+        if es.get('price') is not None:
+            es_price = float(es.get('price'))
+    except Exception:
+        es_price = None
+    try:
+        if isinstance(spx, dict) and spx.get('price') is not None and not spx.get('error'):
+            spx_price = float(spx.get('price'))
+    except Exception:
+        spx_price = None
+
+    try:
+        if es_price is None and baseline.get('es_price') is not None:
+            es_price = float(baseline.get('es_price'))
+    except Exception:
+        pass
+    try:
+        if spx_price is None and baseline.get('spx_price') is not None:
+            spx_price = float(baseline.get('spx_price'))
+    except Exception:
+        pass
+
+    if not (isinstance(es_price, float) and isinstance(spx_price, float)):
+        return None
+
+    spread = es_price - spx_price
+
+    def _convert(arr):
+        out = []
+        for n in arr:
+            try:
+                v = float(n)
+                out.append(v + spread)
+            except Exception:
+                continue
+        return out
+
+    now_local = _dt.datetime.now()
+    return {
+        'date_key': today_key,
+        'capture_kind': 'morning',
+        'captured_at': now_local.strftime('%H:%M'),
+        'based_on_date_key': str(baseline.get('date_key') or ''),
+        'spread': spread,
+        'es_price': es_price,
+        'spx_price': spx_price,
+        'supports': _convert(raw_s),
+        'resistances': _convert(raw_r),
+        'spx_supports_raw': raw_s,
+        'spx_resistances_raw': raw_r,
+    }
+
+
+def _compute_es_spx_conversion_from_current_snapshot(date_key: str) -> Optional[Dict[str, Any]]:
+    """Compute a best-effort conversion from the *current* SPX OI snapshot.
+
+    This is a fallback for first-run scenarios where Mongo has no stored baseline yet.
+    """
+
+    if not date_key:
+        return None
+
+    spx = get_spx_snapshot_cached(metric='openInterest', max_age_seconds=60) or {}
+    if not spx or not isinstance(spx, dict) or spx.get('error'):
+        return None
+
+    es = get_es_price_cached(max_age_seconds=5) or {}
+    es_price = es.get('price')
+    spx_price = spx.get('price')
+    try:
+        es_price_f = float(es_price)
+        spx_price_f = float(spx_price)
+    except Exception:
+        return None
+
+    spread = es_price_f - spx_price_f
+
+    supports = spx.get('supports') if isinstance(spx.get('supports'), list) else []
+    resistances = spx.get('resistances') if isinstance(spx.get('resistances'), list) else []
+
+    raw_s = []
+    raw_r = []
+    for lvl in supports:
+        if not isinstance(lvl, dict):
+            continue
+        try:
+            raw_s.append(float(lvl.get('strike')))
+        except Exception:
+            continue
+    for lvl in resistances:
+        if not isinstance(lvl, dict):
+            continue
+        try:
+            raw_r.append(float(lvl.get('strike')))
+        except Exception:
+            continue
+    if not raw_s and not raw_r:
+        return None
+
+    now_local = _dt.datetime.now()
+    return {
+        'date_key': date_key,
+        'capture_kind': 'morning',
+        'captured_at': now_local.strftime('%H:%M'),
+        'based_on_date_key': date_key,
+        'spread': spread,
+        'es_price': es_price_f,
+        'spx_price': spx_price_f,
+        'supports': [v + spread for v in raw_s],
+        'resistances': [v + spread for v in raw_r],
+        'spx_supports_raw': raw_s,
+        'spx_resistances_raw': raw_r,
+    }
+
+
+def _maybe_capture_es_spx_conversion(snapshot: Optional[Dict[str, Any]], now_dt: Optional[_dt.datetime] = None) -> None:
+    """Best-effort: store 14:30 and cash-close conversions into MongoDB."""
+    if not snapshot or not isinstance(snapshot, dict) or snapshot.get('error'):
+        return
+
+    now_dt = now_dt or _dt.datetime.now()
+    h, m = now_dt.hour, now_dt.minute
+
+    capture_kind = None
+    # Local-time windows (match UI expectations).
+    if h == 14 and 30 <= m < 35:
+        capture_kind = '1430'
+    elif h == 16 and m < 5:
+        capture_kind = 'close'
+    else:
+        return
+
+    today_key = now_dt.date().isoformat()
+
+    es = get_es_price_cached(max_age_seconds=5) or {}
+    es_price = es.get('price')
+    spx_price = snapshot.get('price')
+    try:
+        es_price_f = float(es_price)
+        spx_price_f = float(spx_price)
+    except Exception:
+        return
+
+    spread = es_price_f - spx_price_f
+
+    supports = snapshot.get('supports') if isinstance(snapshot.get('supports'), list) else []
+    resistances = snapshot.get('resistances') if isinstance(snapshot.get('resistances'), list) else []
+
+    raw_s = []
+    raw_r = []
+    for lvl in supports:
+        if not isinstance(lvl, dict):
+            continue
+        try:
+            raw_s.append(float(lvl.get('strike')))
+        except Exception:
+            continue
+    for lvl in resistances:
+        if not isinstance(lvl, dict):
+            continue
+        try:
+            raw_r.append(float(lvl.get('strike')))
+        except Exception:
+            continue
+    if not raw_s and not raw_r:
+        return
+
+    converted_s = [v + spread for v in raw_s]
+    converted_r = [v + spread for v in raw_r]
+
+    doc = {
+        'date_key': today_key,
+        'capture_kind': capture_kind,
+        'is_seed': False,
+        'captured_at': now_dt.strftime('%H:%M'),
+        'spread': spread,
+        'es_price': es_price_f,
+        'spx_price': spx_price_f,
+        'supports': converted_s,
+        'resistances': converted_r,
+        'spx_supports_raw': raw_s,
+        'spx_resistances_raw': raw_r,
+    }
+    _conv_mongo_upsert(doc)
 
 
 def _get_mongo_collection():
@@ -1519,6 +1952,11 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
                     _SPX_SNAPSHOT_CACHE[cache_key] = snapshot
                     _SPX_SNAPSHOT_CACHE[fetched_at_key] = now_ts
                     print(f"[DEBUG] Yahoo Finance SUCCESS - returning SPX snapshot with price {last_price} and metric={metric}")
+                    if metric == 'openInterest':
+                        try:
+                            _maybe_capture_es_spx_conversion(snapshot, now_dt=now_dt)
+                        except Exception:
+                            pass
                     return snapshot
         except Exception as e:
             print(f"[DEBUG] Yahoo Finance parsing failed: {e}")
@@ -1654,6 +2092,11 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
 
     _SPX_SNAPSHOT_CACHE["value"] = snapshot
     _SPX_SNAPSHOT_CACHE["fetched_at"] = now_ts
+    if metric == 'openInterest':
+        try:
+            _maybe_capture_es_spx_conversion(snapshot, now_dt=now_dt)
+        except Exception:
+            pass
     return snapshot
 
 
@@ -3039,6 +3482,226 @@ def spx_snapshot():
     return jsonify(data)
 
 
+@app.route('/api/es-spx-oi-to-es', methods=['GET'])
+def api_es_spx_oi_to_es_get():
+    """Return ES levels converted from SPX OI supports/resistances.
+
+    - If today's 14:30 capture exists in DB, return it.
+    - Otherwise compute a "morning" provisional conversion from the most recent stored baseline.
+
+    Query params:
+      - date: YYYY-MM-DD (default: today)
+      - kind: auto|1430|close|morning
+    """
+
+    coll = _get_mongo_conversions_collection()
+    if coll is None:
+        return jsonify({'error': 'MongoDB non configurato'}), 503
+
+    date_key = (request.args.get('date') or '').strip()
+    if not date_key:
+        date_key = _dt.date.today().isoformat()
+
+    kind = (request.args.get('kind') or 'auto').strip().lower()
+    if kind == 'auto':
+        stored = _conv_mongo_get(date_key, '1430')
+        if stored:
+            return jsonify(stored)
+        computed = _compute_es_spx_conversion_from_baseline(date_key)
+        if computed:
+            return jsonify(computed)
+        # First-run fallback: compute from current SPX snapshot (no persistence).
+        current = _compute_es_spx_conversion_from_current_snapshot(date_key)
+        if current:
+            # Optional: persist a seeded baseline for today (admin-only) so we won't keep recomputing
+            # and tomorrow morning has a usable baseline even before a real 14:30/cash-close capture.
+            if _is_admin():
+                seed_doc = dict(current)
+                seed_doc['date_key'] = date_key
+                seed_doc['capture_kind'] = '1430'
+                seed_doc['captured_at'] = _dt.datetime.now().strftime('%H:%M')
+                seed_doc['is_seed'] = True
+                if _conv_mongo_upsert(seed_doc):
+                    stored_seed = _conv_mongo_get(date_key, '1430')
+                    if stored_seed:
+                        return jsonify(stored_seed)
+            return jsonify(current)
+        # Fallback: if we have a close for today (rare), return it.
+        stored_close = _conv_mongo_get(date_key, 'close')
+        if stored_close:
+            return jsonify(stored_close)
+        return jsonify({'error': 'No stored baseline available yet'}), 404
+
+    if kind in ('1430', 'close'):
+        stored = _conv_mongo_get(date_key, kind)
+        if stored:
+            return jsonify(stored)
+        return jsonify({'error': 'Not found'}), 404
+
+    if kind == 'morning':
+        computed = _compute_es_spx_conversion_from_baseline(date_key)
+        if computed:
+            return jsonify(computed)
+        current = _compute_es_spx_conversion_from_current_snapshot(date_key)
+        if current:
+            if _is_admin():
+                seed_doc = dict(current)
+                seed_doc['date_key'] = date_key
+                seed_doc['capture_kind'] = '1430'
+                seed_doc['captured_at'] = _dt.datetime.now().strftime('%H:%M')
+                seed_doc['is_seed'] = True
+                _conv_mongo_upsert(seed_doc)
+            return jsonify(current)
+        return jsonify({'error': 'No stored baseline available yet'}), 404
+
+    return jsonify({'error': 'Invalid kind'}), 400
+
+
+@app.route('/api/es-spx-oi-to-es', methods=['POST'])
+@login_required
+def api_es_spx_oi_to_es_post():
+    """Persist a conversion record (typically 14:30 or close) into MongoDB.
+
+    Expected JSON fields:
+      date_key, capture_kind, captured_at, spread, es_price, spx_price,
+      supports, resistances, spx_supports_raw, spx_resistances_raw
+    """
+
+    try:
+        payload = request.get_json(silent=True) or {}
+    except Exception:
+        payload = {}
+
+    if not isinstance(payload, dict):
+        return jsonify({'error': 'Invalid payload'}), 400
+
+    date_key = (payload.get('date_key') or '').strip()
+    capture_kind = (payload.get('capture_kind') or '').strip()
+    if not date_key or not capture_kind:
+        return jsonify({'error': 'Missing date_key/capture_kind'}), 400
+
+    if capture_kind not in ('1430', 'close', 'morning'):
+        return jsonify({'error': 'Invalid capture_kind'}), 400
+
+    # Coerce lists.
+    def _as_num_list(v):
+        out = []
+        if not isinstance(v, list):
+            return out
+        for n in v:
+            try:
+                out.append(float(n))
+            except Exception:
+                continue
+        return out
+
+    doc = {
+        'date_key': date_key,
+        'capture_kind': capture_kind,
+        'is_seed': bool(payload.get('is_seed')),
+        'captured_at': (payload.get('captured_at') or ''),
+        'based_on_date_key': (payload.get('based_on_date_key') or ''),
+        'spread': payload.get('spread'),
+        'es_price': payload.get('es_price'),
+        'spx_price': payload.get('spx_price'),
+        'supports': _as_num_list(payload.get('supports')),
+        'resistances': _as_num_list(payload.get('resistances')),
+        'spx_supports_raw': _as_num_list(payload.get('spx_supports_raw')),
+        'spx_resistances_raw': _as_num_list(payload.get('spx_resistances_raw')),
+    }
+
+    stored = _conv_mongo_upsert(doc)
+    return jsonify({'ok': bool(stored)})
+
+
+@app.route('/api/es-spx-oi-to-es/bootstrap', methods=['POST'])
+@login_required
+def api_es_spx_oi_to_es_bootstrap():
+    """Create/overwrite today's baseline conversion record immediately.
+
+    This is useful to seed Mongo so that "morning" conversions work tomorrow
+    even before the first scheduled 14:30/cash-close capture has happened.
+
+    Notes:
+      - Stores as capture_kind=1430 on today's date_key.
+      - A real 14:30 capture later will overwrite this record.
+      - Admin-only (or any authenticated user if ADMIN_EMAILS is not set).
+    """
+
+    if not _is_admin():
+        return jsonify({'error': 'Forbidden'}), 403
+
+    coll = _get_mongo_conversions_collection()
+    if coll is None:
+        return jsonify({'error': 'MongoDB non configurato'}), 503
+
+    now_dt = _dt.datetime.now()
+    today_key = now_dt.date().isoformat()
+
+    # Pull freshest snapshots.
+    spx = get_spx_snapshot_cached(metric='openInterest', max_age_seconds=0) or {}
+    if not spx or not isinstance(spx, dict) or spx.get('error'):
+        return jsonify({'error': 'Impossibile recuperare SPX OI snapshot'}), 503
+
+    es = get_es_price_cached(max_age_seconds=0) or {}
+    es_price = es.get('price')
+    spx_price = spx.get('price')
+    try:
+        es_price_f = float(es_price)
+        spx_price_f = float(spx_price)
+    except Exception:
+        return jsonify({'error': 'Missing ES/SPX prices'}), 503
+
+    spread = es_price_f - spx_price_f
+
+    supports = spx.get('supports') if isinstance(spx.get('supports'), list) else []
+    resistances = spx.get('resistances') if isinstance(spx.get('resistances'), list) else []
+
+    raw_s = []
+    raw_r = []
+    for lvl in supports:
+        if not isinstance(lvl, dict):
+            continue
+        try:
+            raw_s.append(float(lvl.get('strike')))
+        except Exception:
+            continue
+    for lvl in resistances:
+        if not isinstance(lvl, dict):
+            continue
+        try:
+            raw_r.append(float(lvl.get('strike')))
+        except Exception:
+            continue
+
+    if not raw_s and not raw_r:
+        return jsonify({'error': 'SPX snapshot missing levels'}), 503
+
+    converted_s = [v + spread for v in raw_s]
+    converted_r = [v + spread for v in raw_r]
+
+    doc = {
+        'date_key': today_key,
+        'capture_kind': '1430',
+        'is_seed': True,
+        'captured_at': now_dt.strftime('%H:%M'),
+        'spread': spread,
+        'es_price': es_price_f,
+        'spx_price': spx_price_f,
+        'supports': converted_s,
+        'resistances': converted_r,
+        'spx_supports_raw': raw_s,
+        'spx_resistances_raw': raw_r,
+    }
+
+    ok = _conv_mongo_upsert(doc)
+    if not ok:
+        return jsonify({'error': 'Failed to persist conversion baseline'}), 500
+
+    stored = _conv_mongo_get(today_key, '1430')
+    return jsonify({'ok': True, 'record': stored or doc})
+
+
 @app.route('/api/xsp-snapshot', methods=['GET'])
 def xsp_snapshot():
     data = get_xsp_snapshot_cached()
@@ -3331,4 +3994,36 @@ if __name__ == '__main__':
         port = int(port_env) if port_env else 5005
     except ValueError:
         port = 5005
-    app.run(debug=True, port=port)
+    debug_env = (os.getenv('FLASK_DEBUG') or os.getenv('DEBUG') or '').strip().lower()
+    # Default to debug=True (developer-friendly), but allow disabling for stable background runs.
+    debug = False if debug_env in ('0', 'false', 'no') else True
+    # If debug is enabled, keep the reloader only when explicitly allowed.
+    reloader_env = (os.getenv('FLASK_USE_RELOADER') or '').strip().lower()
+    use_reloader = True if (debug and reloader_env in ('1', 'true', 'yes')) else False
+
+    # Best-effort background capture so conversions are stored even without an open browser.
+    # Disabled on Vercel/serverless.
+    enable_capture = (os.getenv('ENABLE_CONVERSION_CAPTURE_THREAD') or '1').strip().lower() not in ('0', 'false', 'no')
+    if enable_capture and not os.getenv('VERCEL'):
+        def _capture_loop():
+            while True:
+                try:
+                    now_dt = _dt.datetime.now()
+                    h, m = now_dt.hour, now_dt.minute
+                    in_1430 = (h == 14 and 30 <= m < 35)
+                    in_close = (h == 16 and m < 5)
+                    if in_1430 or in_close:
+                        snap = get_spx_snapshot_cached(metric='openInterest', max_age_seconds=0) or None
+                        if snap:
+                            _maybe_capture_es_spx_conversion(snap, now_dt=now_dt)
+                except Exception:
+                    pass
+                time.sleep(20)
+
+        try:
+            t = threading.Thread(target=_capture_loop, name='conv-capture', daemon=True)
+            t.start()
+        except Exception:
+            pass
+
+    app.run(debug=debug, use_reloader=use_reloader, port=port)

@@ -221,6 +221,20 @@ In Vercel: Project → Settings → Environment Variables, aggiungi:
   - Esempio: `mongodb+srv://USER:PASSWORD@CLUSTERHOST/es_gamma_analyzer?retryWrites=true&w=majority`
 - `MONGODB_DB` (opzionale, default: `es_gamma_analyzer`)
 - `MONGODB_PRESSURE_COLLECTION` (opzionale, default: `pressure_points`)
+- `MONGODB_CONVERSIONS_COLLECTION` (opzionale, default: `es_spx_conversions`)
+  - Salva i livelli ES calcolati su SPX (capture @14:30 e cash close, più calcolo “morning” derivato)
+- `CONVERSIONS_TTL_DAYS` (opzionale)
+  - Se impostata, abilita una TTL sulla collection delle conversioni
+
+#### Bootstrap baseline conversion (opzionale)
+
+Se la collection conversioni è vuota, `GET /api/es-spx-oi-to-es?kind=auto` può tornare `404` (non esiste ancora un baseline “ieri”).
+
+Per “seedare” subito un baseline (utile per avere il calcolo “morning” già dal giorno successivo) puoi chiamare:
+
+- `POST /api/es-spx-oi-to-es/bootstrap`
+
+Richiede login e permessi admin (o qualsiasi utente autenticato se `ADMIN_EMAILS` non è impostato). Salva un record `capture_kind=1430` per oggi, che poi verrà sovrascritto dalla cattura reale delle 14:30.
 
 Verifica: `GET /api/health` deve mostrare `mongo_configured: true`.
 

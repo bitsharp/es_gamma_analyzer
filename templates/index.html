@@ -769,7 +769,7 @@
                             </div>
                         </div>
 
-                                <div id="esSpxOiConvertedRow" class="mt-2 small text-muted">SPX OI→ES @14:30: in attesa…</div>
+                                <div id="esSpxOiConvertedRow" class="mt-2 small text-muted">SPX OI→ES: in attesa…</div>
                     </div>
 
             <!-- SPX Key Levels -->
@@ -2128,7 +2128,7 @@
             if (!esSpxOiConvertedRow) return;
             if (!conversion || !Array.isArray(conversion.supports) || !Array.isArray(conversion.resistances)) {
                 esSpxOiConvertedRow.classList.add('text-muted');
-                esSpxOiConvertedRow.innerHTML = 'SPX OI→ES @14:30: in attesa…';
+                esSpxOiConvertedRow.innerHTML = 'SPX OI→ES: in attesa…';
                 try {
                     if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
                         const tip = bootstrap.Tooltip.getInstance(esSpxOiConvertedRow);
@@ -2145,22 +2145,30 @@
             const spread = Number(conversion.spread);
             const spreadText = Number.isFinite(spread) ? (spread >= 0 ? `+${spread.toFixed(2)}` : spread.toFixed(2)) : '--';
             const capturedAt = (conversion.captured_at || '--').toString();
-            const kind = (conversion.capture_kind || '1430').toString();
+            const kindRaw = (conversion.capture_kind || '').toString();
+            const kindLabel = (kindRaw === 'morning') ? 'morning'
+                : (kindRaw === 'close') ? 'close'
+                : (kindRaw === '1430' || kindRaw === '14:30') ? '@14:30'
+                : (kindRaw ? kindRaw : '@14:30');
             const basedOn = (conversion.based_on_date_key || '').toString();
-            const label = kind === '1430'
-                ? '@14:30'
-                : (kind === 'close' ? '@cash close' : (kind === 'morning' ? (basedOn ? `morning (from ${basedOn})` : 'morning') : kind));
+            const metaParts = [kindLabel];
+            if (basedOn) metaParts.push(`from ${basedOn}`);
+            metaParts.push(`spread ${spreadText}`);
+            const metaLabel = metaParts.join(' • ');
 
             esSpxOiConvertedRow.classList.remove('text-muted');
             esSpxOiConvertedRow.innerHTML = `
                 <span class="badge text-bg-secondary me-2">SPX OI→ES</span>
-                <span class="text-muted me-2">${label} (spread ${spreadText})</span>
+                <span class="text-muted me-2">${metaLabel}</span>
                 <span class="text-support me-3"><span class="fw-semibold">S:</span> ${supportsText || '--'}</span>
                 <span class="text-resistance"><span class="fw-semibold">R:</span> ${resistancesText || '--'}</span>
             `;
 
-            const basedText = basedOn ? ` | Based on ${basedOn}` : '';
-            const tooltip = `Captured ${capturedAt} (${label})${basedText} | ES ${Number(conversion.es_price).toFixed(2)} | SPX ${Number(conversion.spx_price).toFixed(2)} | Spread ${spreadText}`;
+            const esPx = Number(conversion.es_price);
+            const spxPx = Number(conversion.spx_price);
+            const esPxText = Number.isFinite(esPx) ? esPx.toFixed(2) : '--';
+            const spxPxText = Number.isFinite(spxPx) ? spxPx.toFixed(2) : '--';
+            const tooltip = `Captured ${capturedAt} | Kind ${kindLabel}${basedOn ? ` | Based on ${basedOn}` : ''} | ES ${esPxText} | SPX ${spxPxText} | Spread ${spreadText}`;
             esSpxOiConvertedRow.setAttribute('data-bs-toggle', 'tooltip');
             esSpxOiConvertedRow.setAttribute('data-bs-placement', 'top');
             esSpxOiConvertedRow.setAttribute('data-bs-title', tooltip);
