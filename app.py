@@ -2966,11 +2966,18 @@ def api_last_analysis():
 
 @app.route('/api/nvda-snapshot', methods=['GET'])
 def nvda_snapshot():
-    levels_mode = (request.args.get('levels_mode') or 'price').strip().lower()
-    data = get_nvda_snapshot_cached(levels_mode=levels_mode)
-    if not data:
+    # Always return both CP (price) and GF (flip) so the UI can show all levels together.
+    data_price = get_nvda_snapshot_cached(levels_mode='price')
+    data_flip = get_nvda_snapshot_cached(levels_mode='flip')
+    if not data_price and not data_flip:
         return jsonify({"error": "Impossibile recuperare NVDA option chain in questo momento"}), 503
-    return jsonify(data)
+
+    combined = {
+        "symbol": "NVDA",
+        "price": data_price,
+        "flip": data_flip,
+    }
+    return jsonify(combined)
 
 
 @app.route('/api/spy-snapshot', methods=['GET'])
@@ -2983,11 +2990,18 @@ def spy_snapshot():
 
 @app.route('/api/msft-snapshot', methods=['GET'])
 def msft_snapshot():
-    levels_mode = (request.args.get('levels_mode') or 'price').strip().lower()
-    data = get_msft_snapshot_cached(levels_mode=levels_mode)
-    if not data:
+    # Always return both CP (price) and GF (flip) so the UI can show all levels together.
+    data_price = get_msft_snapshot_cached(levels_mode='price')
+    data_flip = get_msft_snapshot_cached(levels_mode='flip')
+    if not data_price and not data_flip:
         return jsonify({"error": "Impossibile recuperare MSFT option chain in questo momento"}), 503
-    return jsonify(data)
+
+    combined = {
+        "symbol": "MSFT",
+        "price": data_price,
+        "flip": data_flip,
+    }
+    return jsonify(combined)
 
 
 @app.route('/api/spx-snapshot', methods=['GET'])

@@ -941,13 +941,9 @@
                     <div class="col-12 col-md-6">
                         <div class="card" id="nvdaKeyLevelsCard">
                             <div class="card-header">
-                                <div class="d-flex align-items-center justify-content-between">
+                                <div class="d-flex align-items-center">
                                     <div>
                                         <i class="bi bi-bullseye me-2"></i>NVDA Key Levels <span class="text-muted" id="nvdaExpiryLabel"></span> <span class="text-muted" id="nvdaPcrLabel"></span>
-                                    </div>
-                                    <div class="form-check form-switch mb-0" style="transform: scale(0.95); transform-origin: right center;">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="nvdaLevelsModeSwitch">
-                                        <label class="form-check-label small text-nowrap" for="nvdaLevelsModeSwitch">Use current price</label>
                                     </div>
                                 </div>
                             </div>
@@ -973,9 +969,9 @@
                                 <div class="row">
                                     <div class="col-md-6">
                                         <h6 class="text-support mb-3">
-                                            <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
+                                            <i class="bi bi-shield-check me-2"></i>PUT Supports
                                         </h6>
-                                        <p class="text-muted small" id="nvdaSupportsModeHint">Below gamma flip (highest Put OI)</p>
+                                        <p class="text-muted small" id="nvdaSupportsModeHint">CP = current price • GF = gamma flip</p>
                                         <div id="nvdaSupportsContainer">
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
@@ -983,9 +979,9 @@
                                     </div>
                                     <div class="col-md-6">
                                         <h6 class="text-resistance mb-3">
-                                            <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
+                                            <i class="bi bi-shield-x me-2"></i>CALL Resistances
                                         </h6>
-                                        <p class="text-muted small" id="nvdaResistancesModeHint">Above gamma flip (highest Call OI)</p>
+                                        <p class="text-muted small" id="nvdaResistancesModeHint">CP = current price • GF = gamma flip</p>
                                         <div id="nvdaResistancesContainer">
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
@@ -999,13 +995,9 @@
                     <div class="col-12 col-md-6">
                         <div class="card" id="msftKeyLevelsCard">
                             <div class="card-header">
-                                <div class="d-flex align-items-center justify-content-between">
+                                <div class="d-flex align-items-center">
                                     <div>
                                         <i class="bi bi-bullseye me-2"></i>MSFT Key Levels <span class="text-muted" id="msftExpiryLabel"></span> <span class="text-muted" id="msftPcrLabel"></span>
-                                    </div>
-                                    <div class="form-check form-switch mb-0" style="transform: scale(0.95); transform-origin: right center;">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="msftLevelsModeSwitch">
-                                        <label class="form-check-label small text-nowrap" for="msftLevelsModeSwitch">Use current price</label>
                                     </div>
                                 </div>
                             </div>
@@ -1031,9 +1023,9 @@
                                 <div class="row">
                                     <div class="col-md-6">
                                         <h6 class="text-support mb-3">
-                                            <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
+                                            <i class="bi bi-shield-check me-2"></i>PUT Supports
                                         </h6>
-                                        <p class="text-muted small" id="msftSupportsModeHint">Below gamma flip (highest Put OI)</p>
+                                        <p class="text-muted small" id="msftSupportsModeHint">CP = current price • GF = gamma flip</p>
                                         <div id="msftSupportsContainer">
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
@@ -1041,9 +1033,9 @@
                                     </div>
                                     <div class="col-md-6">
                                         <h6 class="text-resistance mb-3">
-                                            <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
+                                            <i class="bi bi-shield-x me-2"></i>CALL Resistances
                                         </h6>
-                                        <p class="text-muted small" id="msftResistancesModeHint">Above gamma flip (highest Call OI)</p>
+                                        <p class="text-muted small" id="msftResistancesModeHint">CP = current price • GF = gamma flip</p>
                                         <div id="msftResistancesContainer">
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
@@ -1195,7 +1187,6 @@
         const nvdaLiveTime = document.getElementById('nvdaLiveTime');
         const nvdaGammaFlipTop = document.getElementById('nvdaGammaFlipTop');
         const nvdaExpiryLabel = document.getElementById('nvdaExpiryLabel');
-        const nvdaLevelsModeSwitch = document.getElementById('nvdaLevelsModeSwitch');
         const nvdaSupportsModeHint = document.getElementById('nvdaSupportsModeHint');
         const nvdaResistancesModeHint = document.getElementById('nvdaResistancesModeHint');
         const nvdaSupportsContainer = document.getElementById('nvdaSupportsContainer');
@@ -1255,7 +1246,6 @@
         const msftLiveTime = document.getElementById('msftLiveTime');
         const msftGammaFlipTop = document.getElementById('msftGammaFlipTop');
         const msftExpiryLabel = document.getElementById('msftExpiryLabel');
-        const msftLevelsModeSwitch = document.getElementById('msftLevelsModeSwitch');
         const msftSupportsModeHint = document.getElementById('msftSupportsModeHint');
         const msftResistancesModeHint = document.getElementById('msftResistancesModeHint');
         const msftSupportsContainer = document.getElementById('msftSupportsContainer');
@@ -2329,17 +2319,17 @@
 
             nvdaLoadPromise = (async () => {
                 try {
-                    const mode = _levelsModeFromSwitch(nvdaLevelsModeSwitch);
-                    const response = await fetch(`/api/nvda-snapshot?levels_mode=${encodeURIComponent(mode)}`);
+                    const response = await fetch('/api/nvda-snapshot');
                     const data = await response.json();
 
                     if (!response.ok || data.error) {
                         throw new Error(data.error || 'NVDA fetch failed');
                     }
 
-                    const price = Number(data.price);
-                    const gammaFlip = Number(data.gamma_flip);
-                    const when = (data.time || '').toString();
+                    const base = (data && data.price) ? data.price : ((data && data.flip) ? data.flip : data);
+                    const price = Number(base && base.price);
+                    const gammaFlip = Number(base && base.gamma_flip);
+                    const when = (base && base.time ? String(base.time) : '').toString();
 
                     if (Number.isFinite(price)) {
                         if (latestNvdaPrice != null) prevNvdaPrice = latestNvdaPrice;
@@ -2353,7 +2343,7 @@
                         nvdaLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
                     }
                     if (nvdaLiveTime) {
-                        nvdaLiveTime.textContent = when || (data.expiration ? `Exp ${data.expiration}` : '--');
+                        nvdaLiveTime.textContent = when || (base && base.expiration ? `Exp ${base.expiration}` : '--');
                     }
                     if (nvdaGammaFlipTop) {
                         nvdaGammaFlipTop.textContent = Number.isFinite(gammaFlip) ? `${gammaFlip.toFixed(2)}` : '--';
@@ -2423,17 +2413,17 @@
 
             msftLoadPromise = (async () => {
                 try {
-                    const mode = _levelsModeFromSwitch(msftLevelsModeSwitch);
-                    const response = await fetch(`/api/msft-snapshot?levels_mode=${encodeURIComponent(mode)}`);
+                    const response = await fetch('/api/msft-snapshot');
                     const data = await response.json();
 
                     if (!response.ok || data.error) {
                         throw new Error(data.error || 'MSFT fetch failed');
                     }
 
-                    const price = Number(data.price);
-                    const gammaFlip = Number(data.gamma_flip);
-                    const when = (data.time || '').toString();
+                    const base = (data && data.price) ? data.price : ((data && data.flip) ? data.flip : data);
+                    const price = Number(base && base.price);
+                    const gammaFlip = Number(base && base.gamma_flip);
+                    const when = (base && base.time ? String(base.time) : '').toString();
 
                     if (Number.isFinite(price)) {
                         if (latestMsftPrice != null) prevMsftPrice = latestMsftPrice;
@@ -2447,7 +2437,7 @@
                         msftLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
                     }
                     if (msftLiveTime) {
-                        msftLiveTime.textContent = when || (data.expiration ? `Exp ${data.expiration}` : '--');
+                        msftLiveTime.textContent = when || (base && base.expiration ? `Exp ${base.expiration}` : '--');
                     }
                     if (msftGammaFlipTop) {
                         msftGammaFlipTop.textContent = Number.isFinite(gammaFlip) ? `${gammaFlip.toFixed(2)}` : '--';
@@ -2665,15 +2655,13 @@
         }
 
         function displayNvdaKeyLevels(data) {
+            const base = (data && data.price) ? data.price : ((data && data.flip) ? data.flip : data);
             if (nvdaExpiryLabel) {
-                if (data && data.expiration) {
-                    nvdaExpiryLabel.textContent = `(nearest expiry: ${data.expiration})`;
-                } else {
-                    nvdaExpiryLabel.textContent = '';
-                }
+                if (base && base.expiration) nvdaExpiryLabel.textContent = `(nearest expiry: ${base.expiration})`;
+                else nvdaExpiryLabel.textContent = '';
             }
 
-            if (!data || data.error) {
+            if (!data || data.error || !base || base.error) {
                 setPutCallRatio(nvdaPcrLabel, null);
                 if (nvdaSupportsContainer) nvdaSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
                 if (nvdaResistancesContainer) nvdaResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
@@ -2682,93 +2670,120 @@
                 return;
             }
 
-            setPutCallRatio(nvdaPcrLabel, data.stats);
+            const cp = data && data.price ? data.price : null;
+            const gf = data && data.flip ? data.flip : null;
+            setPutCallRatio(nvdaPcrLabel, (cp && cp.stats) ? cp.stats : (gf && gf.stats ? gf.stats : null));
 
-            const mode = (data && data.levels_mode ? String(data.levels_mode) : _levelsModeFromSwitch(nvdaLevelsModeSwitch)).toLowerCase();
-            if (nvdaSupportsModeHint) {
-                nvdaSupportsModeHint.textContent = mode === 'price'
-                    ? 'Below current price (highest Put OI)'
-                    : 'Below gamma flip (highest Put OI)';
-            }
-            if (nvdaResistancesModeHint) {
-                nvdaResistancesModeHint.textContent = mode === 'price'
-                    ? 'Above current price (highest Call OI)'
-                    : 'Above gamma flip (highest Call OI)';
-            }
+            const supportsCp = Array.isArray(cp && cp.supports) ? cp.supports : [];
+            const resistancesCp = Array.isArray(cp && cp.resistances) ? cp.resistances : [];
+            const supportsGf = Array.isArray(gf && gf.supports) ? gf.supports : [];
+            const resistancesGf = Array.isArray(gf && gf.resistances) ? gf.resistances : [];
 
-            const supports = Array.isArray(data.supports) ? data.supports : [];
-            const resistances = Array.isArray(data.resistances) ? data.resistances : [];
+            const mergeTagged = (groups) => {
+                const merged = [];
+                const byStrike = new Map();
+                groups.forEach(({ tag, levels }) => {
+                    (Array.isArray(levels) ? levels : []).forEach((lvl, idx) => {
+                        const strike = Number(lvl.strike);
+                        const strikeKey = Number.isFinite(strike) ? strike.toFixed(2) : `${tag}:${idx}`;
+                        const existing = byStrike.get(strikeKey);
+                        if (existing) {
+                            existing.tags.add(tag);
+                            existing.data[tag] = lvl;
+                            return;
+                        }
+                        const entry = { strike, strikeKey, rank: idx, tags: new Set([tag]), data: { [tag]: lvl } };
+                        byStrike.set(strikeKey, entry);
+                        merged.push(entry);
+                    });
+                });
+                return merged;
+            };
 
-            // Calcola il gamma massimo per determinare i colori dinamici
-            const allGammas = [
-                ...supports.map(s => Math.abs(Number(s.gamma) || 0)),
-                ...resistances.map(r => Math.abs(Number(r.gamma) || 0))
-            ];
-            const maxGamma = Math.max(...allGammas, 1); // Evita divisione per zero
+            const supportsMerged = mergeTagged([{ tag: 'CP', levels: supportsCp }, { tag: 'GF', levels: supportsGf }]);
+            const resistancesMerged = mergeTagged([{ tag: 'CP', levels: resistancesCp }, { tag: 'GF', levels: resistancesGf }]);
 
-            if (nvdaSupportsContainer) {
-                if (supports.length > 0) {
-                    nvdaSupportsContainer.innerHTML = supports.map((s, i) => `
-                        <div class="level-item support-item ${heatClassForGamma(Number(s.gamma), maxGamma)}" data-strike="${Number(s.strike)}">
+            const maxAbsGammaForEntry = (entry) => {
+                let maxAbs = 0;
+                Array.from(entry.tags).forEach(t => {
+                    const g = entry.data && entry.data[t] ? Number(entry.data[t].gamma) : 0;
+                    const a = Math.abs(Number(g) || 0);
+                    if (a > maxAbs) maxAbs = a;
+                });
+                return maxAbs;
+            };
+            const maxGamma = Math.max(
+                1,
+                ...supportsMerged.map(maxAbsGammaForEntry),
+                ...resistancesMerged.map(maxAbsGammaForEntry),
+            );
+
+            const badgeTitle = (t) => (t === 'CP' ? 'CP = Levels computed vs current price' : (t === 'GF' ? 'GF = Levels computed vs Gamma Flip' : ''));
+
+            const render = (container, merged, prefix) => {
+                if (!container) return;
+                if (!merged.length) {
+                    container.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+                    return;
+                }
+                container.innerHTML = merged.map((entry, i) => {
+                    const strike = Number(entry.strike);
+                    const tagsArr = Array.from(entry.tags);
+                    tagsArr.sort((a, b) => (a === 'CP' ? -1 : (b === 'CP' ? 1 : a.localeCompare(b))));
+                    const preferred = entry.data && entry.data.CP ? entry.data.CP : (entry.data[tagsArr[0]] || {});
+                    const callOi = Number(preferred.call_oi).toLocaleString();
+                    const putOi = Number(preferred.put_oi).toLocaleString();
+                    const gamma = Number(preferred.gamma);
+                    const tagsText = tagsArr.join('+');
+                    const tooltip = `${tagsText} | Call: ${callOi} | Put: ${putOi} | Gamma: ${(gamma / 1000).toFixed(0)}K`;
+                    const heatClass = heatClassForGamma(maxAbsGammaForEntry(entry), maxGamma);
+                    const badges = tagsArr.map(t => `<span class="badge text-bg-secondary" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${badgeTitle(t)}">${t}</span>`).join('');
+                    return `
+                        <div class="level-item ${prefix === 'S' ? 'support-item' : 'resistance-item'} ${heatClass}" data-strike="${strike}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${tooltip}">
                             <div class="d-flex justify-content-between align-items-center level-row">
-                                <div class="fw-bold text-support">S${i + 1}  ${Number(s.strike).toFixed(2)}</div>
+                                <div>
+                                    <div class="fw-bold ${prefix === 'S' ? 'text-support' : 'text-resistance'}">${prefix}${i + 1}  ${Number.isFinite(strike) ? strike.toFixed(2) : '--'}</div>
+                                    <div class="d-flex flex-wrap gap-1 mt-1">${badges}</div>
+                                </div>
                             </div>
                         </div>
-                    `).join('');
+                    `;
+                }).join('');
+                initTooltipsWithin(container);
+            };
 
-                    try {
-                        const items = nvdaSupportsContainer.querySelectorAll('.level-item');
-                        items.forEach((el, idx) => {
-                            const s = supports[idx] || {};
-                            setTooltip(el, _formatLevelTooltip(s.call_oi, s.put_oi, s.gamma));
-                        });
-                    } catch (e) {}
-                } else {
-                    nvdaSupportsContainer.innerHTML = `<p class="text-muted text-center py-3">No support below ${mode === 'price' ? 'price' : 'gamma flip'}</p>`;
-                }
-            }
+            render(nvdaSupportsContainer, supportsMerged, 'S');
+            render(nvdaResistancesContainer, resistancesMerged, 'R');
+
+            const supportsNoteCp = (cp && cp.supports_note) ? String(cp.supports_note) : '';
+            const supportsNoteGf = (gf && gf.supports_note) ? String(gf.supports_note) : '';
+            const resistNoteCp = (cp && cp.resistances_note) ? String(cp.resistances_note) : '';
+            const resistNoteGf = (gf && gf.resistances_note) ? String(gf.resistances_note) : '';
 
             if (nvdaSupportsNote) {
-                if (data.supports_note) {
-                    nvdaSupportsNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.supports_note;
+                const note = supportsNoteCp && supportsNoteGf && supportsNoteCp !== supportsNoteGf
+                    ? `CP: ${supportsNoteCp} • GF: ${supportsNoteGf}`
+                    : (supportsNoteCp || supportsNoteGf);
+                if (note) {
+                    nvdaSupportsNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + note;
                     nvdaSupportsNote.style.display = 'block';
                 } else {
                     nvdaSupportsNote.style.display = 'none';
                 }
             }
-
-            if (nvdaResistancesContainer) {
-                if (resistances.length > 0) {
-                    nvdaResistancesContainer.innerHTML = resistances.map((r, i) => `
-                        <div class="level-item resistance-item ${heatClassForGamma(Number(r.gamma), maxGamma)}" data-strike="${Number(r.strike)}">
-                            <div class="d-flex justify-content-between align-items-center level-row">
-                                <div class="fw-bold text-resistance">R${i + 1}  ${Number(r.strike).toFixed(2)}</div>
-                            </div>
-                        </div>
-                    `).join('');
-
-                    try {
-                        const items = nvdaResistancesContainer.querySelectorAll('.level-item');
-                        items.forEach((el, idx) => {
-                            const r = resistances[idx] || {};
-                            setTooltip(el, _formatLevelTooltip(r.call_oi, r.put_oi, r.gamma));
-                        });
-                    } catch (e) {}
-                } else {
-                    nvdaResistancesContainer.innerHTML = `<p class="text-muted text-center py-3">No resistance above ${mode === 'price' ? 'price' : 'gamma flip'}</p>`;
-                }
-            }
-
-            updateNvdaNearSignals();
-
             if (nvdaResistancesNote) {
-                if (data.resistances_note) {
-                    nvdaResistancesNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.resistances_note;
+                const note = resistNoteCp && resistNoteGf && resistNoteCp !== resistNoteGf
+                    ? `CP: ${resistNoteCp} • GF: ${resistNoteGf}`
+                    : (resistNoteCp || resistNoteGf);
+                if (note) {
+                    nvdaResistancesNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + note;
                     nvdaResistancesNote.style.display = 'block';
                 } else {
                     nvdaResistancesNote.style.display = 'none';
                 }
             }
+
+            updateNvdaNearSignals();
         }
 
         function displaySpyKeyLevels(data) {
@@ -2859,15 +2874,13 @@
         }
 
         function displayMsftKeyLevels(data) {
+            const base = (data && data.price) ? data.price : ((data && data.flip) ? data.flip : data);
             if (msftExpiryLabel) {
-                if (data && data.expiration) {
-                    msftExpiryLabel.textContent = `(nearest expiry: ${data.expiration})`;
-                } else {
-                    msftExpiryLabel.textContent = '';
-                }
+                if (base && base.expiration) msftExpiryLabel.textContent = `(nearest expiry: ${base.expiration})`;
+                else msftExpiryLabel.textContent = '';
             }
 
-            if (!data || data.error) {
+            if (!data || data.error || !base || base.error) {
                 setPutCallRatio(msftPcrLabel, null);
                 if (msftSupportsContainer) msftSupportsContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
                 if (msftResistancesContainer) msftResistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
@@ -2876,86 +2889,113 @@
                 return;
             }
 
-            setPutCallRatio(msftPcrLabel, data.stats);
+            const cp = data && data.price ? data.price : null;
+            const gf = data && data.flip ? data.flip : null;
+            setPutCallRatio(msftPcrLabel, (cp && cp.stats) ? cp.stats : (gf && gf.stats ? gf.stats : null));
 
-            const mode = (data && data.levels_mode ? String(data.levels_mode) : _levelsModeFromSwitch(msftLevelsModeSwitch)).toLowerCase();
-            if (msftSupportsModeHint) {
-                msftSupportsModeHint.textContent = mode === 'price'
-                    ? 'Below current price (highest Put OI)'
-                    : 'Below gamma flip (highest Put OI)';
-            }
-            if (msftResistancesModeHint) {
-                msftResistancesModeHint.textContent = mode === 'price'
-                    ? 'Above current price (highest Call OI)'
-                    : 'Above gamma flip (highest Call OI)';
-            }
+            const supportsCp = Array.isArray(cp && cp.supports) ? cp.supports : [];
+            const resistancesCp = Array.isArray(cp && cp.resistances) ? cp.resistances : [];
+            const supportsGf = Array.isArray(gf && gf.supports) ? gf.supports : [];
+            const resistancesGf = Array.isArray(gf && gf.resistances) ? gf.resistances : [];
 
-            const supports = Array.isArray(data.supports) ? data.supports : [];
-            const resistances = Array.isArray(data.resistances) ? data.resistances : [];
+            const mergeTagged = (groups) => {
+                const merged = [];
+                const byStrike = new Map();
+                groups.forEach(({ tag, levels }) => {
+                    (Array.isArray(levels) ? levels : []).forEach((lvl, idx) => {
+                        const strike = Number(lvl.strike);
+                        const strikeKey = Number.isFinite(strike) ? strike.toFixed(2) : `${tag}:${idx}`;
+                        const existing = byStrike.get(strikeKey);
+                        if (existing) {
+                            existing.tags.add(tag);
+                            existing.data[tag] = lvl;
+                            return;
+                        }
+                        const entry = { strike, strikeKey, rank: idx, tags: new Set([tag]), data: { [tag]: lvl } };
+                        byStrike.set(strikeKey, entry);
+                        merged.push(entry);
+                    });
+                });
+                return merged;
+            };
 
-            // Calcola il gamma massimo per determinare i colori dinamici
-            const allGammas = [
-                ...supports.map(s => Math.abs(Number(s.gamma) || 0)),
-                ...resistances.map(r => Math.abs(Number(r.gamma) || 0))
-            ];
-            const maxGamma = Math.max(...allGammas, 1); // Evita divisione per zero
+            const supportsMerged = mergeTagged([{ tag: 'CP', levels: supportsCp }, { tag: 'GF', levels: supportsGf }]);
+            const resistancesMerged = mergeTagged([{ tag: 'CP', levels: resistancesCp }, { tag: 'GF', levels: resistancesGf }]);
 
-            if (msftSupportsContainer) {
-                if (supports.length > 0) {
-                    msftSupportsContainer.innerHTML = supports.map((s, i) => `
-                        <div class="level-item support-item ${heatClassForGamma(Number(s.gamma), maxGamma)}" data-strike="${Number(s.strike)}">
+            const maxAbsGammaForEntry = (entry) => {
+                let maxAbs = 0;
+                Array.from(entry.tags).forEach(t => {
+                    const g = entry.data && entry.data[t] ? Number(entry.data[t].gamma) : 0;
+                    const a = Math.abs(Number(g) || 0);
+                    if (a > maxAbs) maxAbs = a;
+                });
+                return maxAbs;
+            };
+            const maxGamma = Math.max(
+                1,
+                ...supportsMerged.map(maxAbsGammaForEntry),
+                ...resistancesMerged.map(maxAbsGammaForEntry),
+            );
+
+            const badgeTitle = (t) => (t === 'CP' ? 'CP = Levels computed vs current price' : (t === 'GF' ? 'GF = Levels computed vs Gamma Flip' : ''));
+
+            const render = (container, merged, prefix) => {
+                if (!container) return;
+                if (!merged.length) {
+                    container.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+                    return;
+                }
+                container.innerHTML = merged.map((entry, i) => {
+                    const strike = Number(entry.strike);
+                    const tagsArr = Array.from(entry.tags);
+                    tagsArr.sort((a, b) => (a === 'CP' ? -1 : (b === 'CP' ? 1 : a.localeCompare(b))));
+                    const preferred = entry.data && entry.data.CP ? entry.data.CP : (entry.data[tagsArr[0]] || {});
+                    const callOi = Number(preferred.call_oi).toLocaleString();
+                    const putOi = Number(preferred.put_oi).toLocaleString();
+                    const gamma = Number(preferred.gamma);
+                    const tagsText = tagsArr.join('+');
+                    const tooltip = `${tagsText} | Call: ${callOi} | Put: ${putOi} | Gamma: ${(gamma / 1000).toFixed(0)}K`;
+                    const heatClass = heatClassForGamma(maxAbsGammaForEntry(entry), maxGamma);
+                    const badges = tagsArr.map(t => `<span class="badge text-bg-secondary" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${badgeTitle(t)}">${t}</span>`).join('');
+                    return `
+                        <div class="level-item ${prefix === 'S' ? 'support-item' : 'resistance-item'} ${heatClass}" data-strike="${strike}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${tooltip}">
                             <div class="d-flex justify-content-between align-items-center level-row">
-                                <div class="fw-bold text-support">S${i + 1}  ${Number(s.strike).toFixed(2)}</div>
+                                <div>
+                                    <div class="fw-bold ${prefix === 'S' ? 'text-support' : 'text-resistance'}">${prefix}${i + 1}  ${Number.isFinite(strike) ? strike.toFixed(2) : '--'}</div>
+                                    <div class="d-flex flex-wrap gap-1 mt-1">${badges}</div>
+                                </div>
                             </div>
                         </div>
-                    `).join('');
+                    `;
+                }).join('');
+                initTooltipsWithin(container);
+            };
 
-                    try {
-                        const items = msftSupportsContainer.querySelectorAll('.level-item');
-                        items.forEach((el, idx) => {
-                            const s = supports[idx] || {};
-                            setTooltip(el, _formatLevelTooltip(s.call_oi, s.put_oi, s.gamma));
-                        });
-                    } catch (e) {}
-                } else {
-                    msftSupportsContainer.innerHTML = `<p class="text-muted text-center py-3">No support below ${mode === 'price' ? 'price' : 'gamma flip'}</p>`;
-                }
-            }
+            render(msftSupportsContainer, supportsMerged, 'S');
+            render(msftResistancesContainer, resistancesMerged, 'R');
+
+            const supportsNoteCp = (cp && cp.supports_note) ? String(cp.supports_note) : '';
+            const supportsNoteGf = (gf && gf.supports_note) ? String(gf.supports_note) : '';
+            const resistNoteCp = (cp && cp.resistances_note) ? String(cp.resistances_note) : '';
+            const resistNoteGf = (gf && gf.resistances_note) ? String(gf.resistances_note) : '';
 
             if (msftSupportsNote) {
-                if (data.supports_note) {
-                    msftSupportsNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.supports_note;
+                const note = supportsNoteCp && supportsNoteGf && supportsNoteCp !== supportsNoteGf
+                    ? `CP: ${supportsNoteCp} • GF: ${supportsNoteGf}`
+                    : (supportsNoteCp || supportsNoteGf);
+                if (note) {
+                    msftSupportsNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + note;
                     msftSupportsNote.style.display = 'block';
                 } else {
                     msftSupportsNote.style.display = 'none';
                 }
             }
-
-            if (msftResistancesContainer) {
-                if (resistances.length > 0) {
-                    msftResistancesContainer.innerHTML = resistances.map((r, i) => `
-                        <div class="level-item resistance-item ${heatClassForGamma(Number(r.gamma), maxGamma)}" data-strike="${Number(r.strike)}">
-                            <div class="d-flex justify-content-between align-items-center level-row">
-                                <div class="fw-bold text-resistance">R${i + 1}  ${Number(r.strike).toFixed(2)}</div>
-                            </div>
-                        </div>
-                    `).join('');
-
-                    try {
-                        const items = msftResistancesContainer.querySelectorAll('.level-item');
-                        items.forEach((el, idx) => {
-                            const r = resistances[idx] || {};
-                            setTooltip(el, _formatLevelTooltip(r.call_oi, r.put_oi, r.gamma));
-                        });
-                    } catch (e) {}
-                } else {
-                    msftResistancesContainer.innerHTML = `<p class="text-muted text-center py-3">No resistance above ${mode === 'price' ? 'price' : 'gamma flip'}</p>`;
-                }
-            }
-
             if (msftResistancesNote) {
-                if (data.resistances_note) {
-                    msftResistancesNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.resistances_note;
+                const note = resistNoteCp && resistNoteGf && resistNoteCp !== resistNoteGf
+                    ? `CP: ${resistNoteCp} • GF: ${resistNoteGf}`
+                    : (resistNoteCp || resistNoteGf);
+                if (note) {
+                    msftResistancesNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + note;
                     msftResistancesNote.style.display = 'block';
                 } else {
                     msftResistancesNote.style.display = 'none';
@@ -3139,10 +3179,6 @@
             }
         });
 
-        // Restore switch states from localStorage BEFORE starting polling
-        _restoreLevelsModeSwitch(nvdaLevelsModeSwitch, 'nvda_levels_mode');
-        _restoreLevelsModeSwitch(msftLevelsModeSwitch, 'msft_levels_mode');
-
         // Restore today's stored cash-open conversion (if any)
         loadStoredEsSpxOiConvertedLevels();
 
@@ -3236,20 +3272,6 @@
             }
         });
 
-        if (nvdaLevelsModeSwitch) {
-            nvdaLevelsModeSwitch.addEventListener('change', async () => {
-                _persistLevelsModeSwitch(nvdaLevelsModeSwitch, 'nvda_levels_mode');
-                await refreshNvdaSnapshot();
-            });
-        }
-
-        if (msftLevelsModeSwitch) {
-            msftLevelsModeSwitch.addEventListener('change', async () => {
-                _persistLevelsModeSwitch(msftLevelsModeSwitch, 'msft_levels_mode');
-                await refreshMsftSnapshot();
-            });
-        }
-        
         uploadArea.addEventListener('dragover', (e) => {
             e.preventDefault();
             uploadArea.classList.add('dragover');
