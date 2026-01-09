@@ -767,9 +767,41 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <!-- SPX OI→ES Key Levels -->
+                            <div class="card mt-2" id="esSpxOiKeyLevelsCard">
+                                <div class="card-header">
+                                    <div class="d-flex align-items-center">
+                                        <div>
+                                            <i class="bi bi-arrow-left-right me-2"></i>SPX OI→ES Levels
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div id="esSpxOiConvertedRow" class="small text-muted">SPX OI→ES: in attesa…</div>
+
+                                    <div class="row mt-2">
+                                        <div class="col-md-6">
+                                            <h6 class="text-support mb-3">
+                                                <i class="bi bi-shield-check me-2"></i>PUT Supports
+                                            </h6>
+                                            <div id="esSpxOiSupportsContainer">
+                                                <p class="text-muted text-center py-3">No data</p>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <h6 class="text-resistance mb-3">
+                                                <i class="bi bi-shield-x me-2"></i>CALL Resistances
+                                            </h6>
+                                            <div id="esSpxOiResistancesContainer">
+                                                <p class="text-muted text-center py-3">No data</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
-                                <div id="esSpxOiConvertedRow" class="mt-2 small text-muted">SPX OI→ES: in attesa…</div>
                     </div>
 
             <!-- SPX Key Levels -->
@@ -1987,6 +2019,12 @@
             const resistancesContainer = document.getElementById('resistancesContainer');
             applyNearSignals(supportsContainer, latestEsPrice, { minAbs: 5, rel: 0.00075 });
             applyNearSignals(resistancesContainer, latestEsPrice, { minAbs: 5, rel: 0.00075 });
+
+            // SPX OI→ES converted levels (ES units)
+            const esSpxOiSupportsContainer = document.getElementById('esSpxOiSupportsContainer');
+            const esSpxOiResistancesContainer = document.getElementById('esSpxOiResistancesContainer');
+            applyNearSignals(esSpxOiSupportsContainer, latestEsPrice, { minAbs: 5, rel: 0.00075 });
+            applyNearSignals(esSpxOiResistancesContainer, latestEsPrice, { minAbs: 5, rel: 0.00075 });
         }
 
         function _localDateKey(date = new Date()) {
@@ -2171,6 +2209,12 @@
             if (!conversion || !Array.isArray(conversion.supports) || !Array.isArray(conversion.resistances)) {
                 esSpxOiConvertedRow.classList.add('text-muted');
                 esSpxOiConvertedRow.innerHTML = 'SPX OI→ES: in attesa…';
+
+                const sBox = document.getElementById('esSpxOiSupportsContainer');
+                const rBox = document.getElementById('esSpxOiResistancesContainer');
+                if (sBox) sBox.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+                if (rBox) rBox.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+
                 try {
                     if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
                         const tip = bootstrap.Tooltip.getInstance(esSpxOiConvertedRow);
@@ -2223,6 +2267,39 @@
             }
 
             esSpxOiConvertedRow.style.display = 'block';
+
+            // Render a full "Key Levels" style list (supports/resistances) for SPX OI→ES.
+            const supportsContainer = document.getElementById('esSpxOiSupportsContainer');
+            const resistancesContainer = document.getElementById('esSpxOiResistancesContainer');
+
+            const renderList = (container, values, prefix, itemTypeClass) => {
+                if (!container) return;
+                const arr = Array.isArray(values) ? values : [];
+                const nums = arr.map(v => Number(v)).filter(Number.isFinite);
+                if (!nums.length) {
+                    container.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+                    return;
+                }
+                container.innerHTML = nums.map((v, i) => {
+                    const heat = heatClassForIndex(i);
+                    const strike = v;
+                    const text = Number.isFinite(strike) ? strike.toFixed(2) : '--';
+                    const tooltip = `ES ${text} | ${kindLabel}${basedOn ? ` | from ${basedOn}` : ''}`;
+                    return `
+                        <div class="level-item ${itemTypeClass} ${heat}" data-strike="${strike}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${tooltip}">
+                            <div class="d-flex justify-content-between align-items-center level-row">
+                                <div class="fw-bold ${prefix === 'S' ? 'text-support' : 'text-resistance'}">${prefix}${i + 1}  ${text}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                initTooltipsWithin(container);
+            };
+
+            renderList(supportsContainer, conversion.supports, 'S', 'support-item');
+            renderList(resistancesContainer, conversion.resistances, 'R', 'resistance-item');
+
+            updateEsNearSignals();
         }
 
         function loadStoredEsSpxOiConvertedLevels() {
