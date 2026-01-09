@@ -748,9 +748,9 @@
                                 <div class="row">
                                     <div class="col-md-6">
                                         <h6 class="text-support mb-3">
-                                            <i class="bi bi-shield-check me-2"></i>Top 3 PUT Supports
+                                            <i class="bi bi-shield-check me-2"></i>PUT Supports
                                         </h6>
-                                        <p class="text-muted small" id="esSupportsModeHint">Below gamma flip (highest Put OI)</p>
+                                        <p class="text-muted small" id="esSupportsModeHint">CP = current price • GF = gamma flip</p>
                                         <div id="supportsContainer">
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
@@ -758,9 +758,9 @@
                                     </div>
                                     <div class="col-md-6">
                                         <h6 class="text-resistance mb-3">
-                                            <i class="bi bi-shield-x me-2"></i>Top 3 CALL Resistances
+                                            <i class="bi bi-shield-x me-2"></i>CALL Resistances
                                         </h6>
-                                        <p class="text-muted small" id="esResistancesModeHint">Above gamma flip (highest Call OI)</p>
+                                        <p class="text-muted small" id="esResistancesModeHint">CP = current price • GF = gamma flip</p>
                                         <div id="resistancesContainer">
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
@@ -2999,6 +2999,8 @@
         startGoogPolling();
         startAmznPolling();
 
+        let lastEsAnalysisData = null;
+
         async function runAnalysis() {
             if (!selectedFile || isAnalyzing) return;
 
@@ -3050,6 +3052,7 @@
                     return;
                 }
 
+                lastEsAnalysisData = data;
                 displayResults(data);
                 results.style.display = 'block';
 
@@ -3094,9 +3097,13 @@
             }
 
             esLevelsModeSwitch.addEventListener('change', async () => {
-                // Re-run analysis with the same uploaded PDF so you can compare quickly.
-                if (!selectedFile) return;
-                await runAnalysis();
+                // Keep the user's preference but just re-render (we now have both CP+GF levels).
+                try {
+                    localStorage.setItem('es_levels_mode', esLevelsModeSwitch.checked ? 'price' : 'flip');
+                } catch (e) {
+                    // ignore
+                }
+                if (lastEsAnalysisData) displayResults(lastEsAnalysisData);
             });
         }
 
@@ -3160,18 +3167,8 @@
         function displayResults(data) {
             setPutCallRatio(esPcrLabel, data && data.stats ? data.stats : null);
 
-            // Update hint text to reflect the selected basis.
-            const mode = (data && data.levels_mode ? String(data.levels_mode) : 'flip').toLowerCase();
-            if (esSupportsModeHint) {
-                esSupportsModeHint.textContent = mode === 'price'
-                    ? 'Below current price (highest Put OI)'
-                    : 'Below gamma flip (highest Put OI)';
-            }
-            if (esResistancesModeHint) {
-                esResistancesModeHint.textContent = mode === 'price'
-                    ? 'Above current price (highest Call OI)'
-                    : 'Above gamma flip (highest Call OI)';
-            }
+            // We now show both CP and GF levels. The switch only controls ordering.
+            const preferCpFirst = !!(esLevelsModeSwitch && esLevelsModeSwitch.checked);
 
             // Gamma Flip
             const gammaFlipValueEl = document.getElementById('gammaFlipValue');
@@ -3205,44 +3202,161 @@
             // Supporti
             const supportsContainer = document.getElementById('supportsContainer');
             const supportsNote = document.getElementById('supportsNote');
-            if (data.supports && data.supports.length > 0) {
-                supportsContainer.innerHTML = data.supports.map((s, i) => `
-                    <div class="level-item support-item ${heatClassForIndex(i)}" data-strike="${Number(s.strike)}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Call: ${Number(s.call_oi).toLocaleString()} | Put: ${Number(s.put_oi).toLocaleString()} | Gamma: ${(Number(s.gamma) / 1000).toFixed(0)}K">
-                        <div class="d-flex justify-content-between align-items-center level-row">
-                            <div class="fw-bold text-support">S${i+1}  ${Number(s.strike).toFixed(2)}</div>
-                        </div>
-                    </div>
-                `).join('');
+            const supportsCp = Array.isArray(data.supports_cp)
+                ? data.supports_cp
+                : (Array.isArray(data.supports) && String(data.levels_mode || '').toLowerCase() === 'price' ? data.supports : []);
+            const supportsGf = Array.isArray(data.supports_gf)
+                ? data.supports_gf
+                : (Array.isArray(data.supports) && String(data.levels_mode || '').toLowerCase() === 'flip' ? data.supports : []);
 
-                initTooltipsWithin(supportsContainer);
-                if (data.supports_note) {
-                    supportsNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.supports_note;
-                    supportsNote.style.display = 'block';
+            const supportsGroups = preferCpFirst
+                ? [{ key: 'CP', levels: supportsCp }, { key: 'GF', levels: supportsGf }]
+                : [{ key: 'GF', levels: supportsGf }, { key: 'CP', levels: supportsCp }];
+
+            // If CP and GF contain the same strike, show it once with both badges.
+            const supportsMerged = [];
+            const supportsByStrike = new Map();
+            supportsGroups.forEach(({ key, levels }) => {
+                (Array.isArray(levels) ? levels : []).forEach((s, i) => {
+                    const strike = Number(s.strike);
+                    const strikeKey = Number.isFinite(strike) ? strike.toFixed(2) : `${key}:${i}`;
+                    const existing = supportsByStrike.get(strikeKey);
+                    if (existing) {
+                        if (!existing.tags.includes(key)) existing.tags.push(key);
+                        return;
+                    }
+                    const item = {
+                        strike,
+                        strikeKey,
+                        call_oi: s.call_oi,
+                        put_oi: s.put_oi,
+                        gamma: s.gamma,
+                        rank: i,
+                        tags: [key],
+                    };
+                    supportsByStrike.set(strikeKey, item);
+                    supportsMerged.push(item);
+                });
+            });
+
+            const supportsHtml = supportsMerged
+                .map((it) => {
+                    const strike = Number(it.strike);
+                    const callOi = Number(it.call_oi).toLocaleString();
+                    const putOi = Number(it.put_oi).toLocaleString();
+                    const gamma = Number(it.gamma);
+                    const tagsText = it.tags.join('+');
+                    const badges = it.tags.map(t => `<span class="badge text-bg-secondary ms-2">${t}</span>`).join('');
+                    const labelIdx = Number.isFinite(it.rank) ? (it.rank + 1) : 1;
+                    return `
+                        <div class="level-item support-item ${heatClassForIndex(it.rank)}" data-strike="${strike}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${tagsText} | Call: ${callOi} | Put: ${putOi} | Gamma: ${(gamma / 1000).toFixed(0)}K">
+                            <div class="d-flex justify-content-between align-items-center level-row">
+                                <div class="fw-bold text-support">S${labelIdx}  ${Number.isFinite(strike) ? strike.toFixed(2) : '--'} ${badges}</div>
+                            </div>
+                        </div>
+                    `;
+                })
+                .join('');
+
+            if (supportsContainer) {
+                if (supportsHtml.trim()) {
+                    supportsContainer.innerHTML = supportsHtml;
+                    initTooltipsWithin(supportsContainer);
+                } else {
+                    supportsContainer.innerHTML = '<p class="text-muted text-center py-3">No supports available</p>';
                 }
-            } else {
-                supportsContainer.innerHTML = '<p class="text-muted text-center py-3">No support below price</p>';
+            }
+
+            if (supportsNote) {
+                const note = preferCpFirst
+                    ? (data.supports_note_cp || data.supports_note || '')
+                    : (data.supports_note_gf || data.supports_note || '');
+                if (note) {
+                    supportsNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + note;
+                    supportsNote.style.display = 'block';
+                } else {
+                    supportsNote.style.display = 'none';
+                }
             }
             
             // Resistenze
             const resistancesContainer = document.getElementById('resistancesContainer');
             const resistancesNote = document.getElementById('resistancesNote');
-            if (data.resistances && data.resistances.length > 0) {
-                resistancesContainer.innerHTML = data.resistances.map((r, i) => `
-                    <div class="level-item resistance-item ${heatClassForIndex(i)}" data-strike="${Number(r.strike)}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Call: ${Number(r.call_oi).toLocaleString()} | Put: ${Number(r.put_oi).toLocaleString()} | Gamma: ${(Number(r.gamma) / 1000).toFixed(0)}K">
-                        <div class="d-flex justify-content-between align-items-center level-row">
-                            <div class="fw-bold text-resistance">R${i+1}  ${Number(r.strike).toFixed(2)}</div>
-                        </div>
-                    </div>
-                `).join('');
+            const resistancesCp = Array.isArray(data.resistances_cp)
+                ? data.resistances_cp
+                : (Array.isArray(data.resistances) && String(data.levels_mode || '').toLowerCase() === 'price' ? data.resistances : []);
+            const resistancesGf = Array.isArray(data.resistances_gf)
+                ? data.resistances_gf
+                : (Array.isArray(data.resistances) && String(data.levels_mode || '').toLowerCase() === 'flip' ? data.resistances : []);
 
-                initTooltipsWithin(resistancesContainer);
-                
-                if (data.resistances_note) {
-                    resistancesNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.resistances_note;
-                    resistancesNote.style.display = 'block';
+            const resistancesGroups = preferCpFirst
+                ? [{ key: 'CP', levels: resistancesCp }, { key: 'GF', levels: resistancesGf }]
+                : [{ key: 'GF', levels: resistancesGf }, { key: 'CP', levels: resistancesCp }];
+
+            // If CP and GF contain the same strike, show it once with both badges.
+            const resistancesMerged = [];
+            const resistancesByStrike = new Map();
+            resistancesGroups.forEach(({ key, levels }) => {
+                (Array.isArray(levels) ? levels : []).forEach((r, i) => {
+                    const strike = Number(r.strike);
+                    const strikeKey = Number.isFinite(strike) ? strike.toFixed(2) : `${key}:${i}`;
+                    const existing = resistancesByStrike.get(strikeKey);
+                    if (existing) {
+                        if (!existing.tags.includes(key)) existing.tags.push(key);
+                        return;
+                    }
+                    const item = {
+                        strike,
+                        strikeKey,
+                        call_oi: r.call_oi,
+                        put_oi: r.put_oi,
+                        gamma: r.gamma,
+                        rank: i,
+                        tags: [key],
+                    };
+                    resistancesByStrike.set(strikeKey, item);
+                    resistancesMerged.push(item);
+                });
+            });
+
+            const resistancesHtml = resistancesMerged
+                .map((it) => {
+                    const strike = Number(it.strike);
+                    const callOi = Number(it.call_oi).toLocaleString();
+                    const putOi = Number(it.put_oi).toLocaleString();
+                    const gamma = Number(it.gamma);
+                    const tagsText = it.tags.join('+');
+                    const badges = it.tags.map(t => `<span class="badge text-bg-secondary ms-2">${t}</span>`).join('');
+                    const labelIdx = Number.isFinite(it.rank) ? (it.rank + 1) : 1;
+                    return `
+                        <div class="level-item resistance-item ${heatClassForIndex(it.rank)}" data-strike="${strike}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${tagsText} | Call: ${callOi} | Put: ${putOi} | Gamma: ${(gamma / 1000).toFixed(0)}K">
+                            <div class="d-flex justify-content-between align-items-center level-row">
+                                <div class="fw-bold text-resistance">R${labelIdx}  ${Number.isFinite(strike) ? strike.toFixed(2) : '--'} ${badges}</div>
+                            </div>
+                        </div>
+                    `;
+                })
+                .join('');
+
+            if (resistancesContainer) {
+                if (resistancesHtml.trim()) {
+                    resistancesContainer.innerHTML = resistancesHtml;
+                    initTooltipsWithin(resistancesContainer);
+                } else {
+                    resistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No resistances available</p>';
                 }
-            } else {
-                resistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No resistance above price</p>';
+            }
+
+            if (resistancesNote) {
+                const note = preferCpFirst
+                    ? (data.resistances_note_cp || data.resistances_note || '')
+                    : (data.resistances_note_gf || data.resistances_note || '');
+                if (note) {
+                    resistancesNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + note;
+                    resistancesNote.style.display = 'block';
+                } else {
+                    resistancesNote.style.display = 'none';
+                }
             }
             
             // Statistiche (removed)
@@ -3263,16 +3377,8 @@
 
                 const data = payload.analysis;
 
-                // Keep the mode switch aligned with the restored analysis to avoid confusion.
-                if (esLevelsModeSwitch && data && data.levels_mode) {
-                    const mode = String(data.levels_mode).toLowerCase();
-                    esLevelsModeSwitch.checked = mode === 'price';
-                    try {
-                        localStorage.setItem('es_levels_mode', mode);
-                    } catch (e) {
-                        // ignore
-                    }
-                }
+                // Cache for re-rendering (switch now only controls ordering).
+                lastEsAnalysisData = data;
 
                 // Show last uploaded file name (informational; user can still click to upload a new one).
                 if (payload.filename) {

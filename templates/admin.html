@@ -35,6 +35,11 @@
       <div class="card-header d-flex align-items-center justify-content-between">
         <div><i class="bi bi-shield-lock me-2"></i>Login/Logout Events</div>
         <div class="text-muted small">
+          {% if shown_limit %}
+            Showing last {{ shown_limit }} events
+            <span class="text-muted">(use ?limit=...)</span>
+            <span class="text-muted">|</span>
+          {% endif %}
           {% if admin_emails %}
             Admin allowlist: {{ admin_emails }}
           {% else %}

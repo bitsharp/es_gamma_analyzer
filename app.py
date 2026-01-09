@@ -2852,7 +2852,14 @@ def admin_login_sessions():
             200,
         )
 
-    limit = 200
+    # Default to a higher limit because a single user can generate many events
+    # and push other users out of the most recent window.
+    limit_raw = (request.args.get('limit') or '').strip()
+    try:
+        limit = int(limit_raw) if limit_raw else 500
+    except Exception:
+        limit = 500
+    limit = max(1, min(limit, 2000))
     try:
         docs = list(coll.find({}, sort=[('created_at', -1)], limit=limit))
     except TypeError:
@@ -2888,6 +2895,7 @@ def admin_login_sessions():
         sessions=sessions_out,
         mongo_enabled=True,
         admin_emails=(os.getenv('ADMIN_EMAILS') or '').strip(),
+        shown_limit=limit,
     )
 
 # ============================================================================
@@ -3198,8 +3206,34 @@ def analyze():
         if df.empty:
             df = _attempt("nearest-positive-dte", lambda: extract_nearest_positive_dte_data(filepath))
 
-        # Analizza
+        # Analizza. Per ES vogliamo poter mostrare sia i livelli basati su current price (CP)
+        # che quelli basati su gamma flip (GF) senza dover rilanciare l'analisi.
         results = analyze_0dte(df, current_price, levels_mode=levels_mode)
+        results_cp = analyze_0dte(df, current_price, levels_mode='price')
+        results_gf = analyze_0dte(df, current_price, levels_mode='flip')
+
+        if isinstance(results, dict):
+            if isinstance(results_cp, dict) and not results_cp.get('error'):
+                results['supports_cp'] = results_cp.get('supports') or []
+                results['resistances_cp'] = results_cp.get('resistances') or []
+                if results_cp.get('supports_note'):
+                    results['supports_note_cp'] = results_cp.get('supports_note')
+                if results_cp.get('resistances_note'):
+                    results['resistances_note_cp'] = results_cp.get('resistances_note')
+            else:
+                results.setdefault('supports_cp', [])
+                results.setdefault('resistances_cp', [])
+
+            if isinstance(results_gf, dict) and not results_gf.get('error'):
+                results['supports_gf'] = results_gf.get('supports') or []
+                results['resistances_gf'] = results_gf.get('resistances') or []
+                if results_gf.get('supports_note'):
+                    results['supports_note_gf'] = results_gf.get('supports_note')
+                if results_gf.get('resistances_note'):
+                    results['resistances_note_gf'] = results_gf.get('resistances_note')
+            else:
+                results.setdefault('supports_gf', [])
+                results.setdefault('resistances_gf', [])
 
         # Attach extraction details to help explain "no data" situations.
         if isinstance(results, dict):
