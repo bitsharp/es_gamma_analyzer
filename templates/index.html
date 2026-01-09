@@ -2053,6 +2053,48 @@
                 .map(n => n + s);
         }
 
+        async function loadEsSpxOiConvertedLevelsFromApi(kind = 'auto') {
+            // Prefer server-side conversions (Mongo-backed) when available.
+            // This avoids relying on browser localStorage seeding (14:30/close) on each device.
+            try {
+                const response = await fetch(`/api/es-spx-oi-to-es?kind=${encodeURIComponent(kind)}`);
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (!data || typeof data !== 'object' || data.error) return null;
+
+                lastEsSpxOiConversion = data;
+                renderEsSpxOiConvertedLevels(data);
+
+                // Best-effort: cache locally too.
+                const dk = (data.date_key || '').toString() || _localDateKey();
+                const ck = (data.capture_kind || '').toString();
+                const storageKey = _esSpxOiConversionStorageKey(dk, ck === 'close' ? 'close' : 'main');
+                try {
+                    localStorage.setItem(storageKey, JSON.stringify(data));
+                } catch (e) {
+                    // ignore
+                }
+                return data;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        async function persistEsSpxOiConvertedLevelsToApi(conversion) {
+            // Best-effort: persist the capture to Mongo via backend.
+            // Requires authentication; failures are ignored.
+            if (!conversion || typeof conversion !== 'object') return;
+            try {
+                await fetch('/api/es-spx-oi-to-es', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(conversion),
+                });
+            } catch (e) {
+                // ignore
+            }
+        }
+
         function maybeComputeMorningEsSpxOiConvertedLevels(now = new Date()) {
             // Goal: show a "morning" provisional ES-converted view using yesterday/close SPX raw strikes,
             // but shifted by today's ES–SPX spread. It will be overwritten at 14:30.
@@ -2273,6 +2315,8 @@
             } catch (e) {
                 // ignore
             }
+
+            persistEsSpxOiConvertedLevelsToApi(conversion);
         }
 
         function maybeCaptureEsSpxOiConvertedLevelsAtClose(now = new Date()) {
@@ -2330,6 +2374,8 @@
             } catch (e) {
                 // ignore
             }
+
+            persistEsSpxOiConvertedLevelsToApi(conversion);
         }
 
         function updateNvdaNearSignals() {
@@ -3822,6 +3868,9 @@
 
         // Restore today's stored cash-open conversion (if any)
         loadStoredEsSpxOiConvertedLevels();
+
+        // Prefer loading the latest conversion from the backend (Mongo), if available.
+        loadEsSpxOiConvertedLevelsFromApi('auto');
 
         // Kick off price fetch on page load.
         startEsPricePolling();
