@@ -927,14 +927,23 @@ def _get_nasdaq_stock_snapshot_cached(
     symbol: str,
     cache: Dict[str, Any],
     max_age_seconds: int = 60,
+    levels_mode: str = "price",
 ) -> Optional[Dict[str, Any]]:
     """Generic Nasdaq option-chain snapshot for a US stock symbol."""
 
     now_ts = time.time()
-    cached = cache.get("value")
+    requested = (levels_mode or "price").strip().lower()
+    mode_key = "flip" if requested in {"flip", "gamma", "gamma_flip", "flip_zone"} else "price"
+
     fetched_at = float(cache.get("fetched_at") or 0.0)
-    if cached and (now_ts - fetched_at) <= max_age_seconds:
-        return cached
+    if (now_ts - fetched_at) <= max_age_seconds:
+        by_mode = cache.get("value_by_mode")
+        if isinstance(by_mode, dict) and by_mode.get(mode_key):
+            return by_mode.get(mode_key)
+
+        cached = cache.get("value")
+        if isinstance(cached, dict) and (cached.get("levels_mode") == mode_key or cached.get("levels_mode_requested") == mode_key):
+            return cached
 
     sym = (symbol or "").strip().upper()
     if not sym:
@@ -1010,12 +1019,7 @@ def _get_nasdaq_stock_snapshot_cached(
         "Gamma_Exposure": gammas,
     }).sort_values("Strike").reset_index(drop=True)
 
-    results = analyze_0dte(
-        df,
-        current_price=float(last_sale_price) if last_sale_price else None,
-        prefer_strike_multiple=None,
-    )
-    snapshot: Dict[str, Any] = {
+    base_snapshot: Dict[str, Any] = {
         "symbol": sym,
         "source": "nasdaq",
         "expiration": nearest_exp_label,
@@ -1024,24 +1028,36 @@ def _get_nasdaq_stock_snapshot_cached(
         "time": last_sale_time or None,
     }
 
-    if isinstance(results, dict):
-        snapshot.update(results)
+    # Precompute both variants so the frontend can show CP+GF together.
+    by_mode: Dict[str, Any] = {}
+    for m in ("price", "flip"):
+        results = analyze_0dte(
+            df,
+            current_price=float(last_sale_price) if last_sale_price else None,
+            levels_mode=m,
+            prefer_strike_multiple=None,
+        )
+        snapshot = dict(base_snapshot)
+        if isinstance(results, dict):
+            snapshot.update(results)
+        by_mode[m] = snapshot
 
-    cache["value"] = snapshot
+    cache["value_by_mode"] = by_mode
+    cache["value"] = by_mode.get(mode_key) or by_mode.get("price")
     cache["fetched_at"] = now_ts
-    return snapshot
+    return cache["value"]
 
 
-def get_aapl_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
-    return _get_nasdaq_stock_snapshot_cached("AAPL", _AAPL_SNAPSHOT_CACHE, max_age_seconds=max_age_seconds)
+def get_aapl_snapshot_cached(max_age_seconds: int = 60, levels_mode: str = "price") -> Optional[Dict[str, Any]]:
+    return _get_nasdaq_stock_snapshot_cached("AAPL", _AAPL_SNAPSHOT_CACHE, max_age_seconds=max_age_seconds, levels_mode=levels_mode)
 
 
-def get_goog_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
-    return _get_nasdaq_stock_snapshot_cached("GOOG", _GOOG_SNAPSHOT_CACHE, max_age_seconds=max_age_seconds)
+def get_goog_snapshot_cached(max_age_seconds: int = 60, levels_mode: str = "price") -> Optional[Dict[str, Any]]:
+    return _get_nasdaq_stock_snapshot_cached("GOOG", _GOOG_SNAPSHOT_CACHE, max_age_seconds=max_age_seconds, levels_mode=levels_mode)
 
 
-def get_amzn_snapshot_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
-    return _get_nasdaq_stock_snapshot_cached("AMZN", _AMZN_SNAPSHOT_CACHE, max_age_seconds=max_age_seconds)
+def get_amzn_snapshot_cached(max_age_seconds: int = 60, levels_mode: str = "price") -> Optional[Dict[str, Any]]:
+    return _get_nasdaq_stock_snapshot_cached("AMZN", _AMZN_SNAPSHOT_CACHE, max_age_seconds=max_age_seconds, levels_mode=levels_mode)
 
 # ============================================================================
 # MARKET DATA FETCHERS (NASDAQ Options & Stocks)
@@ -3033,26 +3049,47 @@ def xsp_snapshot():
 
 @app.route('/api/aapl-snapshot', methods=['GET'])
 def aapl_snapshot():
-    data = get_aapl_snapshot_cached()
-    if not data:
+    # Always return both CP (price) and GF (flip) so the UI can show all levels together.
+    data_price = get_aapl_snapshot_cached(levels_mode='price')
+    data_flip = get_aapl_snapshot_cached(levels_mode='flip')
+    if not data_price and not data_flip:
         return jsonify({"error": "Impossibile recuperare AAPL option chain in questo momento"}), 503
-    return jsonify(data)
+
+    return jsonify({
+        "symbol": "AAPL",
+        "price": data_price,
+        "flip": data_flip,
+    })
 
 
 @app.route('/api/goog-snapshot', methods=['GET'])
 def goog_snapshot():
-    data = get_goog_snapshot_cached()
-    if not data:
+    # Always return both CP (price) and GF (flip) so the UI can show all levels together.
+    data_price = get_goog_snapshot_cached(levels_mode='price')
+    data_flip = get_goog_snapshot_cached(levels_mode='flip')
+    if not data_price and not data_flip:
         return jsonify({"error": "Impossibile recuperare GOOG option chain in questo momento"}), 503
-    return jsonify(data)
+
+    return jsonify({
+        "symbol": "GOOG",
+        "price": data_price,
+        "flip": data_flip,
+    })
 
 
 @app.route('/api/amzn-snapshot', methods=['GET'])
 def amzn_snapshot():
-    data = get_amzn_snapshot_cached()
-    if not data:
+    # Always return both CP (price) and GF (flip) so the UI can show all levels together.
+    data_price = get_amzn_snapshot_cached(levels_mode='price')
+    data_flip = get_amzn_snapshot_cached(levels_mode='flip')
+    if not data_price and not data_flip:
         return jsonify({"error": "Impossibile recuperare AMZN option chain in questo momento"}), 503
-    return jsonify(data)
+
+    return jsonify({
+        "symbol": "AMZN",
+        "price": data_price,
+        "flip": data_flip,
+    })
 
 
 @app.route('/api/pressure-history', methods=['GET'])

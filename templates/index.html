@@ -473,8 +473,11 @@
         }
 
         #nvdaExpiryLabel,
-        #spyExpiryLabel,
         #msftExpiryLabel,
+        #aaplExpiryLabel,
+        #googExpiryLabel,
+        #amznExpiryLabel,
+        #spyExpiryLabel,
         #spxExpiryLabel,
         #xspExpiryLabel {
             font-size: 0.75rem;
@@ -935,10 +938,10 @@
                         </div>
                     </div>
 
-            <!-- Row 2: NVDA + MSFT -->
+            <!-- Stocks Key Levels: NVDA + MSFT + AAPL + GOOG + AMZN -->
             <div class="col-12">
-                <div class="row g-2">
-                    <div class="col-12 col-md-6">
+                <div class="row g-2 row-cols-1 row-cols-md-2 row-cols-xl-5">
+                    <div class="col">
                         <div class="card" id="nvdaKeyLevelsCard">
                             <div class="card-header">
                                 <div class="d-flex align-items-center">
@@ -992,7 +995,7 @@
                         </div>
                     </div>
 
-                    <div class="col-12 col-md-6">
+                    <div class="col">
                         <div class="card" id="msftKeyLevelsCard">
                             <div class="card-header">
                                 <div class="d-flex align-items-center">
@@ -1040,6 +1043,168 @@
                                             <p class="text-muted text-center py-3">No data</p>
                                         </div>
                                         <p id="msftResistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col">
+                        <div class="card" id="aaplKeyLevelsCard">
+                            <div class="card-header">
+                                <div class="d-flex align-items-center">
+                                    <div>
+                                        <i class="bi bi-bullseye me-2"></i>AAPL Key Levels <span class="text-muted" id="aaplExpiryLabel"></span> <span class="text-muted" id="aaplPcrLabel"></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-2 mb-3 price-row">
+                                    <div class="col-6">
+                                        <div class="price-box text-start" id="aaplLiveBox">
+                                        <div class="box-label">AAPL live</div>
+                                        <div class="fw-bold" id="aaplLivePrice">--</div>
+                                        <div class="box-sub" id="aaplLiveTime">--</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-6">
+                                        <div class="price-box text-start" id="aaplGammaFlipBox">
+                                        <div class="box-label">AAPL Gamma Flip</div>
+                                        <div class="fw-bold" id="aaplGammaFlipTop">--</div>
+                                        <div class="box-sub">GAMMA FLIP LEVEL</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h6 class="text-support mb-3">
+                                            <i class="bi bi-shield-check me-2"></i>PUT Supports
+                                        </h6>
+                                        <p class="text-muted small" id="aaplSupportsModeHint">CP = current price • GF = gamma flip</p>
+                                        <div id="aaplSupportsContainer">
+                                            <p class="text-muted text-center py-3">No data</p>
+                                        </div>
+                                        <p id="aaplSupportsNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h6 class="text-resistance mb-3">
+                                            <i class="bi bi-shield-x me-2"></i>CALL Resistances
+                                        </h6>
+                                        <p class="text-muted small" id="aaplResistancesModeHint">CP = current price • GF = gamma flip</p>
+                                        <div id="aaplResistancesContainer">
+                                            <p class="text-muted text-center py-3">No data</p>
+                                        </div>
+                                        <p id="aaplResistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col">
+                        <div class="card" id="googKeyLevelsCard">
+                            <div class="card-header">
+                                <div class="d-flex align-items-center">
+                                    <div>
+                                        <i class="bi bi-bullseye me-2"></i>GOOG Key Levels <span class="text-muted" id="googExpiryLabel"></span> <span class="text-muted" id="googPcrLabel"></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-2 mb-3 price-row">
+                                    <div class="col-6">
+                                        <div class="price-box text-start" id="googLiveBox">
+                                        <div class="box-label">GOOG live</div>
+                                        <div class="fw-bold" id="googLivePrice">--</div>
+                                        <div class="box-sub" id="googLiveTime">--</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-6">
+                                        <div class="price-box text-start" id="googGammaFlipBox">
+                                        <div class="box-label">GOOG Gamma Flip</div>
+                                        <div class="fw-bold" id="googGammaFlipTop">--</div>
+                                        <div class="box-sub">GAMMA FLIP LEVEL</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h6 class="text-support mb-3">
+                                            <i class="bi bi-shield-check me-2"></i>PUT Supports
+                                        </h6>
+                                        <p class="text-muted small" id="googSupportsModeHint">CP = current price • GF = gamma flip</p>
+                                        <div id="googSupportsContainer">
+                                            <p class="text-muted text-center py-3">No data</p>
+                                        </div>
+                                        <p id="googSupportsNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h6 class="text-resistance mb-3">
+                                            <i class="bi bi-shield-x me-2"></i>CALL Resistances
+                                        </h6>
+                                        <p class="text-muted small" id="googResistancesModeHint">CP = current price • GF = gamma flip</p>
+                                        <div id="googResistancesContainer">
+                                            <p class="text-muted text-center py-3">No data</p>
+                                        </div>
+                                        <p id="googResistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col">
+                        <div class="card" id="amznKeyLevelsCard">
+                            <div class="card-header">
+                                <div class="d-flex align-items-center">
+                                    <div>
+                                        <i class="bi bi-bullseye me-2"></i>AMZN Key Levels <span class="text-muted" id="amznExpiryLabel"></span> <span class="text-muted" id="amznPcrLabel"></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-2 mb-3 price-row">
+                                    <div class="col-6">
+                                        <div class="price-box text-start" id="amznLiveBox">
+                                        <div class="box-label">AMZN live</div>
+                                        <div class="fw-bold" id="amznLivePrice">--</div>
+                                        <div class="box-sub" id="amznLiveTime">--</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-6">
+                                        <div class="price-box text-start" id="amznGammaFlipBox">
+                                        <div class="box-label">AMZN Gamma Flip</div>
+                                        <div class="fw-bold" id="amznGammaFlipTop">--</div>
+                                        <div class="box-sub">GAMMA FLIP LEVEL</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h6 class="text-support mb-3">
+                                            <i class="bi bi-shield-check me-2"></i>PUT Supports
+                                        </h6>
+                                        <p class="text-muted small" id="amznSupportsModeHint">CP = current price • GF = gamma flip</p>
+                                        <div id="amznSupportsContainer">
+                                            <p class="text-muted text-center py-3">No data</p>
+                                        </div>
+                                        <p id="amznSupportsNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h6 class="text-resistance mb-3">
+                                            <i class="bi bi-shield-x me-2"></i>CALL Resistances
+                                        </h6>
+                                        <p class="text-muted small" id="amznResistancesModeHint">CP = current price • GF = gamma flip</p>
+                                        <div id="amznResistancesContainer">
+                                            <p class="text-muted text-center py-3">No data</p>
+                                        </div>
+                                        <p id="amznResistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
                                     </div>
                                 </div>
                             </div>
@@ -1241,6 +1406,9 @@
         const xspPcrLabel = document.getElementById('xspPcrLabel');
         const nvdaPcrLabel = document.getElementById('nvdaPcrLabel');
         const msftPcrLabel = document.getElementById('msftPcrLabel');
+        const aaplPcrLabel = document.getElementById('aaplPcrLabel');
+        const googPcrLabel = document.getElementById('googPcrLabel');
+        const amznPcrLabel = document.getElementById('amznPcrLabel');
 
         const msftLivePrice = document.getElementById('msftLivePrice');
         const msftLiveTime = document.getElementById('msftLiveTime');
@@ -1252,6 +1420,45 @@
         const msftSupportsNote = document.getElementById('msftSupportsNote');
         const msftResistancesContainer = document.getElementById('msftResistancesContainer');
         const msftResistancesNote = document.getElementById('msftResistancesNote');
+
+        const aaplLivePrice = document.getElementById('aaplLivePrice');
+        const aaplLiveTime = document.getElementById('aaplLiveTime');
+        const aaplLiveBox = document.getElementById('aaplLiveBox');
+        const aaplGammaFlipBox = document.getElementById('aaplGammaFlipBox');
+        const aaplGammaFlipTop = document.getElementById('aaplGammaFlipTop');
+        const aaplExpiryLabel = document.getElementById('aaplExpiryLabel');
+        const aaplSupportsModeHint = document.getElementById('aaplSupportsModeHint');
+        const aaplResistancesModeHint = document.getElementById('aaplResistancesModeHint');
+        const aaplSupportsContainer = document.getElementById('aaplSupportsContainer');
+        const aaplSupportsNote = document.getElementById('aaplSupportsNote');
+        const aaplResistancesContainer = document.getElementById('aaplResistancesContainer');
+        const aaplResistancesNote = document.getElementById('aaplResistancesNote');
+
+        const googLivePrice = document.getElementById('googLivePrice');
+        const googLiveTime = document.getElementById('googLiveTime');
+        const googLiveBox = document.getElementById('googLiveBox');
+        const googGammaFlipBox = document.getElementById('googGammaFlipBox');
+        const googGammaFlipTop = document.getElementById('googGammaFlipTop');
+        const googExpiryLabel = document.getElementById('googExpiryLabel');
+        const googSupportsModeHint = document.getElementById('googSupportsModeHint');
+        const googResistancesModeHint = document.getElementById('googResistancesModeHint');
+        const googSupportsContainer = document.getElementById('googSupportsContainer');
+        const googSupportsNote = document.getElementById('googSupportsNote');
+        const googResistancesContainer = document.getElementById('googResistancesContainer');
+        const googResistancesNote = document.getElementById('googResistancesNote');
+
+        const amznLivePrice = document.getElementById('amznLivePrice');
+        const amznLiveTime = document.getElementById('amznLiveTime');
+        const amznLiveBox = document.getElementById('amznLiveBox');
+        const amznGammaFlipBox = document.getElementById('amznGammaFlipBox');
+        const amznGammaFlipTop = document.getElementById('amznGammaFlipTop');
+        const amznExpiryLabel = document.getElementById('amznExpiryLabel');
+        const amznSupportsModeHint = document.getElementById('amznSupportsModeHint');
+        const amznResistancesModeHint = document.getElementById('amznResistancesModeHint');
+        const amznSupportsContainer = document.getElementById('amznSupportsContainer');
+        const amznSupportsNote = document.getElementById('amznSupportsNote');
+        const amznResistancesContainer = document.getElementById('amznResistancesContainer');
+        const amznResistancesNote = document.getElementById('amznResistancesNote');
 
         const spxLivePrice = document.getElementById('spxLivePrice');
         const spxLiveTime = document.getElementById('spxLiveTime');
@@ -1935,6 +2142,21 @@
         function updateMsftNearSignals() {
             applyNearSignals(msftSupportsContainer, latestMsftPrice, { minAbs: 0.25, rel: 0.00075 });
             applyNearSignals(msftResistancesContainer, latestMsftPrice, { minAbs: 0.25, rel: 0.00075 });
+        }
+
+        function updateAaplNearSignals() {
+            applyNearSignals(aaplSupportsContainer, latestAaplPrice, { minAbs: 0.25, rel: 0.00075 });
+            applyNearSignals(aaplResistancesContainer, latestAaplPrice, { minAbs: 0.25, rel: 0.00075 });
+        }
+
+        function updateGoogNearSignals() {
+            applyNearSignals(googSupportsContainer, latestGoogPrice, { minAbs: 0.25, rel: 0.00075 });
+            applyNearSignals(googResistancesContainer, latestGoogPrice, { minAbs: 0.25, rel: 0.00075 });
+        }
+
+        function updateAmznNearSignals() {
+            applyNearSignals(amznSupportsContainer, latestAmznPrice, { minAbs: 0.25, rel: 0.00075 });
+            applyNearSignals(amznResistancesContainer, latestAmznPrice, { minAbs: 0.25, rel: 0.00075 });
         }
 
         function updateSpxNearSignals() {
@@ -3005,6 +3227,174 @@
             updateMsftNearSignals();
         }
 
+        function _displayStockKeyLevelsCombined(payload, cfg) {
+            const base = (payload && payload.price) ? payload.price : ((payload && payload.flip) ? payload.flip : payload);
+
+            if (cfg.expiryLabel) {
+                if (base && base.expiration) cfg.expiryLabel.textContent = `(nearest expiry: ${base.expiration})`;
+                else cfg.expiryLabel.textContent = '';
+            }
+
+            if (!payload || payload.error || !base || base.error) {
+                setPutCallRatio(cfg.pcrLabel, null);
+                if (cfg.supportsContainer) cfg.supportsContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+                if (cfg.resistancesContainer) cfg.resistancesContainer.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+                if (cfg.supportsNote) cfg.supportsNote.style.display = 'none';
+                if (cfg.resistancesNote) cfg.resistancesNote.style.display = 'none';
+                return;
+            }
+
+            const cp = payload && payload.price ? payload.price : null;
+            const gf = payload && payload.flip ? payload.flip : null;
+            setPutCallRatio(cfg.pcrLabel, (cp && cp.stats) ? cp.stats : (gf && gf.stats ? gf.stats : null));
+
+            const supportsCp = Array.isArray(cp && cp.supports) ? cp.supports : [];
+            const resistancesCp = Array.isArray(cp && cp.resistances) ? cp.resistances : [];
+            const supportsGf = Array.isArray(gf && gf.supports) ? gf.supports : [];
+            const resistancesGf = Array.isArray(gf && gf.resistances) ? gf.resistances : [];
+
+            const mergeTagged = (groups) => {
+                const merged = [];
+                const byStrike = new Map();
+                groups.forEach(({ tag, levels }) => {
+                    (Array.isArray(levels) ? levels : []).forEach((lvl, idx) => {
+                        const strike = Number(lvl.strike);
+                        const strikeKey = Number.isFinite(strike) ? strike.toFixed(2) : `${tag}:${idx}`;
+                        const existing = byStrike.get(strikeKey);
+                        if (existing) {
+                            existing.tags.add(tag);
+                            existing.data[tag] = lvl;
+                            return;
+                        }
+                        const entry = { strike, strikeKey, rank: idx, tags: new Set([tag]), data: { [tag]: lvl } };
+                        byStrike.set(strikeKey, entry);
+                        merged.push(entry);
+                    });
+                });
+                return merged;
+            };
+
+            const supportsMerged = mergeTagged([{ tag: 'CP', levels: supportsCp }, { tag: 'GF', levels: supportsGf }]);
+            const resistancesMerged = mergeTagged([{ tag: 'CP', levels: resistancesCp }, { tag: 'GF', levels: resistancesGf }]);
+
+            const maxAbsGammaForEntry = (entry) => {
+                let maxAbs = 0;
+                Array.from(entry.tags).forEach(t => {
+                    const g = entry.data && entry.data[t] ? Number(entry.data[t].gamma) : 0;
+                    const a = Math.abs(Number(g) || 0);
+                    if (a > maxAbs) maxAbs = a;
+                });
+                return maxAbs;
+            };
+
+            const maxGamma = Math.max(
+                1,
+                ...supportsMerged.map(maxAbsGammaForEntry),
+                ...resistancesMerged.map(maxAbsGammaForEntry),
+            );
+
+            const badgeTitle = (t) => (t === 'CP' ? 'CP = Levels computed vs current price' : (t === 'GF' ? 'GF = Levels computed vs Gamma Flip' : ''));
+
+            const render = (container, merged, prefix) => {
+                if (!container) return;
+                if (!merged.length) {
+                    container.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+                    return;
+                }
+                container.innerHTML = merged.map((entry, i) => {
+                    const strike = Number(entry.strike);
+                    const tagsArr = Array.from(entry.tags);
+                    tagsArr.sort((a, b) => (a === 'CP' ? -1 : (b === 'CP' ? 1 : a.localeCompare(b))));
+                    const preferred = entry.data && entry.data.CP ? entry.data.CP : (entry.data[tagsArr[0]] || {});
+                    const callOi = Number(preferred.call_oi).toLocaleString();
+                    const putOi = Number(preferred.put_oi).toLocaleString();
+                    const gamma = Number(preferred.gamma);
+                    const tagsText = tagsArr.join('+');
+                    const tooltip = `${tagsText} | Call: ${callOi} | Put: ${putOi} | Gamma: ${(gamma / 1000).toFixed(0)}K`;
+                    const heatClass = heatClassForGamma(maxAbsGammaForEntry(entry), maxGamma);
+                    const badges = tagsArr.map(t => `<span class="badge text-bg-secondary" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${badgeTitle(t)}">${t}</span>`).join('');
+                    return `
+                        <div class="level-item ${prefix === 'S' ? 'support-item' : 'resistance-item'} ${heatClass}" data-strike="${strike}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${tooltip}">
+                            <div class="d-flex justify-content-between align-items-center level-row">
+                                <div>
+                                    <div class="fw-bold ${prefix === 'S' ? 'text-support' : 'text-resistance'}">${prefix}${i + 1}  ${Number.isFinite(strike) ? strike.toFixed(2) : '--'}</div>
+                                    <div class="d-flex flex-wrap gap-1 mt-1">${badges}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                initTooltipsWithin(container);
+            };
+
+            render(cfg.supportsContainer, supportsMerged, 'S');
+            render(cfg.resistancesContainer, resistancesMerged, 'R');
+
+            const supportsNoteCp = (cp && cp.supports_note) ? String(cp.supports_note) : '';
+            const supportsNoteGf = (gf && gf.supports_note) ? String(gf.supports_note) : '';
+            const resistNoteCp = (cp && cp.resistances_note) ? String(cp.resistances_note) : '';
+            const resistNoteGf = (gf && gf.resistances_note) ? String(gf.resistances_note) : '';
+
+            if (cfg.supportsNote) {
+                const note = supportsNoteCp && supportsNoteGf && supportsNoteCp !== supportsNoteGf
+                    ? `CP: ${supportsNoteCp} • GF: ${supportsNoteGf}`
+                    : (supportsNoteCp || supportsNoteGf);
+                if (note) {
+                    cfg.supportsNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + note;
+                    cfg.supportsNote.style.display = 'block';
+                } else {
+                    cfg.supportsNote.style.display = 'none';
+                }
+            }
+            if (cfg.resistancesNote) {
+                const note = resistNoteCp && resistNoteGf && resistNoteCp !== resistNoteGf
+                    ? `CP: ${resistNoteCp} • GF: ${resistNoteGf}`
+                    : (resistNoteCp || resistNoteGf);
+                if (note) {
+                    cfg.resistancesNote.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + note;
+                    cfg.resistancesNote.style.display = 'block';
+                } else {
+                    cfg.resistancesNote.style.display = 'none';
+                }
+            }
+        }
+
+        function displayAaplKeyLevels(data) {
+            _displayStockKeyLevelsCombined(data, {
+                expiryLabel: aaplExpiryLabel,
+                pcrLabel: aaplPcrLabel,
+                supportsContainer: aaplSupportsContainer,
+                resistancesContainer: aaplResistancesContainer,
+                supportsNote: aaplSupportsNote,
+                resistancesNote: aaplResistancesNote,
+            });
+            updateAaplNearSignals();
+        }
+
+        function displayGoogKeyLevels(data) {
+            _displayStockKeyLevelsCombined(data, {
+                expiryLabel: googExpiryLabel,
+                pcrLabel: googPcrLabel,
+                supportsContainer: googSupportsContainer,
+                resistancesContainer: googResistancesContainer,
+                supportsNote: googSupportsNote,
+                resistancesNote: googResistancesNote,
+            });
+            updateGoogNearSignals();
+        }
+
+        function displayAmznKeyLevels(data) {
+            _displayStockKeyLevelsCombined(data, {
+                expiryLabel: amznExpiryLabel,
+                pcrLabel: amznPcrLabel,
+                supportsContainer: amznSupportsContainer,
+                resistancesContainer: amznResistancesContainer,
+                supportsNote: amznSupportsNote,
+                resistancesNote: amznResistancesNote,
+            });
+            updateAmznNearSignals();
+        }
+
         async function loadAaplSnapshot() {
             if (aaplLoadPromise) return aaplLoadPromise;
 
@@ -3014,8 +3404,10 @@
                     const data = await response.json();
                     if (!response.ok || data.error) throw new Error(data.error || 'AAPL fetch failed');
 
-                    const price = Number(data.price);
-                    const gammaFlip = Number(data.gamma_flip);
+                    const base = (data && data.price) ? data.price : ((data && data.flip) ? data.flip : data);
+                    const price = Number(base && base.price);
+                    const gammaFlip = Number(base && base.gamma_flip);
+                    const when = (base && base.time ? String(base.time) : '').toString();
 
                     if (Number.isFinite(price)) {
                         if (latestAaplPrice != null) prevAaplPrice = latestAaplPrice;
@@ -3025,11 +3417,24 @@
                     }
                     latestAaplGammaFlip = Number.isFinite(gammaFlip) ? gammaFlip : null;
 
+                    if (aaplLivePrice) aaplLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
+                    if (aaplLiveTime) aaplLiveTime.textContent = when || (base && base.expiration ? `Exp ${base.expiration}` : '--');
+                    if (aaplGammaFlipTop) aaplGammaFlipTop.textContent = Number.isFinite(gammaFlip) ? `${gammaFlip.toFixed(2)}` : '--';
+                    setTooltip(aaplLiveBox, `Updated: ${when || '--'}`);
+                    setTooltip(aaplGammaFlipBox, Number.isFinite(gammaFlip) ? `Gamma Flip: ${gammaFlip.toFixed(2)}` : '--');
+
+                    displayAaplKeyLevels(data);
                     updatePressureUI();
                     return data;
                 } catch (e) {
+                    if (aaplLivePrice) aaplLivePrice.textContent = '--';
+                    if (aaplLiveTime) aaplLiveTime.textContent = '--';
+                    if (aaplGammaFlipTop) aaplGammaFlipTop.textContent = '--';
                     latestAaplPrice = null;
                     latestAaplGammaFlip = null;
+                    setTooltip(aaplLiveBox, '--');
+                    setTooltip(aaplGammaFlipBox, '--');
+                    displayAaplKeyLevels(null);
                     updatePressureUI();
                     return null;
                 }
@@ -3064,8 +3469,10 @@
                     const data = await response.json();
                     if (!response.ok || data.error) throw new Error(data.error || 'GOOG fetch failed');
 
-                    const price = Number(data.price);
-                    const gammaFlip = Number(data.gamma_flip);
+                    const base = (data && data.price) ? data.price : ((data && data.flip) ? data.flip : data);
+                    const price = Number(base && base.price);
+                    const gammaFlip = Number(base && base.gamma_flip);
+                    const when = (base && base.time ? String(base.time) : '').toString();
 
                     if (Number.isFinite(price)) {
                         if (latestGoogPrice != null) prevGoogPrice = latestGoogPrice;
@@ -3075,11 +3482,24 @@
                     }
                     latestGoogGammaFlip = Number.isFinite(gammaFlip) ? gammaFlip : null;
 
+                    if (googLivePrice) googLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
+                    if (googLiveTime) googLiveTime.textContent = when || (base && base.expiration ? `Exp ${base.expiration}` : '--');
+                    if (googGammaFlipTop) googGammaFlipTop.textContent = Number.isFinite(gammaFlip) ? `${gammaFlip.toFixed(2)}` : '--';
+                    setTooltip(googLiveBox, `Updated: ${when || '--'}`);
+                    setTooltip(googGammaFlipBox, Number.isFinite(gammaFlip) ? `Gamma Flip: ${gammaFlip.toFixed(2)}` : '--');
+
+                    displayGoogKeyLevels(data);
                     updatePressureUI();
                     return data;
                 } catch (e) {
+                    if (googLivePrice) googLivePrice.textContent = '--';
+                    if (googLiveTime) googLiveTime.textContent = '--';
+                    if (googGammaFlipTop) googGammaFlipTop.textContent = '--';
                     latestGoogPrice = null;
                     latestGoogGammaFlip = null;
+                    setTooltip(googLiveBox, '--');
+                    setTooltip(googGammaFlipBox, '--');
+                    displayGoogKeyLevels(null);
                     updatePressureUI();
                     return null;
                 }
@@ -3114,8 +3534,10 @@
                     const data = await response.json();
                     if (!response.ok || data.error) throw new Error(data.error || 'AMZN fetch failed');
 
-                    const price = Number(data.price);
-                    const gammaFlip = Number(data.gamma_flip);
+                    const base = (data && data.price) ? data.price : ((data && data.flip) ? data.flip : data);
+                    const price = Number(base && base.price);
+                    const gammaFlip = Number(base && base.gamma_flip);
+                    const when = (base && base.time ? String(base.time) : '').toString();
 
                     if (Number.isFinite(price)) {
                         if (latestAmznPrice != null) prevAmznPrice = latestAmznPrice;
@@ -3125,11 +3547,24 @@
                     }
                     latestAmznGammaFlip = Number.isFinite(gammaFlip) ? gammaFlip : null;
 
+                    if (amznLivePrice) amznLivePrice.textContent = Number.isFinite(price) ? `${price.toFixed(2)}` : '--';
+                    if (amznLiveTime) amznLiveTime.textContent = when || (base && base.expiration ? `Exp ${base.expiration}` : '--');
+                    if (amznGammaFlipTop) amznGammaFlipTop.textContent = Number.isFinite(gammaFlip) ? `${gammaFlip.toFixed(2)}` : '--';
+                    setTooltip(amznLiveBox, `Updated: ${when || '--'}`);
+                    setTooltip(amznGammaFlipBox, Number.isFinite(gammaFlip) ? `Gamma Flip: ${gammaFlip.toFixed(2)}` : '--');
+
+                    displayAmznKeyLevels(data);
                     updatePressureUI();
                     return data;
                 } catch (e) {
+                    if (amznLivePrice) amznLivePrice.textContent = '--';
+                    if (amznLiveTime) amznLiveTime.textContent = '--';
+                    if (amznGammaFlipTop) amznGammaFlipTop.textContent = '--';
                     latestAmznPrice = null;
                     latestAmznGammaFlip = null;
+                    setTooltip(amznLiveBox, '--');
+                    setTooltip(amznGammaFlipBox, '--');
+                    displayAmznKeyLevels(null);
                     updatePressureUI();
                     return null;
                 }
