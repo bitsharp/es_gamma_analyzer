@@ -1342,6 +1342,9 @@
         let prevSpxPrice = null;
         let lastSpxSnapshotCombined = null;
         let lastEsSpxOiConversion = null;
+        let lastEsSpxSpread = null;
+        let esSpxSpreadLoadPromise = null;
+        let esSpxSpreadPollIntervalId = null;
         let xspLoadPromise = null;
         let xspPollIntervalId = null;
         let latestXspPrice = null;
@@ -1995,8 +1998,22 @@
 
         function applyNearSignals(containerEl, currentPrice, opts) {
             if (!containerEl) return;
+
+            // Blink only on stock/ETF level cards (NVDA/SPY/MSFT/AAPL/GOOG/AMZN).
+            // Everything else (ES/SPX/etc.) should never blink.
+            const id = String(containerEl.id || '').toLowerCase();
+            const card = containerEl.closest('[id]');
+            const cardId = String(card && card.id ? card.id : '').toLowerCase();
+            const allowBlink = /^(nvda|spy|msft|aapl|goog|amzn)/.test(id) || /^(nvda|spy|msft|aapl|goog|amzn)/.test(cardId);
+
             const threshold = getNearThreshold(currentPrice, opts);
             const items = containerEl.querySelectorAll('.level-item[data-strike]');
+
+            if (!allowBlink) {
+                items.forEach(el => el.classList.remove('near-level'));
+                return;
+            }
+
             if (!Number.isFinite(Number(currentPrice)) || threshold == null) {
                 items.forEach(el => el.classList.remove('near-level'));
                 return;
@@ -2160,16 +2177,20 @@
                 // ignore
             }
 
-            if (!Number.isFinite(latestEsPrice)) return;
+            // Prefer server-computed ES–SPX spread (hourly-cached, Stooq-based) when available.
+            let spxPrice = Number(lastEsSpxSpread && lastEsSpxSpread.spx_price);
+            let spread = Number(lastEsSpxSpread && lastEsSpxSpread.spread);
 
-            const oi = lastSpxSnapshotCombined && lastSpxSnapshotCombined.openInterest ? lastSpxSnapshotCombined.openInterest : null;
-            if (!oi || oi.error) return;
-
-            const spxPrice = Number(oi.price);
-            if (!Number.isFinite(spxPrice)) return;
-
-            const spread = Number(latestEsPrice) - spxPrice;
-            if (!Number.isFinite(spread)) return;
+            // Fallback: derive spread from SPX snapshot when needed.
+            if (!Number.isFinite(spxPrice) || !Number.isFinite(spread)) {
+                if (!Number.isFinite(latestEsPrice)) return;
+                const oi = lastSpxSnapshotCombined && lastSpxSnapshotCombined.openInterest ? lastSpxSnapshotCombined.openInterest : null;
+                if (!oi || oi.error) return;
+                spxPrice = Number(oi.price);
+                if (!Number.isFinite(spxPrice)) return;
+                spread = Number(latestEsPrice) - spxPrice;
+                if (!Number.isFinite(spread)) return;
+            }
 
             const prev = _findLatestEsSpxOiConversionBefore(todayKey);
             if (!prev) return;
@@ -2187,7 +2208,7 @@
                 capture_kind: 'morning',
                 based_on_date_key: String(prev.date_key || ''),
                 spread,
-                es_price: Number(latestEsPrice),
+                es_price: Number(lastEsSpxSpread && lastEsSpxSpread.es_price) || Number(latestEsPrice),
                 spx_price: spxPrice,
                 supports: convertedSupports,
                 resistances: convertedResistances,
@@ -2202,6 +2223,72 @@
             } catch (e) {
                 // ignore
             }
+        }
+
+        async function loadEsSpxSpread() {
+            if (esSpxSpreadLoadPromise) return esSpxSpreadLoadPromise;
+
+            esSpxSpreadLoadPromise = (async () => {
+                try {
+                    const response = await fetch('/api/es-spx-spread');
+                    const data = await response.json();
+                    if (!response.ok || !data || data.error) {
+                        throw new Error((data && data.error) ? data.error : 'ES–SPX spread fetch failed');
+                    }
+                    lastEsSpxSpread = {
+                        es_price: Number(data.es_price),
+                        spx_price: Number(data.spx_price),
+                        spread: Number(data.spread),
+                        computed_at: (data.computed_at || '').toString(),
+                    };
+
+                    // If we already have a conversion for today and raw strikes, refresh only the spread-derived levels.
+                    try {
+                        const dk = _localDateKey();
+                        const rawS = lastEsSpxOiConversion && Array.isArray(lastEsSpxOiConversion.spx_supports_raw) ? lastEsSpxOiConversion.spx_supports_raw : null;
+                        const rawR = lastEsSpxOiConversion && Array.isArray(lastEsSpxOiConversion.spx_resistances_raw) ? lastEsSpxOiConversion.spx_resistances_raw : null;
+                        const spread = Number(lastEsSpxSpread && lastEsSpxSpread.spread);
+                        if (lastEsSpxOiConversion && lastEsSpxOiConversion.date_key === dk && rawS && rawR && Number.isFinite(spread)) {
+                            const updated = { ...lastEsSpxOiConversion };
+                            updated.spread = spread;
+                            updated.es_price = Number(lastEsSpxSpread.es_price);
+                            updated.spx_price = Number(lastEsSpxSpread.spx_price);
+                            updated.supports = _computeConvertedLevelsFromRawStrikes(rawS, spread);
+                            updated.resistances = _computeConvertedLevelsFromRawStrikes(rawR, spread);
+                            updated.spread_updated_at = (lastEsSpxSpread.computed_at || '');
+                            lastEsSpxOiConversion = updated;
+                            renderEsSpxOiConvertedLevels(updated);
+                        }
+                    } catch (e) {
+                        // ignore
+                    }
+
+                    return lastEsSpxSpread;
+                } catch (e) {
+                    lastEsSpxSpread = null;
+                    return null;
+                }
+            })();
+
+            return esSpxSpreadLoadPromise;
+        }
+
+        async function refreshEsSpxSpread() {
+            esSpxSpreadLoadPromise = null;
+            return loadEsSpxSpread();
+        }
+
+        function startEsSpxSpreadPolling() {
+            if (esSpxSpreadPollIntervalId) return;
+            refreshEsSpxSpread();
+            // Hourly refresh (spread cached server-side as well)
+            esSpxSpreadPollIntervalId = setInterval(refreshEsSpxSpread, 60 * 60 * 1000);
+        }
+
+        function stopEsSpxSpreadPolling() {
+            if (!esSpxSpreadPollIntervalId) return;
+            clearInterval(esSpxSpreadPollIntervalId);
+            esSpxSpreadPollIntervalId = null;
         }
 
         function renderEsSpxOiConvertedLevels(conversion) {
@@ -2272,7 +2359,21 @@
             const supportsContainer = document.getElementById('esSpxOiSupportsContainer');
             const resistancesContainer = document.getElementById('esSpxOiResistancesContainer');
 
-            const renderList = (container, values, prefix, itemTypeClass) => {
+            const _fmtInt = (n) => {
+                const x = Number(n);
+                if (!Number.isFinite(x)) return '--';
+                try { return Math.round(x).toLocaleString(); } catch (e) { return String(Math.round(x)); }
+            };
+
+            const _fmtPicked = (v) => {
+                const t = (v || '').toString();
+                if (!t) return '';
+                if (t === 'max_oi') return 'max OI';
+                if (t === 'max_vol') return 'max Vol';
+                return t;
+            };
+
+            const renderList = (container, values, rawStrikes, metaArr, prefix, itemTypeClass) => {
                 if (!container) return;
                 const arr = Array.isArray(values) ? values : [];
                 const nums = arr.map(v => Number(v)).filter(Number.isFinite);
@@ -2280,24 +2381,69 @@
                     container.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
                     return;
                 }
+
+                const raw = Array.isArray(rawStrikes) ? rawStrikes.map(n => Number(n)) : [];
+                const meta = Array.isArray(metaArr) ? metaArr : [];
+                const metaByStrike = new Map(
+                    meta
+                        .map(m => (m && typeof m === 'object') ? [Number(m.strike), m] : null)
+                        .filter(x => Array.isArray(x) && Number.isFinite(x[0]))
+                );
+
                 container.innerHTML = nums.map((v, i) => {
                     const heat = heatClassForIndex(i);
                     const strike = v;
                     const text = Number.isFinite(strike) ? strike.toFixed(2) : '--';
-                    const tooltip = `ES ${text} | ${kindLabel}${basedOn ? ` | from ${basedOn}` : ''}`;
+
+                    const spxStrike = Number(raw[i]);
+                    const spxStrikeText = Number.isFinite(spxStrike) ? spxStrike.toFixed(0) : '--';
+                    const m = Number.isFinite(spxStrike) ? (metaByStrike.get(spxStrike) || meta[i]) : (meta[i] || null);
+                    const picked = m && m.picked_by ? _fmtPicked(m.picked_by) : '';
+                    const totalOi = m && m.total_oi != null ? _fmtInt(m.total_oi) : null;
+                    const totalVol = m && m.total_vol != null ? _fmtInt(m.total_vol) : null;
+
+                    const metaBits = [];
+                    metaBits.push('SPX ' + spxStrikeText);
+                    if (picked) metaBits.push(picked);
+                    if (totalOi != null) metaBits.push('OI ' + totalOi);
+                    if (totalVol != null) metaBits.push('Vol ' + totalVol);
+                    const metaLine = metaBits.join(' • ');
+
+                    const tooltipParts = [`ES ${text}`, `SPX ${spxStrikeText}`];
+                    if (picked) tooltipParts.push(picked);
+                    if (totalOi != null) tooltipParts.push(`OI ${totalOi}`);
+                    if (totalVol != null) tooltipParts.push(`Vol ${totalVol}`);
+                    tooltipParts.push(kindLabel);
+                    if (basedOn) tooltipParts.push('from ' + basedOn);
+                    const tooltip = tooltipParts.join(' | ');
                     return `
                         <div class="level-item ${itemTypeClass} ${heat}" data-strike="${strike}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${tooltip}">
                             <div class="d-flex justify-content-between align-items-center level-row">
                                 <div class="fw-bold ${prefix === 'S' ? 'text-support' : 'text-resistance'}">${prefix}${i + 1}  ${text}</div>
                             </div>
+                            <div class="text-muted small">${metaLine}</div>
                         </div>
                     `;
                 }).join('');
                 initTooltipsWithin(container);
             };
 
-            renderList(supportsContainer, conversion.supports, 'S', 'support-item');
-            renderList(resistancesContainer, conversion.resistances, 'R', 'resistance-item');
+            renderList(
+                supportsContainer,
+                conversion.supports,
+                conversion.spx_supports_raw,
+                conversion.spx_supports_meta,
+                'S',
+                'support-item'
+            );
+            renderList(
+                resistancesContainer,
+                conversion.resistances,
+                conversion.spx_resistances_raw,
+                conversion.spx_resistances_meta,
+                'R',
+                'resistance-item'
+            );
 
             updateEsNearSignals();
         }
@@ -2854,7 +3000,7 @@
         function startEsPricePolling() {
             if (esPollIntervalId) return;
             refreshEsPrice();
-            esPollIntervalId = setInterval(refreshEsPrice, 5000);
+            esPollIntervalId = setInterval(refreshEsPrice, 30000);
         }
 
         function stopEsPricePolling() {
@@ -3021,7 +3167,11 @@
                     const primaryMetric = 'openInterest';
 
                     const fetchOne = async (metric) => {
-                        const response = await fetch(`/api/spx-snapshot?metric=${metric}`);
+                        const url = (metric === 'volume')
+                            ? '/api/spx-0dte-volume'
+                            : `/api/spx-snapshot?metric=${metric}`;
+
+                        const response = await fetch(url);
                         const data = await response.json();
                         if (!response.ok || !data || data.error) {
                             throw new Error((data && data.error) ? data.error : `SPX ${metric} fetch failed`);
@@ -3090,7 +3240,7 @@
         function startSpxPolling() {
             if (spxPollIntervalId) return;
             refreshSpxSnapshot();
-            spxPollIntervalId = setInterval(refreshSpxSnapshot, 60000);
+            spxPollIntervalId = setInterval(refreshSpxSnapshot, 5 * 60 * 1000);
         }
 
         function stopSpxPolling() {
@@ -3145,7 +3295,7 @@
         function startXspPolling() {
             if (xspPollIntervalId) return;
             refreshXspSnapshot();
-            xspPollIntervalId = setInterval(refreshXspSnapshot, 60000);
+            xspPollIntervalId = setInterval(refreshXspSnapshot, 5 * 60 * 1000);
         }
 
         function stopXspPolling() {
@@ -3162,7 +3312,7 @@
         function startMsftPolling() {
             if (msftPollIntervalId) return;
             refreshMsftSnapshot();
-            msftPollIntervalId = setInterval(refreshMsftSnapshot, 60000);
+            msftPollIntervalId = setInterval(refreshMsftSnapshot, 120000);
         }
 
         function stopMsftPolling() {
@@ -3179,7 +3329,7 @@
         function startSpyPolling() {
             if (spyPollIntervalId) return;
             refreshSpySnapshot();
-            spyPollIntervalId = setInterval(refreshSpySnapshot, 60000);
+            spyPollIntervalId = setInterval(refreshSpySnapshot, 120000);
         }
 
         function stopSpyPolling() {
@@ -3196,7 +3346,7 @@
         function startNvdaPolling() {
             if (nvdaPollIntervalId) return;
             refreshNvdaSnapshot();
-            nvdaPollIntervalId = setInterval(refreshNvdaSnapshot, 60000);
+            nvdaPollIntervalId = setInterval(refreshNvdaSnapshot, 120000);
         }
 
         function stopNvdaPolling() {
@@ -3780,7 +3930,7 @@
         function startAaplPolling() {
             if (aaplPollIntervalId) return;
             refreshAaplSnapshot();
-            aaplPollIntervalId = setInterval(refreshAaplSnapshot, 60000);
+            aaplPollIntervalId = setInterval(refreshAaplSnapshot, 120000);
         }
 
         function stopAaplPolling() {
@@ -3845,7 +3995,7 @@
         function startGoogPolling() {
             if (googPollIntervalId) return;
             refreshGoogSnapshot();
-            googPollIntervalId = setInterval(refreshGoogSnapshot, 60000);
+            googPollIntervalId = setInterval(refreshGoogSnapshot, 120000);
         }
 
         function stopGoogPolling() {
@@ -3910,7 +4060,7 @@
         function startAmznPolling() {
             if (amznPollIntervalId) return;
             refreshAmznSnapshot();
-            amznPollIntervalId = setInterval(refreshAmznSnapshot, 60000);
+            amznPollIntervalId = setInterval(refreshAmznSnapshot, 120000);
         }
 
         function stopAmznPolling() {
@@ -3930,6 +4080,7 @@
                 stopAaplPolling();
                 stopGoogPolling();
                 stopAmznPolling();
+                stopEsSpxSpreadPolling();
             } else {
                 startEsPricePolling();
                 startNvdaPolling();
@@ -3940,6 +4091,7 @@
                 startAaplPolling();
                 startGoogPolling();
                 startAmznPolling();
+                startEsSpxSpreadPolling();
             }
         });
 
@@ -3959,6 +4111,7 @@
         startAaplPolling();
         startGoogPolling();
         startAmznPolling();
+        startEsSpxSpreadPolling();
 
         let lastEsAnalysisData = null;
 

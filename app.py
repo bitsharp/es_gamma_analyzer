@@ -453,9 +453,13 @@ def _compute_es_spx_conversion_from_baseline(today_key: str) -> Optional[Dict[st
     if not (isinstance(raw_s, list) and isinstance(raw_r, list) and raw_s and raw_r):
         return None
 
+    spx_supports_meta = baseline.get('spx_supports_meta') if isinstance(baseline.get('spx_supports_meta'), list) else None
+    spx_resistances_meta = baseline.get('spx_resistances_meta') if isinstance(baseline.get('spx_resistances_meta'), list) else None
+
     # Prices: prefer live values, but fall back to baseline prices (useful pre-market).
-    es = get_es_price_cached(max_age_seconds=5) or {}
-    spx = get_spx_snapshot_cached(metric='openInterest', max_age_seconds=60) or {}
+    es = get_es_price_cached(max_age_seconds=60) or {}
+    spx_idx = get_spx_index_price_cached(max_age_seconds=60) or {}
+    spx = get_spx_snapshot_cached(metric='hybrid', max_age_seconds=60) or {}
 
     es_price = None
     spx_price = None
@@ -465,7 +469,9 @@ def _compute_es_spx_conversion_from_baseline(today_key: str) -> Optional[Dict[st
     except Exception:
         es_price = None
     try:
-        if isinstance(spx, dict) and spx.get('price') is not None and not spx.get('error'):
+        if spx_idx.get('price') is not None:
+            spx_price = float(spx_idx.get('price'))
+        elif isinstance(spx, dict) and spx.get('price') is not None and not spx.get('error'):
             spx_price = float(spx.get('price'))
     except Exception:
         spx_price = None
@@ -509,6 +515,8 @@ def _compute_es_spx_conversion_from_baseline(today_key: str) -> Optional[Dict[st
         'resistances': _convert(raw_r),
         'spx_supports_raw': raw_s,
         'spx_resistances_raw': raw_r,
+        'spx_supports_meta': spx_supports_meta,
+        'spx_resistances_meta': spx_resistances_meta,
     }
 
 
@@ -521,13 +529,14 @@ def _compute_es_spx_conversion_from_current_snapshot(date_key: str) -> Optional[
     if not date_key:
         return None
 
-    spx = get_spx_snapshot_cached(metric='openInterest', max_age_seconds=60) or {}
+    spx = get_spx_snapshot_cached(metric='hybrid', max_age_seconds=60) or {}
     if not spx or not isinstance(spx, dict) or spx.get('error'):
         return None
 
-    es = get_es_price_cached(max_age_seconds=5) or {}
+    es = get_es_price_cached(max_age_seconds=60) or {}
+    spx_idx = get_spx_index_price_cached(max_age_seconds=60) or {}
     es_price = es.get('price')
-    spx_price = spx.get('price')
+    spx_price = spx_idx.get('price') if spx_idx.get('price') is not None else spx.get('price')
     try:
         es_price_f = float(es_price)
         spx_price_f = float(spx_price)
@@ -541,6 +550,8 @@ def _compute_es_spx_conversion_from_current_snapshot(date_key: str) -> Optional[
 
     raw_s = []
     raw_r = []
+    meta_s = []
+    meta_r = []
     for lvl in supports:
         if not isinstance(lvl, dict):
             continue
@@ -548,6 +559,16 @@ def _compute_es_spx_conversion_from_current_snapshot(date_key: str) -> Optional[
             raw_s.append(float(lvl.get('strike')))
         except Exception:
             continue
+        meta_s.append({
+            'strike': float(lvl.get('strike')),
+            'picked_by': (lvl.get('picked_by') or ''),
+            'call_oi': float(lvl.get('call_oi', 0) or 0),
+            'put_oi': float(lvl.get('put_oi', 0) or 0),
+            'call_vol': float(lvl.get('call_vol', 0) or 0),
+            'put_vol': float(lvl.get('put_vol', 0) or 0),
+            'total_oi': float(lvl.get('total_oi', 0) or 0),
+            'total_vol': float(lvl.get('total_vol', 0) or 0),
+        })
     for lvl in resistances:
         if not isinstance(lvl, dict):
             continue
@@ -555,6 +576,16 @@ def _compute_es_spx_conversion_from_current_snapshot(date_key: str) -> Optional[
             raw_r.append(float(lvl.get('strike')))
         except Exception:
             continue
+        meta_r.append({
+            'strike': float(lvl.get('strike')),
+            'picked_by': (lvl.get('picked_by') or ''),
+            'call_oi': float(lvl.get('call_oi', 0) or 0),
+            'put_oi': float(lvl.get('put_oi', 0) or 0),
+            'call_vol': float(lvl.get('call_vol', 0) or 0),
+            'put_vol': float(lvl.get('put_vol', 0) or 0),
+            'total_oi': float(lvl.get('total_oi', 0) or 0),
+            'total_vol': float(lvl.get('total_vol', 0) or 0),
+        })
     if not raw_s and not raw_r:
         return None
 
@@ -571,6 +602,8 @@ def _compute_es_spx_conversion_from_current_snapshot(date_key: str) -> Optional[
         'resistances': [v + spread for v in raw_r],
         'spx_supports_raw': raw_s,
         'spx_resistances_raw': raw_r,
+        'spx_supports_meta': meta_s if meta_s else None,
+        'spx_resistances_meta': meta_r if meta_r else None,
     }
 
 
@@ -593,9 +626,10 @@ def _maybe_capture_es_spx_conversion(snapshot: Optional[Dict[str, Any]], now_dt:
 
     today_key = now_dt.date().isoformat()
 
-    es = get_es_price_cached(max_age_seconds=5) or {}
+    es = get_es_price_cached(max_age_seconds=60) or {}
+    spx_idx = get_spx_index_price_cached(max_age_seconds=60) or {}
     es_price = es.get('price')
-    spx_price = snapshot.get('price')
+    spx_price = spx_idx.get('price') if spx_idx.get('price') is not None else snapshot.get('price')
     try:
         es_price_f = float(es_price)
         spx_price_f = float(spx_price)
@@ -609,6 +643,8 @@ def _maybe_capture_es_spx_conversion(snapshot: Optional[Dict[str, Any]], now_dt:
 
     raw_s = []
     raw_r = []
+    meta_s = []
+    meta_r = []
     for lvl in supports:
         if not isinstance(lvl, dict):
             continue
@@ -616,6 +652,16 @@ def _maybe_capture_es_spx_conversion(snapshot: Optional[Dict[str, Any]], now_dt:
             raw_s.append(float(lvl.get('strike')))
         except Exception:
             continue
+        meta_s.append({
+            'strike': float(lvl.get('strike')),
+            'picked_by': (lvl.get('picked_by') or ''),
+            'call_oi': float(lvl.get('call_oi', 0) or 0),
+            'put_oi': float(lvl.get('put_oi', 0) or 0),
+            'call_vol': float(lvl.get('call_vol', 0) or 0),
+            'put_vol': float(lvl.get('put_vol', 0) or 0),
+            'total_oi': float(lvl.get('total_oi', 0) or 0),
+            'total_vol': float(lvl.get('total_vol', 0) or 0),
+        })
     for lvl in resistances:
         if not isinstance(lvl, dict):
             continue
@@ -623,6 +669,16 @@ def _maybe_capture_es_spx_conversion(snapshot: Optional[Dict[str, Any]], now_dt:
             raw_r.append(float(lvl.get('strike')))
         except Exception:
             continue
+        meta_r.append({
+            'strike': float(lvl.get('strike')),
+            'picked_by': (lvl.get('picked_by') or ''),
+            'call_oi': float(lvl.get('call_oi', 0) or 0),
+            'put_oi': float(lvl.get('put_oi', 0) or 0),
+            'call_vol': float(lvl.get('call_vol', 0) or 0),
+            'put_vol': float(lvl.get('put_vol', 0) or 0),
+            'total_oi': float(lvl.get('total_oi', 0) or 0),
+            'total_vol': float(lvl.get('total_vol', 0) or 0),
+        })
     if not raw_s and not raw_r:
         return
 
@@ -641,6 +697,8 @@ def _maybe_capture_es_spx_conversion(snapshot: Optional[Dict[str, Any]], now_dt:
         'resistances': converted_r,
         'spx_supports_raw': raw_s,
         'spx_resistances_raw': raw_r,
+        'spx_supports_meta': meta_s if meta_s else None,
+        'spx_resistances_meta': meta_r if meta_r else None,
     }
     _conv_mongo_upsert(doc)
 
@@ -1078,6 +1136,66 @@ _SP500_PRICE_CACHE = {
 _ES_PRICE_CACHE = {
     "value": None,
     "fetched_at": 0.0,
+    "last_success_at": 0.0,
+}
+
+
+def _seed_es_price_manual(price: float, note: str = "manual") -> None:
+    """Seed the ES price cache from a user-provided value.
+
+    This is used as a fallback when external price providers are rate-limited.
+    """
+
+    try:
+        p = float(price)
+    except Exception:
+        return
+
+    now = time.time()
+    _ES_PRICE_CACHE["value"] = {
+        "symbol": "ES",
+        "price": p,
+        "date": "",
+        "time": "",
+        "source": "manual",
+        "instrument": "ES Futures",
+        "note": f"Manual ES price ({note})",
+        "stale": True,
+    }
+    _ES_PRICE_CACHE["fetched_at"] = now
+    _ES_PRICE_CACHE["last_success_at"] = now
+
+
+_SPX_INDEX_PRICE_CACHE = {
+    "value": None,
+    "fetched_at": 0.0,
+}
+
+
+def _seed_spx_price_manual(price: float, note: str = "manual") -> Optional[Dict[str, Any]]:
+    try:
+        p = float(price)
+    except Exception:
+        return None
+
+    now = time.time()
+    data = {
+        "symbol": "^GSPC",
+        "price": p,
+        "date": "",
+        "time": "",
+        "source": "manual",
+        "instrument": "SPX Index",
+        "note": f"Manual SPX price ({note})",
+    }
+    _SPX_INDEX_PRICE_CACHE["value"] = data
+    _SPX_INDEX_PRICE_CACHE["fetched_at"] = now
+    return data
+
+
+_ES_SPX_SPREAD_CACHE = {
+    "value": None,
+    "fetched_at": 0.0,
 }
 
 
@@ -1103,6 +1221,38 @@ _SPX_SNAPSHOT_CACHE = {
     "value": None,
     "fetched_at": 0.0,
 }
+
+
+_SPX_0DTE_VOLUME_CACHE = {
+    "value": None,
+    "fetched_at": 0.0,
+}
+
+
+def _run_with_timeout(fn, timeout_seconds: float):
+    """Run a function in a thread with a hard timeout.
+
+    Returns the function's return value, or raises TimeoutError.
+    """
+
+    result_container: Dict[str, Any] = {}
+    error_container: Dict[str, Any] = {}
+
+    def _target():
+        try:
+            result_container["value"] = fn()
+        except Exception as e:
+            error_container["error"] = e
+
+    t = threading.Thread(target=_target, daemon=True)
+    t.start()
+    t.join(timeout_seconds)
+
+    if t.is_alive():
+        raise TimeoutError(f"Operation timed out after {timeout_seconds:.1f}s")
+    if "error" in error_container:
+        raise error_container["error"]
+    return result_container.get("value")
 
 
 _XSP_SNAPSHOT_CACHE = {
@@ -1227,10 +1377,35 @@ def _fetch_stooq_latest_close(symbol: str) -> Optional[Dict[str, Any]]:
     Returns a dict with keys: symbol, price, date, time, source.
     """
 
-    url = f"https://stooq.com/q/l/?s={urllib.parse.quote(symbol)}&f=sd2t2ohlcv&h&e=csv"
+    path = f"/q/l/?s={urllib.parse.quote(symbol)}&f=sd2t2ohlcv&h&e=csv"
+    urls = [f"https://stooq.com{path}", f"http://stooq.com{path}"]
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        "Accept": "text/csv,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    raw = None
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=8) as response:
+                raw = response.read().decode("utf-8", errors="replace")
+            if raw:
+                break
+        except Exception:
+            continue
+
+    if not raw:
+        return None
+
+    # Stooq may return a plain-text error (e.g. "Exceeded the daily hits limit").
+    # Treat it as unavailable so callers can fall back to other sources.
+    if "Exceeded the daily hits limit" in raw:
+        return None
+
     try:
-        with urllib.request.urlopen(url, timeout=8) as response:
-            raw = response.read().decode("utf-8", errors="replace")
 
         reader = csv.DictReader(io.StringIO(raw))
         row = next(reader, None)
@@ -1247,6 +1422,57 @@ def _fetch_stooq_latest_close(symbol: str) -> Optional[Dict[str, Any]]:
             "date": (row.get("Date") or "").strip(),
             "time": (row.get("Time") or "").strip(),
             "source": "stooq",
+        }
+    except Exception:
+        return None
+
+
+def _fetch_yahoo_quote_price(symbol: str) -> Optional[Dict[str, Any]]:
+    """Fetch last price for a symbol from Yahoo's public quote endpoint.
+
+    Uses urllib (no requests/yfinance) to avoid SSL/urllib3 issues.
+
+    Returns a dict with keys: symbol, price, date, time, source.
+    """
+
+    url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={urllib.parse.quote(symbol)}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=8) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+        payload = json.loads(raw)
+
+        result = (((payload.get("quoteResponse") or {}).get("result") or [])[:1] or [None])[0]
+        if not isinstance(result, dict):
+            return None
+
+        price = result.get("regularMarketPrice")
+        if price is None:
+            return None
+
+        ts = result.get("regularMarketTime")
+        date_s = ""
+        time_s = ""
+        try:
+            if ts:
+                dt = _dt.datetime.fromtimestamp(int(ts))
+                date_s = dt.strftime("%Y-%m-%d")
+                time_s = dt.strftime("%H:%M:%S")
+        except Exception:
+            pass
+
+        return {
+            "symbol": (result.get("symbol") or symbol).strip(),
+            "price": float(price),
+            "date": date_s,
+            "time": time_s,
+            "source": "yahoo_quote",
         }
     except Exception:
         return None
@@ -1329,6 +1555,153 @@ def _fetch_yahoo_options(symbol: str) -> Optional[Dict[str, Any]]:
         import traceback
         traceback.print_exc()
         return None
+
+
+def get_spx_0dte_volume_levels_cached(max_age_seconds: int = 5 * 60) -> Dict[str, Any]:
+    """Fetch SPX 0DTE levels from Yahoo options, using only the Volume column.
+
+    Source is equivalent to the data shown on:
+      https://finance.yahoo.com/quote/%5ESPX/options/?straddle=true
+
+    Notes:
+      - Yahoo can rate-limit (HTTP 429). This function is cached to reduce hits.
+      - If today's expiration is not available, returns None.
+    """
+
+    def _cache_set(payload: Dict[str, Any]) -> Dict[str, Any]:
+        _SPX_0DTE_VOLUME_CACHE["value"] = payload
+        _SPX_0DTE_VOLUME_CACHE["fetched_at"] = time.time()
+        return payload
+
+    now_ts = time.time()
+    cached = _SPX_0DTE_VOLUME_CACHE.get("value")
+    fetched_at = float(_SPX_0DTE_VOLUME_CACHE.get("fetched_at") or 0.0)
+    if isinstance(cached, dict) and (now_ts - fetched_at) <= max_age_seconds:
+        return cached
+
+    base: Dict[str, Any] = {
+        "symbol": "SPX",
+        "source": "yahoo",
+        "metric": "volume",
+        "time": None,
+        "note": "Yahoo ^SPX options 0DTE; levels based on Volume",
+    }
+
+    if not yf:
+        return _cache_set({**base, "error": "yfinance non disponibile"})
+
+    today_str = _dt.date.today().isoformat()
+
+    def _fetch() -> Dict[str, Any]:
+        ticker = yf.Ticker("^SPX")
+
+        # Avoid hard dependency on .info (can be slow / rate-limited).
+        current_price = None
+        try:
+            fi = getattr(ticker, "fast_info", None)
+            if isinstance(fi, dict):
+                current_price = fi.get("last_price") or fi.get("lastPrice")
+            else:
+                current_price = getattr(fi, "last_price", None) or getattr(fi, "lastPrice", None)
+        except Exception:
+            current_price = None
+
+        if current_price is None:
+            info = ticker.info or {}
+            current_price = info.get("regularMarketPrice") or info.get("currentPrice")
+
+        expirations = ticker.options or []
+        if not expirations:
+            return {**base, "error": "Nessuna scadenza SPX disponibile da Yahoo", "today": today_str}
+
+        if today_str not in expirations:
+            # Enforce 0DTE requirement: if no expiry today, do not fall back.
+            return {
+                **base,
+                "error": "Nessuna scadenza 0DTE oggi su Yahoo",
+                "today": today_str,
+                "available_expirations": expirations[:8],
+            }
+
+        opt_chain = ticker.option_chain(today_str)
+        calls_df = opt_chain.calls
+        puts_df = opt_chain.puts
+        if calls_df is None or puts_df is None or calls_df.empty or puts_df.empty:
+            return {**base, "error": "Option chain SPX 0DTE vuota su Yahoo", "today": today_str}
+
+        # Build analyzer DF: map Volume -> Call_OI/Put_OI columns.
+        strike_data: Dict[float, Dict[str, float]] = {}
+
+        for _, row in calls_df.iterrows():
+            try:
+                strike = float(row.get("strike"))
+            except Exception:
+                continue
+            if strike <= 0:
+                continue
+            try:
+                vol = float(row.get("volume") or 0)
+            except Exception:
+                vol = 0.0
+            strike_data.setdefault(strike, {"call": 0.0, "put": 0.0})["call"] = vol
+
+        for _, row in puts_df.iterrows():
+            try:
+                strike = float(row.get("strike"))
+            except Exception:
+                continue
+            if strike <= 0:
+                continue
+            try:
+                vol = float(row.get("volume") or 0)
+            except Exception:
+                vol = 0.0
+            strike_data.setdefault(strike, {"call": 0.0, "put": 0.0})["put"] = vol
+
+        if not strike_data:
+            return {**base, "error": "Nessun dato volume utilizzabile su Yahoo", "today": today_str}
+
+        strikes = sorted(strike_data.keys())
+        calls = [float(strike_data[s]["call"]) for s in strikes]
+        puts = [float(strike_data[s]["put"]) for s in strikes]
+        gammas = [(c - p) * 100.0 for c, p in zip(calls, puts)]
+
+        df = pd.DataFrame(
+            {
+                "Strike": strikes,
+                "Call_OI": calls,
+                "Put_OI": puts,
+                "Gamma_Exposure": gammas,
+            }
+        ).sort_values("Strike").reset_index(drop=True)
+
+        results = analyze_0dte(
+            df,
+            current_price=float(current_price) if current_price is not None else None,
+            levels_mode="price",
+            prefer_strike_multiple=None,
+        )
+
+        snapshot: Dict[str, Any] = {
+            **base,
+            "expiration": today_str,
+            "expiration_date": today_str,
+            "price": float(current_price) if current_price is not None else None,
+        }
+        if isinstance(results, dict):
+            snapshot.update(results)
+        return snapshot
+
+    try:
+        # Keep the endpoint responsive even if Yahoo is slow.
+        payload = _run_with_timeout(_fetch, timeout_seconds=12.0)
+        return _cache_set(payload if isinstance(payload, dict) else {**base, "error": "Risposta Yahoo non valida"})
+    except TimeoutError as e:
+        # Cache timeouts briefly to avoid repeated long hangs.
+        return _cache_set({**base, "error": f"Yahoo timeout: {e}", "today": today_str})
+    except Exception as e:
+        msg = str(e) or e.__class__.__name__
+        return _cache_set({**base, "error": f"Yahoo errore: {msg}", "today": today_str})
 
 
 def _parse_nasdaq_month_day(text: str, now: Optional[_dt.date] = None) -> Optional[_dt.date]:
@@ -1425,6 +1798,8 @@ def _get_nasdaq_stock_snapshot_cached(
     puts: list[float] = []
     gammas: list[float] = []
 
+    strike_data: Dict[float, Dict[str, float]] = {}
+
     for row in rows:
         if (row.get("expiryDate") or "").strip() != nearest_exp_label:
             continue
@@ -1435,7 +1810,28 @@ def _get_nasdaq_stock_snapshot_cached(
 
         call_oi = _parse_pdf_number(row.get("c_Openinterest"))
         put_oi = _parse_pdf_number(row.get("p_Openinterest"))
+        call_vol = _parse_pdf_number(
+            row.get("c_Volume")
+            or row.get("c_volume")
+            or row.get("c_Vol")
+            or row.get("c_vol")
+            or 0
+        )
+        put_vol = _parse_pdf_number(
+            row.get("p_Volume")
+            or row.get("p_volume")
+            or row.get("p_Vol")
+            or row.get("p_vol")
+            or 0
+        )
         gamma_exposure = (call_oi - put_oi) * 1000
+
+        strike_data[float(strike)] = {
+            "call_oi": float(call_oi),
+            "put_oi": float(put_oi),
+            "call_vol": float(call_vol),
+            "put_vol": float(put_vol),
+        }
 
         strikes.append(float(strike))
         calls.append(float(call_oi))
@@ -1836,6 +2232,84 @@ def get_msft_snapshot_cached(max_age_seconds: int = 60, levels_mode: str = "pric
     return _MSFT_SNAPSHOT_CACHE["value"]
 
 
+def _compute_spx_hybrid_levels(
+    strike_data: Dict[float, Dict[str, float]],
+    current_price: Optional[float],
+    window_each_side: int = 15,
+) -> Dict[str, Any]:
+    """Select SPX levels using BOTH open interest and volume.
+
+    - Look at the nearest `window_each_side` strikes below and above `current_price`.
+    - For each side, pick:
+        1) strike with max total OI (call_oi + put_oi)
+        2) strike with max total volume (call_vol + put_vol)
+
+    Returns a dict with `supports` and `resistances` lists.
+    """
+
+    try:
+        px = float(current_price) if current_price is not None else None
+    except Exception:
+        px = None
+
+    strikes = sorted([float(s) for s in (strike_data or {}).keys() if s is not None])
+    if not strikes or px is None:
+        return {"supports": [], "resistances": [], "window_each_side": int(window_each_side)}
+
+    below = [s for s in strikes if s < px][-int(window_each_side):]
+    above = [s for s in strikes if s >= px][:int(window_each_side)]
+
+    def _total(entry: Dict[str, float], kind: str) -> float:
+        try:
+            if kind == "oi":
+                return float(entry.get("call_oi", 0.0) or 0.0) + float(entry.get("put_oi", 0.0) or 0.0)
+            if kind == "vol":
+                return float(entry.get("call_vol", 0.0) or 0.0) + float(entry.get("put_vol", 0.0) or 0.0)
+        except Exception:
+            return 0.0
+        return 0.0
+
+    def _fmt(strike: float, picked_by: str) -> Dict[str, Any]:
+        d = strike_data.get(strike) or {}
+        call_oi = float(d.get("call_oi", 0.0) or 0.0)
+        put_oi = float(d.get("put_oi", 0.0) or 0.0)
+        call_vol = float(d.get("call_vol", 0.0) or 0.0)
+        put_vol = float(d.get("put_vol", 0.0) or 0.0)
+        return {
+            "strike": float(strike),
+            "call_oi": call_oi,
+            "put_oi": put_oi,
+            "call_vol": call_vol,
+            "put_vol": put_vol,
+            "total_oi": call_oi + put_oi,
+            "total_vol": call_vol + put_vol,
+            "picked_by": picked_by,
+        }
+
+    def _pick(side_strikes: list[float]) -> list[Dict[str, Any]]:
+        if not side_strikes:
+            return []
+        best_oi = max(side_strikes, key=lambda s: _total(strike_data.get(s, {}), "oi"))
+        best_vol = max(side_strikes, key=lambda s: _total(strike_data.get(s, {}), "vol"))
+        out: list[Dict[str, Any]] = []
+        out.append(_fmt(best_oi, "max_oi"))
+        if best_vol != best_oi:
+            out.append(_fmt(best_vol, "max_vol"))
+        return out
+
+    supports = _pick(below)
+    resistances = _pick(above)
+
+    supports = sorted(supports, key=lambda x: float(x.get("strike") or 0.0), reverse=True)
+    resistances = sorted(resistances, key=lambda x: float(x.get("strike") or 0.0))
+
+    return {
+        "supports": supports,
+        "resistances": resistances,
+        "window_each_side": int(window_each_side),
+    }
+
+
 def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
     """Fetch SPX last price + option-chain derived gamma flip for the nearest expiry.
 
@@ -1843,7 +2317,9 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
     Between these times, cached data is served.
     
     Args:
-        metric: 'volume' or 'openInterest' - which metric to use for level calculation
+        metric: 'volume' | 'openInterest' | 'hybrid'
+            - volume/openInterest: legacy single-metric behavior
+            - hybrid: pick max OI and max Volume within ±15 strikes around price
         max_age_seconds: maximum age of cached data in seconds
     """
 
@@ -1862,9 +2338,13 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
     elif current_hour == 14 and 30 <= current_minute < 35:
         should_fetch = True
     
+    metric_norm = (metric or "volume").strip()
+    if metric_norm not in {"volume", "openInterest", "hybrid"}:
+        metric_norm = "volume"
+
     # Use metric-specific cache key
-    cache_key = f"value_{metric}"
-    fetched_at_key = f"fetched_at_{metric}"
+    cache_key = f"value_{metric_norm}"
+    fetched_at_key = f"fetched_at_{metric_norm}"
     
     cached = _SPX_SNAPSHOT_CACHE.get(cache_key)
     fetched_at = float(_SPX_SNAPSHOT_CACHE.get(fetched_at_key) or 0.0)
@@ -1878,91 +2358,117 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
         print(f"[DEBUG] Using cached SPX data with metric={metric} (fetched {int((now_ts - fetched_at)/60)} minutes ago)")
         return cached
 
-    # Try Yahoo Finance first
-    yahoo_data = _fetch_yahoo_options("^SPX")
-    print(f"[DEBUG] Yahoo Finance data received: {yahoo_data is not None}")
-    if yahoo_data:
-        print(f"[DEBUG] Yahoo data keys: {yahoo_data.keys()}")
-        try:
-            calls = yahoo_data.get("calls", [])
-            puts = yahoo_data.get("puts", [])
-            last_price = yahoo_data.get("price")
-            expiration_str = yahoo_data.get("expiration")
-            
-            if calls and puts and last_price:
-                # Parse expiration date (YYYY-MM-DD format from yfinance)
-                expiration_date = _dt.datetime.strptime(expiration_str, "%Y-%m-%d").date()
-                
-                strikes = []
-                call_ois = []
-                put_ois = []
-                gammas = []
-                
-                # Combina calls e puts per strike - usa metric (volume o openInterest)
-                strike_data = {}
-                for call in calls:
-                    strike = float(call.get("strike", 0))
-                    if strike > 0:
-                        strike_data[strike] = {
-                            "call_oi": float(call.get(metric, 0) or 0),
-                            "put_oi": 0
-                        }
-                
-                for put in puts:
-                    strike = float(put.get("strike", 0))
-                    if strike > 0:
-                        if strike in strike_data:
-                            strike_data[strike]["put_oi"] = float(put.get(metric, 0) or 0)
-                        else:
-                            strike_data[strike] = {
-                                "call_oi": 0,
-                                "put_oi": float(put.get(metric, 0) or 0)
-                            }
-                
-                for strike in sorted(strike_data.keys()):
-                    data = strike_data[strike]
-                    strikes.append(strike)
-                    call_ois.append(data["call_oi"])
-                    put_ois.append(data["put_oi"])
-                    gammas.append((data["call_oi"] - data["put_oi"]) * 100)
-                
-                if strikes:
-                    df = pd.DataFrame({
-                        "Strike": strikes,
-                        "Call_OI": call_ois,
-                        "Put_OI": put_ois,
-                        "Gamma_Exposure": gammas,
-                    }).sort_values("Strike").reset_index(drop=True)
-                    
-                    results = analyze_0dte(df, current_price=last_price)
-                    
-                    snapshot = {
-                        "symbol": "SPX",
-                        "source": "yahoo",
-                        "expiration": expiration_date.strftime("%B %d, %Y"),
-                        "expiration_date": expiration_date.isoformat(),
-                        "price": last_price,
-                        "time": None,
-                        "metric": metric,  # Add metric info to snapshot
-                    }
-                    
-                    if isinstance(results, dict):
-                        snapshot.update(results)
-                    
-                    _SPX_SNAPSHOT_CACHE[cache_key] = snapshot
-                    _SPX_SNAPSHOT_CACHE[fetched_at_key] = now_ts
-                    print(f"[DEBUG] Yahoo Finance SUCCESS - returning SPX snapshot with price {last_price} and metric={metric}")
-                    if metric == 'openInterest':
+    # Try Yahoo Finance only during scheduled fetch windows.
+    # Outside these windows we prefer Nasdaq/SPY to avoid rate-limits and slow/hanging requests.
+    if should_fetch:
+        yahoo_data = _fetch_yahoo_options("^SPX")
+        print(f"[DEBUG] Yahoo Finance data received: {yahoo_data is not None}")
+        if yahoo_data:
+            print(f"[DEBUG] Yahoo data keys: {yahoo_data.keys()}")
+            try:
+                calls = yahoo_data.get("calls", [])
+                puts = yahoo_data.get("puts", [])
+                last_price = yahoo_data.get("price")
+                expiration_str = yahoo_data.get("expiration")
+
+                if calls and puts and last_price:
+                    # Parse expiration date (YYYY-MM-DD format from yfinance)
+                    expiration_date = _dt.datetime.strptime(expiration_str, "%Y-%m-%d").date()
+
+                    # Combine calls and puts per strike keeping BOTH OI and Volume.
+                    strike_data: Dict[float, Dict[str, float]] = {}
+                    for call in calls:
                         try:
-                            _maybe_capture_es_spx_conversion(snapshot, now_dt=now_dt)
+                            strike = float(call.get("strike", 0) or 0)
                         except Exception:
-                            pass
-                    return snapshot
-        except Exception as e:
-            print(f"[DEBUG] Yahoo Finance parsing failed: {e}")
-            import traceback
-            traceback.print_exc()
-            pass  # Fall through to Nasdaq
+                            continue
+                        if strike <= 0:
+                            continue
+                        d = strike_data.setdefault(strike, {"call_oi": 0.0, "put_oi": 0.0, "call_vol": 0.0, "put_vol": 0.0})
+                        try:
+                            d["call_oi"] = float(call.get("openInterest", 0) or 0)
+                        except Exception:
+                            d["call_oi"] = 0.0
+                        try:
+                            d["call_vol"] = float(call.get("volume", 0) or 0)
+                        except Exception:
+                            d["call_vol"] = 0.0
+
+                    for put in puts:
+                        try:
+                            strike = float(put.get("strike", 0) or 0)
+                        except Exception:
+                            continue
+                        if strike <= 0:
+                            continue
+                        d = strike_data.setdefault(strike, {"call_oi": 0.0, "put_oi": 0.0, "call_vol": 0.0, "put_vol": 0.0})
+                        try:
+                            d["put_oi"] = float(put.get("openInterest", 0) or 0)
+                        except Exception:
+                            d["put_oi"] = 0.0
+                        try:
+                            d["put_vol"] = float(put.get("volume", 0) or 0)
+                        except Exception:
+                            d["put_vol"] = 0.0
+
+                    if strike_data:
+                        snapshot = {
+                            "symbol": "SPX",
+                            "source": "yahoo",
+                            "expiration": expiration_date.strftime("%B %d, %Y"),
+                            "expiration_date": expiration_date.isoformat(),
+                            "price": last_price,
+                            "time": None,
+                            "metric": metric_norm,
+                        }
+
+                        if metric_norm == "hybrid":
+                            snapshot.update(_compute_spx_hybrid_levels(strike_data, current_price=last_price, window_each_side=15))
+                            snapshot["note"] = "Hybrid levels: max OI + max Volume within ±15 strikes"
+                        else:
+                            strikes = []
+                            call_vals = []
+                            put_vals = []
+                            gammas = []
+                            for strike in sorted(strike_data.keys()):
+                                d = strike_data[strike]
+                                if metric_norm == "openInterest":
+                                    c = float(d.get("call_oi", 0.0) or 0.0)
+                                    p = float(d.get("put_oi", 0.0) or 0.0)
+                                else:
+                                    c = float(d.get("call_vol", 0.0) or 0.0)
+                                    p = float(d.get("put_vol", 0.0) or 0.0)
+                                strikes.append(float(strike))
+                                call_vals.append(c)
+                                put_vals.append(p)
+                                gammas.append((c - p) * 100)
+
+                            if strikes:
+                                df = pd.DataFrame({
+                                    "Strike": strikes,
+                                    "Call_OI": call_vals,
+                                    "Put_OI": put_vals,
+                                    "Gamma_Exposure": gammas,
+                                }).sort_values("Strike").reset_index(drop=True)
+
+                                results = analyze_0dte(df, current_price=last_price)
+                                if isinstance(results, dict):
+                                    snapshot.update(results)
+
+                        _SPX_SNAPSHOT_CACHE[cache_key] = snapshot
+                        _SPX_SNAPSHOT_CACHE[fetched_at_key] = now_ts
+                        print(f"[DEBUG] Yahoo Finance SUCCESS - returning SPX snapshot with price {last_price} and metric={metric_norm}")
+                        if metric_norm in {"openInterest", "hybrid"}:
+                            try:
+                                _maybe_capture_es_spx_conversion(snapshot, now_dt=now_dt)
+                            except Exception:
+                                pass
+                        return snapshot
+            except Exception as e:
+                print(f"[DEBUG] Yahoo Finance parsing failed: {e}")
+                import traceback
+                traceback.print_exc()
+                pass  # Fall through to Nasdaq
 
     # Try Nasdaq as fallback
     payload = None
@@ -1993,8 +2499,9 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
         snapshot = dict(proxy)
         snapshot["symbol"] = "SPX"
         snapshot["note"] = "Proxy (SPY option chain) used when SPX unavailable"
-        _SPX_SNAPSHOT_CACHE["value"] = snapshot
-        _SPX_SNAPSHOT_CACHE["fetched_at"] = now_ts
+        snapshot["metric"] = metric_norm
+        _SPX_SNAPSHOT_CACHE[cache_key] = snapshot
+        _SPX_SNAPSHOT_CACHE[fetched_at_key] = now_ts
         return snapshot
 
     data = payload.get("data") or {}
@@ -2031,8 +2538,9 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
         snapshot = dict(proxy)
         snapshot["symbol"] = "SPX"
         snapshot["note"] = "Proxy (SPY option chain) used when SPX expiries unavailable"
-        _SPX_SNAPSHOT_CACHE["value"] = snapshot
-        _SPX_SNAPSHOT_CACHE["fetched_at"] = now_ts
+        snapshot["metric"] = metric_norm
+        _SPX_SNAPSHOT_CACHE[cache_key] = snapshot
+        _SPX_SNAPSHOT_CACHE[fetched_at_key] = now_ts
         return snapshot
 
     nearest_exp_label, nearest_exp_date = sorted(expiry_candidates.items(), key=lambda kv: kv[1])[0]
@@ -2066,8 +2574,9 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
         snapshot = dict(proxy)
         snapshot["symbol"] = "SPX"
         snapshot["note"] = "Proxy (SPY option chain) used when SPX strikes unavailable"
-        _SPX_SNAPSHOT_CACHE["value"] = snapshot
-        _SPX_SNAPSHOT_CACHE["fetched_at"] = now_ts
+        snapshot["metric"] = metric_norm
+        _SPX_SNAPSHOT_CACHE[cache_key] = snapshot
+        _SPX_SNAPSHOT_CACHE[fetched_at_key] = now_ts
         return snapshot
 
     df = pd.DataFrame({
@@ -2077,7 +2586,6 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
         "Gamma_Exposure": gammas,
     }).sort_values("Strike").reset_index(drop=True)
 
-    results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None)
     snapshot: Dict[str, Any] = {
         "symbol": "SPX",
         "source": "nasdaq",
@@ -2085,14 +2593,20 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
         "expiration_date": nearest_exp_date.isoformat(),
         "price": float(last_sale_price) if last_sale_price else None,
         "time": last_sale_time or None,
+        "metric": metric_norm,
     }
 
-    if isinstance(results, dict):
-        snapshot.update(results)
+    if metric_norm == "hybrid":
+        snapshot.update(_compute_spx_hybrid_levels(strike_data, current_price=float(last_sale_price) if last_sale_price else None, window_each_side=15))
+        snapshot["note"] = "Hybrid levels: max OI + max Volume within ±15 strikes (volume may be missing on Nasdaq)"
+    else:
+        results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None)
+        if isinstance(results, dict):
+            snapshot.update(results)
 
-    _SPX_SNAPSHOT_CACHE["value"] = snapshot
-    _SPX_SNAPSHOT_CACHE["fetched_at"] = now_ts
-    if metric == 'openInterest':
+    _SPX_SNAPSHOT_CACHE[cache_key] = snapshot
+    _SPX_SNAPSHOT_CACHE[fetched_at_key] = now_ts
+    if metric_norm in {'openInterest', 'hybrid'}:
         try:
             _maybe_capture_es_spx_conversion(snapshot, now_dt=now_dt)
         except Exception:
@@ -2257,22 +2771,206 @@ def get_sp500_price_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]
     return None
 
 
-def get_es_price_cached(max_age_seconds: int = 5) -> Optional[Dict[str, Any]]:
+def get_spx_index_price_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
+    """Fetch SPX index price from Stooq (^spx) without proxy fallback."""
+
+    now = time.time()
+    cached = _SPX_INDEX_PRICE_CACHE.get("value")
+    fetched_at = float(_SPX_INDEX_PRICE_CACHE.get("fetched_at") or 0.0)
+    if cached and (now - fetched_at) <= max_age_seconds:
+        return cached
+
+    # Operator override (useful when providers are rate-limited).
+    override = (os.getenv("SPX_PRICE_OVERRIDE") or os.getenv("SPX_PRICE") or "").strip()
+    if override:
+        seeded = _seed_spx_price_manual(override, note="env override")
+        if seeded:
+            return seeded
+
+    data = _fetch_stooq_latest_close("^spx")
+    if not data:
+        # Fallback: Yahoo quote endpoint.
+        data = _fetch_yahoo_quote_price("^GSPC")
+    if not data:
+        # Final fallback: use the price embedded in the SPX snapshot (Nasdaq/Yahoo options)
+        # ONLY if it looks like a real SPX price (not a SPY proxy).
+        try:
+            snap = get_spx_snapshot_cached(metric='volume', max_age_seconds=max_age_seconds) or {}
+        except Exception:
+            snap = {}
+
+        note = (snap.get('note') or '') if isinstance(snap, dict) else ''
+        if 'proxy' in note.lower():
+            return None
+
+        try:
+            px = float(snap.get('price'))
+        except Exception:
+            px = None
+
+        # SPX index is typically in the thousands; reject obviously wrong values.
+        if px is None or px < 1000:
+            return None
+
+        data = {
+            "symbol": "^GSPC",
+            "price": px,
+            "date": "",
+            "time": "",
+            "source": "spx_snapshot",
+        }
+
+    data["instrument"] = "SPX Index"
+    src = (data.get("source") or "").strip().lower()
+    if src == "stooq":
+        data["note"] = "Stooq ^spx; quote may be delayed"
+    elif src == "yahoo_quote":
+        data["note"] = "Yahoo ^GSPC quote (fallback when Stooq unavailable)"
+    elif src == "spx_snapshot":
+        data["note"] = "SPX snapshot price (fallback when Stooq/Yahoo quote unavailable)"
+    else:
+        data["note"] = "SPX index price (fallback source)"
+    _SPX_INDEX_PRICE_CACHE["value"] = data
+    _SPX_INDEX_PRICE_CACHE["fetched_at"] = now
+    return data
+
+
+def get_es_spx_spread_cached(max_age_seconds: int = 60 * 60) -> Optional[Dict[str, Any]]:
+    """Compute ES–SPX spread (ES price minus SPX index) and cache it hourly.
+
+    Uses Stooq for both legs to keep the spread source consistent.
+    """
+
+    now = time.time()
+    cached = _ES_SPX_SPREAD_CACHE.get("value")
+    fetched_at = float(_ES_SPX_SPREAD_CACHE.get("fetched_at") or 0.0)
+    if cached and (now - fetched_at) <= max_age_seconds:
+        return cached
+
+    es = get_es_price_cached(max_age_seconds=60)
+    spx = get_spx_index_price_cached(max_age_seconds=60)
+    if not es or not spx:
+        # Stale-tolerant: if we have a previously computed spread, serve it.
+        if isinstance(cached, dict):
+            out = dict(cached)
+            out["stale"] = True
+            out["stale_reason"] = "Missing ES/SPX price for refresh"
+            out["stale_age_seconds"] = int(max(0.0, now - fetched_at)) if fetched_at else None
+            # Throttle retries.
+            _ES_SPX_SPREAD_CACHE["fetched_at"] = now
+            return out
+        return None
+
+    try:
+        es_price = float(es.get("price"))
+        spx_price = float(spx.get("price"))
+    except Exception:
+        return None
+
+    # Sanity checks to avoid publishing nonsense due to proxy/mis-parsing.
+    if es_price < 1000 or spx_price < 1000:
+        if isinstance(cached, dict):
+            out = dict(cached)
+            out["stale"] = True
+            out["stale_reason"] = "Invalid ES/SPX price for spread"
+            out["invalid_prices"] = {"es_price": es_price, "spx_price": spx_price}
+            out["stale_age_seconds"] = int(max(0.0, now - fetched_at)) if fetched_at else None
+            _ES_SPX_SPREAD_CACHE["fetched_at"] = now
+            return out
+        return None
+
+    spread = es_price - spx_price
+
+    # Reject extreme spreads (almost certainly proxy/mismatch of instruments).
+    if abs(spread) > 1000:
+        if isinstance(cached, dict):
+            out = dict(cached)
+            out["stale"] = True
+            out["stale_reason"] = "Spread out of expected range"
+            out["invalid_spread"] = spread
+            out["invalid_prices"] = {"es_price": es_price, "spx_price": spx_price}
+            out["stale_age_seconds"] = int(max(0.0, now - fetched_at)) if fetched_at else None
+            _ES_SPX_SPREAD_CACHE["fetched_at"] = now
+            return out
+        return None
+    payload = {
+        "es_price": es_price,
+        "spx_price": spx_price,
+        "spread": spread,
+        "es": es,
+        "spx": spx,
+        "computed_at": _dt.datetime.now().isoformat(timespec="seconds"),
+        "stale": False,
+    }
+
+    _ES_SPX_SPREAD_CACHE["value"] = payload
+    _ES_SPX_SPREAD_CACHE["fetched_at"] = now
+    return payload
+
+
+def get_es_price_cached(max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
     now = time.time()
     cached = _ES_PRICE_CACHE.get("value")
     fetched_at = float(_ES_PRICE_CACHE.get("fetched_at") or 0.0)
     if cached and (now - fetched_at) <= max_age_seconds:
         return cached
 
+    # Operator override (useful when providers are rate-limited).
+    override = (os.getenv("ES_PRICE_OVERRIDE") or os.getenv("ES_PRICE") or "").strip()
+    if override:
+        try:
+            _seed_es_price_manual(float(override), note="env override")
+            return _ES_PRICE_CACHE.get("value")
+        except Exception:
+            pass
+
     # ES continuous future on Stooq.
     data = _fetch_stooq_latest_close("es.f")
     if not data:
+        # Fallback: Yahoo quote endpoint.
+        data = _fetch_yahoo_quote_price("ES=F")
+        if data:
+            data["instrument"] = "ES Futures"
+            data["note"] = "Yahoo ES=F quote (fallback when Stooq unavailable)"
+            data["stale"] = False
+            _ES_PRICE_CACHE["value"] = data
+            _ES_PRICE_CACHE["fetched_at"] = now
+            _ES_PRICE_CACHE["last_success_at"] = now
+            return data
+
+        # Fallback: last analysis current_price (Mongo) if available.
+        try:
+            doc = _load_last_analysis() or {}
+            analysis = doc.get('analysis') if isinstance(doc, dict) else {}
+            if isinstance(analysis, dict) and analysis.get('current_price') is not None:
+                _seed_es_price_manual(float(analysis.get('current_price')), note="last analysis")
+                return _ES_PRICE_CACHE.get("value")
+        except Exception:
+            pass
+
+        # If Stooq is temporarily unavailable, serve the last known value (stale-tolerant)
+        # instead of returning 503 to the UI.
+        if cached:
+            last_success_at = float(_ES_PRICE_CACHE.get("last_success_at") or fetched_at or 0.0)
+            stale_age = max(0.0, now - last_success_at) if last_success_at else None
+            out = dict(cached)
+            out["stale"] = True
+            if stale_age is not None:
+                out["stale_age_seconds"] = int(stale_age)
+            out["note"] = (out.get("note") or "") + " | stale (Stooq temporarily unavailable)"
+
+            # Throttle retries: treat this as a fresh cache window so we don't hammer Stooq.
+            _ES_PRICE_CACHE["fetched_at"] = now
+            return out
+
         return None
 
     data["instrument"] = "ES Futures"
     data["note"] = "Stooq es.f (continuous); quote may be delayed"
+    data["stale"] = False
     _ES_PRICE_CACHE["value"] = data
     _ES_PRICE_CACHE["fetched_at"] = now
+    _ES_PRICE_CACHE["last_success_at"] = now
     return data
 
 # ============================================================================
@@ -3375,7 +4073,34 @@ def sp500_price():
 def es_price():
     data = get_es_price_cached()
     if not data:
-        return jsonify({"error": "Impossibile recuperare il prezzo ES in questo momento"}), 503
+        # Return 200 with error payload to avoid noisy "Failed to load resource" in browsers.
+        return jsonify({"error": "Impossibile recuperare il prezzo ES in questo momento"})
+
+    return jsonify(data)
+
+
+@app.route('/api/es-spx-spread', methods=['GET'])
+def es_spx_spread():
+    """Return ES–SPX spread (ES minus SPX index), cached hourly."""
+
+    force = (request.args.get('force') or '').strip() == '1'
+    try:
+        data = get_es_spx_spread_cached(max_age_seconds=0 if force else 60 * 60)
+    except Exception as e:
+        return jsonify({"error": f"Impossibile calcolare lo spread ES–SPX: {e}"})
+
+    if not data:
+        # Return 200 with error payload to avoid noisy "Failed to load resource" in browsers.
+        return jsonify({"error": "Impossibile calcolare lo spread ES–SPX in questo momento"})
+
+    # Attach cache age (best-effort)
+    try:
+        fetched_at = float(_ES_SPX_SPREAD_CACHE.get('fetched_at') or 0.0)
+        if fetched_at:
+            data = dict(data)
+            data['cache_age_seconds'] = int(max(0.0, time.time() - fetched_at))
+    except Exception:
+        pass
 
     return jsonify(data)
 
@@ -3469,17 +4194,44 @@ def spx_snapshot():
     force = request.args.get('force') == '1'
     if force:
         print("[DEBUG] Force refresh SPX data requested")
-        _SPX_SNAPSHOT_CACHE["fetched_at"] = 0.0  # Reset cache timestamp
+        # Reset metric-specific cache timestamps
+        _SPX_SNAPSHOT_CACHE["fetched_at_volume"] = 0.0
+        _SPX_SNAPSHOT_CACHE["fetched_at_openInterest"] = 0.0
+        _SPX_SNAPSHOT_CACHE["fetched_at_hybrid"] = 0.0
+        _SPX_SNAPSHOT_CACHE["value_volume"] = None
+        _SPX_SNAPSHOT_CACHE["value_openInterest"] = None
+        _SPX_SNAPSHOT_CACHE["value_hybrid"] = None
     
-    # Get metric parameter (volume or openInterest)
+    # Get metric parameter (volume | openInterest | hybrid)
     metric = request.args.get('metric', 'volume')
-    if metric not in ['volume', 'openInterest']:
+    if metric not in ['volume', 'openInterest', 'hybrid']:
         metric = 'volume'
     
-    data = get_spx_snapshot_cached(metric=metric)
+    try:
+        data = get_spx_snapshot_cached(metric=metric)
+    except Exception as e:
+        # Never let the request crash/abort the connection (which becomes a fetch "Load failed" client-side).
+        return jsonify({"error": f"SPX snapshot failed: {e}", "metric": metric}), 200
+
     if not data:
-        return jsonify({"error": "Impossibile recuperare SPX option chain in questo momento"}), 503
+        return jsonify({"error": "Impossibile recuperare SPX option chain in questo momento", "metric": metric}), 200
     return jsonify(data)
+
+
+@app.route('/api/spx-0dte-volume', methods=['GET'])
+def spx_0dte_volume():
+    """SPX 0DTE key levels from Yahoo options using Volume only."""
+
+    force = (request.args.get('force') or '').strip() == '1'
+    try:
+        data = get_spx_0dte_volume_levels_cached(max_age_seconds=0 if force else 5 * 60)
+    except Exception as e:
+        return jsonify({"error": f"SPX 0DTE volume failed: {e}"}), 200
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "Impossibile recuperare SPX 0DTE (volume) in questo momento"}), 200
+
+    return jsonify(data), 200
 
 
 @app.route('/api/es-spx-oi-to-es', methods=['GET'])
@@ -3506,6 +4258,36 @@ def api_es_spx_oi_to_es_get():
     if kind == 'auto':
         stored = _conv_mongo_get(date_key, '1430')
         if stored:
+            # Refresh spread intraday (hourly cache) without mutating DB baseline.
+            if date_key == _dt.date.today().isoformat():
+                spread_payload = get_es_spx_spread_cached(max_age_seconds=60 * 60)
+                if spread_payload and isinstance(spread_payload, dict):
+                    try:
+                        spread = float(spread_payload.get('spread'))
+                        es_price = float(spread_payload.get('es_price'))
+                        spx_price = float(spread_payload.get('spx_price'))
+                    except Exception:
+                        spread = None
+                        es_price = None
+                        spx_price = None
+
+                    raw_s = stored.get('spx_supports_raw') if isinstance(stored.get('spx_supports_raw'), list) else []
+                    raw_r = stored.get('spx_resistances_raw') if isinstance(stored.get('spx_resistances_raw'), list) else []
+                    if spread is not None and raw_s and raw_r:
+                        try:
+                            converted_s = [float(v) + spread for v in raw_s]
+                            converted_r = [float(v) + spread for v in raw_r]
+                            out = dict(stored)
+                            out['spread'] = spread
+                            out['es_price'] = es_price
+                            out['spx_price'] = spx_price
+                            out['supports'] = converted_s
+                            out['resistances'] = converted_r
+                            out['spread_updated_at'] = _dt.datetime.now().strftime('%H:%M')
+                            return jsonify(out)
+                        except Exception:
+                            pass
+
             return jsonify(stored)
         computed = _compute_es_spx_conversion_from_baseline(date_key)
         if computed:
@@ -3608,6 +4390,8 @@ def api_es_spx_oi_to_es_post():
         'resistances': _as_num_list(payload.get('resistances')),
         'spx_supports_raw': _as_num_list(payload.get('spx_supports_raw')),
         'spx_resistances_raw': _as_num_list(payload.get('spx_resistances_raw')),
+        'spx_supports_meta': payload.get('spx_supports_meta') if isinstance(payload.get('spx_supports_meta'), list) else None,
+        'spx_resistances_meta': payload.get('spx_resistances_meta') if isinstance(payload.get('spx_resistances_meta'), list) else None,
     }
 
     stored = _conv_mongo_upsert(doc)
@@ -3639,9 +4423,9 @@ def api_es_spx_oi_to_es_bootstrap():
     today_key = now_dt.date().isoformat()
 
     # Pull freshest snapshots.
-    spx = get_spx_snapshot_cached(metric='openInterest', max_age_seconds=0) or {}
+    spx = get_spx_snapshot_cached(metric='hybrid', max_age_seconds=0) or {}
     if not spx or not isinstance(spx, dict) or spx.get('error'):
-        return jsonify({'error': 'Impossibile recuperare SPX OI snapshot'}), 503
+        return jsonify({'error': 'Impossibile recuperare SPX snapshot'}), 503
 
     es = get_es_price_cached(max_age_seconds=0) or {}
     es_price = es.get('price')
@@ -3890,6 +4674,13 @@ def analyze():
         current_price = request.form.get('current_price')
         current_price = float(current_price) if current_price else None
 
+        # Seed ES price cache from user-provided input (best-effort fallback).
+        if current_price is not None:
+            try:
+                _seed_es_price_manual(float(current_price), note="pdf input")
+            except Exception:
+                pass
+
         levels_mode = (request.form.get('levels_mode') or 'price').strip().lower()
         
         # Estrai dati: preferisci 0DTE, fallback a 1DTE; se 1DTE manca, prova la scadenza positiva più vicina.
@@ -4013,7 +4804,7 @@ if __name__ == '__main__':
                     in_1430 = (h == 14 and 30 <= m < 35)
                     in_close = (h == 16 and m < 5)
                     if in_1430 or in_close:
-                        snap = get_spx_snapshot_cached(metric='openInterest', max_age_seconds=0) or None
+                        snap = get_spx_snapshot_cached(metric='hybrid', max_age_seconds=0) or None
                         if snap:
                             _maybe_capture_es_spx_conversion(snap, now_dt=now_dt)
                 except Exception:
