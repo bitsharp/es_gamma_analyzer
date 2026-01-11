@@ -461,6 +461,61 @@ def _compute_es_spx_conversion_from_baseline(today_key: str) -> Optional[Dict[st
     spx_idx = get_spx_index_price_cached(max_age_seconds=60) or {}
     spx = get_spx_snapshot_cached(metric='hybrid', max_age_seconds=60) or {}
 
+    # If baseline meta is missing (older docs), enrich it from the current SPX hybrid snapshot
+    # window strike data so the UI can show OI/Vol in tooltips.
+    try:
+        if (not isinstance(spx_supports_meta, list) or not spx_supports_meta) or (not isinstance(spx_resistances_meta, list) or not spx_resistances_meta):
+            wl = spx.get('window_levels') if isinstance(spx, dict) else None
+            if (not isinstance(wl, list) or not wl):
+                # Cached snapshots from older versions may not include window_levels.
+                # Force-refresh the hybrid cache and retry once.
+                try:
+                    _SPX_SNAPSHOT_CACHE['value_hybrid'] = None
+                    _SPX_SNAPSHOT_CACHE['fetched_at_hybrid'] = 0.0
+                except Exception:
+                    pass
+                spx2 = get_spx_snapshot_cached(metric='hybrid', max_age_seconds=60) or {}
+                wl = spx2.get('window_levels') if isinstance(spx2, dict) else None
+            if isinstance(wl, list) and wl:
+                by_strike = {}
+                for it in wl:
+                    if not isinstance(it, dict):
+                        continue
+                    try:
+                        k = float(it.get('strike'))
+                    except Exception:
+                        continue
+                    by_strike[k] = it
+
+                def _meta_for(arr):
+                    out = []
+                    for n in arr:
+                        try:
+                            k = float(n)
+                        except Exception:
+                            continue
+                        m = by_strike.get(k)
+                        if not isinstance(m, dict):
+                            continue
+                        out.append({
+                            'strike': float(k),
+                            'picked_by': '',
+                            'call_oi': float(m.get('call_oi', 0) or 0),
+                            'put_oi': float(m.get('put_oi', 0) or 0),
+                            'call_vol': float(m.get('call_vol', 0) or 0),
+                            'put_vol': float(m.get('put_vol', 0) or 0),
+                            'total_oi': float(m.get('total_oi', 0) or 0),
+                            'total_vol': float(m.get('total_vol', 0) or 0),
+                        })
+                    return out
+
+                if not isinstance(spx_supports_meta, list) or not spx_supports_meta:
+                    spx_supports_meta = _meta_for(raw_s)
+                if not isinstance(spx_resistances_meta, list) or not spx_resistances_meta:
+                    spx_resistances_meta = _meta_for(raw_r)
+    except Exception:
+        pass
+
     es_price = None
     spx_price = None
     try:
@@ -2310,6 +2365,47 @@ def _compute_spx_hybrid_levels(
     }
 
 
+def _build_spx_window_levels(
+    strike_data: Dict[float, Dict[str, float]],
+    current_price: Optional[float],
+    window_each_side: int = 15,
+) -> list[Dict[str, Any]]:
+    """Return per-strike OI/Vol meta for the ±window around price.
+
+    This is used to enrich UI tooltips and baseline conversions for strikes that are not
+    necessarily the single max-OI/max-Vol picks.
+    """
+
+    strikes = sorted([float(s) for s in (strike_data or {}).keys() if s is not None])
+    if not strikes:
+        return []
+    px = float(current_price) if isinstance(current_price, (int, float)) else None
+    if px is None:
+        return []
+
+    below = [s for s in strikes if s < px][-int(window_each_side):]
+    above = [s for s in strikes if s >= px][:int(window_each_side)]
+    window = below + above
+
+    out: list[Dict[str, Any]] = []
+    for s in window:
+        d = strike_data.get(s) or {}
+        call_oi = float(d.get("call_oi", 0.0) or 0.0)
+        put_oi = float(d.get("put_oi", 0.0) or 0.0)
+        call_vol = float(d.get("call_vol", 0.0) or 0.0)
+        put_vol = float(d.get("put_vol", 0.0) or 0.0)
+        out.append({
+            "strike": float(s),
+            "call_oi": call_oi,
+            "put_oi": put_oi,
+            "call_vol": call_vol,
+            "put_vol": put_vol,
+            "total_oi": call_oi + put_oi,
+            "total_vol": call_vol + put_vol,
+        })
+    return out
+
+
 def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
     """Fetch SPX last price + option-chain derived gamma flip for the nearest expiry.
 
@@ -2337,6 +2433,14 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
     # 2:30 PM window (14:30-14:35)
     elif current_hour == 14 and 30 <= current_minute < 35:
         should_fetch = True
+
+    # Force refresh path: when callers pass max_age_seconds <= 0 (e.g. /api/spx-snapshot?force=1),
+    # allow a Yahoo fetch attempt even outside the scheduled windows.
+    try:
+        if int(max_age_seconds) <= 0:
+            should_fetch = True
+    except Exception:
+        pass
     
     metric_norm = (metric or "volume").strip()
     if metric_norm not in {"volume", "openInterest", "hybrid"}:
@@ -2425,6 +2529,7 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
                         if metric_norm == "hybrid":
                             snapshot.update(_compute_spx_hybrid_levels(strike_data, current_price=last_price, window_each_side=15))
                             snapshot["note"] = "Hybrid levels: max OI + max Volume within ±15 strikes"
+                            snapshot["window_levels"] = _build_spx_window_levels(strike_data, current_price=last_price, window_each_side=15)
                         else:
                             strikes = []
                             call_vals = []
@@ -2550,6 +2655,8 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
     puts: list[float] = []
     gammas: list[float] = []
 
+    strike_data: Dict[float, Dict[str, float]] = {}
+
     for row in rows:
         if (row.get("expiryDate") or "").strip() != nearest_exp_label:
             continue
@@ -2560,6 +2667,27 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
 
         call_oi = _parse_pdf_number(row.get("c_Openinterest"))
         put_oi = _parse_pdf_number(row.get("p_Openinterest"))
+
+        # Best-effort volume parsing: often unavailable on Nasdaq.
+        call_vol = _parse_pdf_number(
+            row.get("c_Volume")
+            or row.get("c_Vol")
+            or row.get("c_Volume".lower())
+            or row.get("c_Vol".lower())
+        )
+        put_vol = _parse_pdf_number(
+            row.get("p_Volume")
+            or row.get("p_Vol")
+            or row.get("p_Volume".lower())
+            or row.get("p_Vol".lower())
+        )
+
+        strike_data[float(strike)] = {
+            "call_oi": float(call_oi),
+            "put_oi": float(put_oi),
+            "call_vol": float(call_vol),
+            "put_vol": float(put_vol),
+        }
         gamma_exposure = (call_oi - put_oi) * 1000
 
         strikes.append(float(strike))
@@ -2599,6 +2727,7 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
     if metric_norm == "hybrid":
         snapshot.update(_compute_spx_hybrid_levels(strike_data, current_price=float(last_sale_price) if last_sale_price else None, window_each_side=15))
         snapshot["note"] = "Hybrid levels: max OI + max Volume within ±15 strikes (volume may be missing on Nasdaq)"
+        snapshot["window_levels"] = _build_spx_window_levels(strike_data, current_price=float(last_sale_price) if last_sale_price else None, window_each_side=15)
     else:
         results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None)
         if isinstance(results, dict):
@@ -4208,7 +4337,7 @@ def spx_snapshot():
         metric = 'volume'
     
     try:
-        data = get_spx_snapshot_cached(metric=metric)
+        data = get_spx_snapshot_cached(metric=metric, max_age_seconds=0 if force else 60)
     except Exception as e:
         # Never let the request crash/abort the connection (which becomes a fetch "Load failed" client-side).
         return jsonify({"error": f"SPX snapshot failed: {e}", "metric": metric}), 200

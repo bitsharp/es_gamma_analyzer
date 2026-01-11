@@ -775,6 +775,9 @@
                                         <div>
                                             <i class="bi bi-arrow-left-right me-2"></i>SPX OI→ES Levels
                                         </div>
+                                        <div class="ms-auto">
+                                            <span id="esSpxOiSpxSourceBadge" class="badge bg-secondary" style="display:none;" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title=""></span>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="card-body">
@@ -1341,6 +1344,7 @@
         let latestSpxGammaFlip = null;
         let prevSpxPrice = null;
         let lastSpxSnapshotCombined = null;
+        let _spxHybridForceRefreshAttempted = false;
         let lastEsSpxOiConversion = null;
         let lastEsSpxSpread = null;
         let esSpxSpreadLoadPromise = null;
@@ -1501,6 +1505,8 @@
         const spxPutCallRatio = document.getElementById('spxPutCallRatio');
         const spxExpiryLabel = document.getElementById('spxExpiryLabel');
         const spxMetricLabel = document.getElementById('spxMetricLabel');
+
+        const esSpxOiSpxSourceBadge = document.getElementById('esSpxOiSpxSourceBadge');
 
         let pressureChart = null;
         let pressureSeries = null;
@@ -2371,6 +2377,25 @@
                 return t;
             };
 
+            // Fallback: if the conversion payload doesn't include meta, try to enrich from the
+            // currently loaded SPX hybrid snapshot (limited to selected strikes).
+            const fallbackMetaByStrike = new Map();
+            try {
+                const src = lastSpxSnapshotCombined && lastSpxSnapshotCombined.hybrid ? lastSpxSnapshotCombined.hybrid : null;
+                const addLvl = (lvl) => {
+                    if (!lvl || typeof lvl !== 'object') return;
+                    const k = Number(lvl.strike);
+                    if (!Number.isFinite(k)) return;
+                    fallbackMetaByStrike.set(k, lvl);
+                };
+                if (src && Array.isArray(src.supports)) src.supports.forEach(addLvl);
+                if (src && Array.isArray(src.resistances)) src.resistances.forEach(addLvl);
+                // Prefer the full window list when available (covers strikes that aren't max picks).
+                if (src && Array.isArray(src.window_levels)) src.window_levels.forEach(addLvl);
+            } catch (e) {
+                // ignore
+            }
+
             const buildEntries = (convertedArr, rawStrikes, metaArr, originSide) => {
                 const esVals = Array.isArray(convertedArr) ? convertedArr.map(v => Number(v)).filter(Number.isFinite) : [];
                 const raw = Array.isArray(rawStrikes) ? rawStrikes.map(n => Number(n)) : [];
@@ -2384,10 +2409,55 @@
                 return esVals.map((esLevel, idx) => {
                     const spxStrike = Number(raw[idx]);
                     const spxStrikeText = Number.isFinite(spxStrike) ? spxStrike.toFixed(0) : '--';
-                    const m = Number.isFinite(spxStrike) ? (metaByStrike.get(spxStrike) || meta[idx]) : (meta[idx] || null);
+                    let m = Number.isFinite(spxStrike) ? (metaByStrike.get(spxStrike) || meta[idx]) : (meta[idx] || null);
+                    if (!m && Number.isFinite(spxStrike) && fallbackMetaByStrike.size) {
+                        m = fallbackMetaByStrike.get(spxStrike) || null;
+                    }
+
+                    // If we still have no meta and we're likely on proxy data, try a one-time forced refresh
+                    // of the SPX hybrid snapshot (outside scheduled windows) so we can populate OI/Vol.
+                    if (!m && !_spxHybridForceRefreshAttempted) {
+                        try {
+                            const src = lastSpxSnapshotCombined && lastSpxSnapshotCombined.hybrid ? lastSpxSnapshotCombined.hybrid : null;
+                            const note = (src && src.note ? String(src.note) : '');
+                            if (note.toLowerCase().includes('proxy')) {
+                                _spxHybridForceRefreshAttempted = true;
+                                fetch('/api/spx-snapshot?metric=hybrid&force=1')
+                                    .then(r => r.json())
+                                    .then(data => {
+                                        if (data && !data.error) {
+                                            if (!lastSpxSnapshotCombined || typeof lastSpxSnapshotCombined !== 'object') {
+                                                lastSpxSnapshotCombined = { primary_metric: 'openInterest' };
+                                            }
+                                            lastSpxSnapshotCombined.hybrid = data;
+                                            if (lastEsSpxOiConversion) {
+                                                renderEsSpxOiConvertedLevels(lastEsSpxOiConversion);
+                                            }
+                                        }
+                                    })
+                                    .catch(() => {});
+                            }
+                        } catch (e) {
+                            // ignore
+                        }
+                    }
                     const picked = m && m.picked_by ? _fmtPicked(m.picked_by) : '';
-                    const totalOi = m && m.total_oi != null ? _fmtInt(m.total_oi) : null;
-                    const totalVol = m && m.total_vol != null ? _fmtInt(m.total_vol) : null;
+                    const callOi = m && m.call_oi != null ? _fmtInt(m.call_oi) : null;
+                    const putOi = m && m.put_oi != null ? _fmtInt(m.put_oi) : null;
+                    const callVol = m && m.call_vol != null ? _fmtInt(m.call_vol) : null;
+                    const putVol = m && m.put_vol != null ? _fmtInt(m.put_vol) : null;
+
+                    const totalOi = (m && m.total_oi != null)
+                        ? _fmtInt(m.total_oi)
+                        : (callOi != null && putOi != null)
+                            ? _fmtInt(Number(m.call_oi) + Number(m.put_oi))
+                            : null;
+
+                    const totalVol = (m && m.total_vol != null)
+                        ? _fmtInt(m.total_vol)
+                        : (callVol != null && putVol != null)
+                            ? _fmtInt(Number(m.call_vol) + Number(m.put_vol))
+                            : null;
 
                     const metaBits = [];
                     metaBits.push('SPX ' + spxStrikeText);
@@ -2399,8 +2469,24 @@
                     const tooltipParts = [`ES ${Number(esLevel).toFixed(2)}`, `SPX ${spxStrikeText}`];
                     if (originSide) tooltipParts.push(originSide);
                     if (picked) tooltipParts.push(picked);
-                    if (totalOi != null) tooltipParts.push(`OI ${totalOi}`);
-                    if (totalVol != null) tooltipParts.push(`Vol ${totalVol}`);
+                    if (callOi != null || putOi != null || totalOi != null) {
+                        const bits = [];
+                        if (callOi != null) bits.push(`C ${callOi}`);
+                        if (putOi != null) bits.push(`P ${putOi}`);
+                        if (totalOi != null) bits.push(`T ${totalOi}`);
+                        tooltipParts.push(`OI ${bits.join(' / ')}`);
+                    } else {
+                        tooltipParts.push('OI n/a');
+                    }
+                    if (callVol != null || putVol != null || totalVol != null) {
+                        const bits = [];
+                        if (callVol != null) bits.push(`C ${callVol}`);
+                        if (putVol != null) bits.push(`P ${putVol}`);
+                        if (totalVol != null) bits.push(`T ${totalVol}`);
+                        tooltipParts.push(`Vol ${bits.join(' / ')}`);
+                    } else {
+                        tooltipParts.push('Vol n/a');
+                    }
                     tooltipParts.push(kindLabel);
                     if (basedOn) tooltipParts.push('from ' + basedOn);
 
@@ -2535,6 +2621,10 @@
             const supportsMeta = supports
                 .map(s => (s && typeof s === 'object') ? ({
                     strike: Number(s.strike),
+                    call_oi: s.call_oi,
+                    put_oi: s.put_oi,
+                    call_vol: s.call_vol,
+                    put_vol: s.put_vol,
                     total_oi: s.total_oi,
                     total_vol: s.total_vol,
                     picked_by: s.picked_by,
@@ -2544,6 +2634,10 @@
             const resistancesMeta = resistances
                 .map(r => (r && typeof r === 'object') ? ({
                     strike: Number(r.strike),
+                    call_oi: r.call_oi,
+                    put_oi: r.put_oi,
+                    call_vol: r.call_vol,
+                    put_vol: r.put_vol,
                     total_oi: r.total_oi,
                     total_vol: r.total_vol,
                     picked_by: r.picked_by,
@@ -2619,6 +2713,10 @@
             const supportsMeta = supports
                 .map(s => (s && typeof s === 'object') ? ({
                     strike: Number(s.strike),
+                    call_oi: s.call_oi,
+                    put_oi: s.put_oi,
+                    call_vol: s.call_vol,
+                    put_vol: s.put_vol,
                     total_oi: s.total_oi,
                     total_vol: s.total_vol,
                     picked_by: s.picked_by,
@@ -2628,6 +2726,10 @@
             const resistancesMeta = resistances
                 .map(r => (r && typeof r === 'object') ? ({
                     strike: Number(r.strike),
+                    call_oi: r.call_oi,
+                    put_oi: r.put_oi,
+                    call_vol: r.call_vol,
+                    put_vol: r.put_vol,
                     total_oi: r.total_oi,
                     total_vol: r.total_vol,
                     picked_by: r.picked_by,
@@ -2734,6 +2836,37 @@
                 else if (hasVl) tooltipParts.push('Levels: VL');
 
                 spxHeader.setAttribute('data-bs-title', tooltipParts.join(' | '));
+            }
+
+            // Also show a visible badge for SPX OI→ES section so it's obvious when we're on Proxy
+            // (which can cause OI/Vol meta to be unavailable).
+            if (esSpxOiSpxSourceBadge) {
+                const h = (hybridData && !hybridData.error) ? hybridData : (baseData && !baseData.error ? baseData : null);
+                if (!h) {
+                    esSpxOiSpxSourceBadge.style.display = 'none';
+                } else {
+                    const note = h.note ? String(h.note) : '';
+                    const isProxy = note.toLowerCase().includes('proxy');
+                    const src = (h.source ? String(h.source) : 'unknown').toLowerCase();
+                    const hasWindowLevels = Array.isArray(h.window_levels) && h.window_levels.length > 0;
+
+                    let label = 'SPX chain: ';
+                    if (isProxy) label += 'Proxy';
+                    else if (src === 'yahoo') label += 'Yahoo';
+                    else if (src) label += src;
+                    else label += 'unknown';
+
+                    esSpxOiSpxSourceBadge.textContent = label;
+                    esSpxOiSpxSourceBadge.style.display = 'inline-block';
+
+                    // Colors: proxy = warning, yahoo+window_levels = success, otherwise secondary
+                    esSpxOiSpxSourceBadge.className = 'badge ' + (isProxy ? 'bg-warning text-dark' : (hasWindowLevels ? 'bg-success' : 'bg-secondary'));
+
+                    const exp = h.expiration ? `Exp ${formatExpiryDate(h.expiration)}` : null;
+                    const wl = hasWindowLevels ? 'window_levels: OK (OI/Vol disponibili)' : 'window_levels: missing (OI/Vol possono essere n/a)';
+                    const srcMsg = isProxy ? 'Proxy attivo: dati non-SPX (fallback)' : (src === 'yahoo' ? 'Yahoo Finance attivo' : `Source: ${src}`);
+                    setTooltip(esSpxOiSpxSourceBadge, [srcMsg, exp, wl].filter(Boolean).join(' | '));
+                }
             }
 
             const spxSupportsContainer = document.getElementById('spxSupportsContainer');
