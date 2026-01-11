@@ -2214,6 +2214,8 @@
                 resistances: convertedResistances,
                 spx_supports_raw: rawSupports,
                 spx_resistances_raw: rawResistances,
+                spx_supports_meta: Array.isArray(prev.spx_supports_meta) ? prev.spx_supports_meta : undefined,
+                spx_resistances_meta: Array.isArray(prev.spx_resistances_meta) ? prev.spx_resistances_meta : undefined,
             };
 
             lastEsSpxOiConversion = conversion;
@@ -2312,9 +2314,6 @@
                 }
                 return;
             }
-
-            const supportsText = conversion.supports.map(n => Number(n).toFixed(2)).join(', ');
-            const resistancesText = conversion.resistances.map(n => Number(n).toFixed(2)).join(', ');
             const spread = Number(conversion.spread);
             const spreadText = Number.isFinite(spread) ? (spread >= 0 ? `+${spread.toFixed(2)}` : spread.toFixed(2)) : '--';
             const capturedAt = (conversion.captured_at || '--').toString();
@@ -2327,14 +2326,13 @@
             const metaParts = [kindLabel];
             if (basedOn) metaParts.push(`from ${basedOn}`);
             metaParts.push(`spread ${spreadText}`);
+            if (Number.isFinite(Number(latestEsPrice))) metaParts.push(`vs ES live ${Number(latestEsPrice).toFixed(2)}`);
             const metaLabel = metaParts.join(' • ');
 
             esSpxOiConvertedRow.classList.remove('text-muted');
             esSpxOiConvertedRow.innerHTML = `
                 <span class="badge text-bg-secondary me-2">SPX OI→ES</span>
                 <span class="text-muted me-2">${metaLabel}</span>
-                <span class="text-support me-3"><span class="fw-semibold">S:</span> ${supportsText || '--'}</span>
-                <span class="text-resistance"><span class="fw-semibold">R:</span> ${resistancesText || '--'}</span>
             `;
 
             const esPx = Number(conversion.es_price);
@@ -2373,15 +2371,8 @@
                 return t;
             };
 
-            const renderList = (container, values, rawStrikes, metaArr, prefix, itemTypeClass) => {
-                if (!container) return;
-                const arr = Array.isArray(values) ? values : [];
-                const nums = arr.map(v => Number(v)).filter(Number.isFinite);
-                if (!nums.length) {
-                    container.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
-                    return;
-                }
-
+            const buildEntries = (convertedArr, rawStrikes, metaArr, originSide) => {
+                const esVals = Array.isArray(convertedArr) ? convertedArr.map(v => Number(v)).filter(Number.isFinite) : [];
                 const raw = Array.isArray(rawStrikes) ? rawStrikes.map(n => Number(n)) : [];
                 const meta = Array.isArray(metaArr) ? metaArr : [];
                 const metaByStrike = new Map(
@@ -2390,32 +2381,71 @@
                         .filter(x => Array.isArray(x) && Number.isFinite(x[0]))
                 );
 
-                container.innerHTML = nums.map((v, i) => {
-                    const heat = heatClassForIndex(i);
-                    const strike = v;
-                    const text = Number.isFinite(strike) ? strike.toFixed(2) : '--';
-
-                    const spxStrike = Number(raw[i]);
+                return esVals.map((esLevel, idx) => {
+                    const spxStrike = Number(raw[idx]);
                     const spxStrikeText = Number.isFinite(spxStrike) ? spxStrike.toFixed(0) : '--';
-                    const m = Number.isFinite(spxStrike) ? (metaByStrike.get(spxStrike) || meta[i]) : (meta[i] || null);
+                    const m = Number.isFinite(spxStrike) ? (metaByStrike.get(spxStrike) || meta[idx]) : (meta[idx] || null);
                     const picked = m && m.picked_by ? _fmtPicked(m.picked_by) : '';
                     const totalOi = m && m.total_oi != null ? _fmtInt(m.total_oi) : null;
                     const totalVol = m && m.total_vol != null ? _fmtInt(m.total_vol) : null;
 
                     const metaBits = [];
                     metaBits.push('SPX ' + spxStrikeText);
+                    if (originSide) metaBits.push(originSide);
                     if (picked) metaBits.push(picked);
                     if (totalOi != null) metaBits.push('OI ' + totalOi);
                     if (totalVol != null) metaBits.push('Vol ' + totalVol);
-                    const metaLine = metaBits.join(' • ');
 
-                    const tooltipParts = [`ES ${text}`, `SPX ${spxStrikeText}`];
+                    const tooltipParts = [`ES ${Number(esLevel).toFixed(2)}`, `SPX ${spxStrikeText}`];
+                    if (originSide) tooltipParts.push(originSide);
                     if (picked) tooltipParts.push(picked);
                     if (totalOi != null) tooltipParts.push(`OI ${totalOi}`);
                     if (totalVol != null) tooltipParts.push(`Vol ${totalVol}`);
                     tooltipParts.push(kindLabel);
                     if (basedOn) tooltipParts.push('from ' + basedOn);
-                    const tooltip = tooltipParts.join(' | ');
+
+                    return {
+                        es: esLevel,
+                        spx: spxStrike,
+                        metaLine: metaBits.join(' • '),
+                        tooltip: tooltipParts.join(' | '),
+                        origin: originSide || '',
+                    };
+                });
+            };
+
+            const allEntries = [
+                ...buildEntries(conversion.supports, conversion.spx_supports_raw, conversion.spx_supports_meta, 'PUT'),
+                ...buildEntries(conversion.resistances, conversion.spx_resistances_raw, conversion.spx_resistances_meta, 'CALL'),
+            ].filter(e => e && Number.isFinite(Number(e.es)));
+
+            const esLive = Number(latestEsPrice);
+            const hasLive = Number.isFinite(esLive);
+
+            let supportsForDisplay = [];
+            let resistancesForDisplay = [];
+            if (hasLive) {
+                supportsForDisplay = allEntries.filter(e => Number(e.es) < esLive).sort((a, b) => Number(b.es) - Number(a.es));
+                resistancesForDisplay = allEntries.filter(e => Number(e.es) >= esLive).sort((a, b) => Number(a.es) - Number(b.es));
+            } else {
+                supportsForDisplay = buildEntries(conversion.supports, conversion.spx_supports_raw, conversion.spx_supports_meta, 'PUT');
+                resistancesForDisplay = buildEntries(conversion.resistances, conversion.spx_resistances_raw, conversion.spx_resistances_meta, 'CALL');
+            }
+
+            const renderList = (container, entries, prefix, itemTypeClass) => {
+                if (!container) return;
+                const items = Array.isArray(entries) ? entries : [];
+                if (!items.length) {
+                    container.innerHTML = '<p class="text-muted text-center py-3">No data</p>';
+                    return;
+                }
+
+                container.innerHTML = items.map((it, i) => {
+                    const heat = heatClassForIndex(i);
+                    const strike = Number(it.es);
+                    const text = Number.isFinite(strike) ? strike.toFixed(2) : '--';
+                    const tooltip = (it.tooltip || '').toString();
+                    const metaLine = (it.metaLine || '').toString();
                     return `
                         <div class="level-item ${itemTypeClass} ${heat}" data-strike="${strike}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${tooltip}">
                             <div class="d-flex justify-content-between align-items-center level-row">
@@ -2428,22 +2458,8 @@
                 initTooltipsWithin(container);
             };
 
-            renderList(
-                supportsContainer,
-                conversion.supports,
-                conversion.spx_supports_raw,
-                conversion.spx_supports_meta,
-                'S',
-                'support-item'
-            );
-            renderList(
-                resistancesContainer,
-                conversion.resistances,
-                conversion.spx_resistances_raw,
-                conversion.spx_resistances_meta,
-                'R',
-                'resistance-item'
-            );
+            renderList(supportsContainer, supportsForDisplay, 'S', 'support-item');
+            renderList(resistancesContainer, resistancesForDisplay, 'R', 'resistance-item');
 
             updateEsNearSignals();
         }
@@ -2494,17 +2510,19 @@
             if (!_isWithinLocalWindow(14, 30, 3, now)) return;
             if (!Number.isFinite(latestEsPrice)) return;
 
-            const oi = lastSpxSnapshotCombined && lastSpxSnapshotCombined.openInterest ? lastSpxSnapshotCombined.openInterest : null;
-            if (!oi || oi.error) return;
+            const src = lastSpxSnapshotCombined && (lastSpxSnapshotCombined.hybrid || lastSpxSnapshotCombined.openInterest)
+                ? (lastSpxSnapshotCombined.hybrid || lastSpxSnapshotCombined.openInterest)
+                : null;
+            if (!src || src.error) return;
 
-            const spxPrice = Number(oi.price);
+            const spxPrice = Number(src.price);
             if (!Number.isFinite(spxPrice)) return;
 
             const spread = Number(latestEsPrice) - spxPrice;
             if (!Number.isFinite(spread)) return;
 
-            const supports = Array.isArray(oi.supports) ? oi.supports : [];
-            const resistances = Array.isArray(oi.resistances) ? oi.resistances : [];
+            const supports = Array.isArray(src.supports) ? src.supports : [];
+            const resistances = Array.isArray(src.resistances) ? src.resistances : [];
 
             const rawSupports = supports
                 .map(s => Number(s.strike))
@@ -2513,6 +2531,24 @@
             const rawResistances = resistances
                 .map(r => Number(r.strike))
                 .filter(Number.isFinite);
+
+            const supportsMeta = supports
+                .map(s => (s && typeof s === 'object') ? ({
+                    strike: Number(s.strike),
+                    total_oi: s.total_oi,
+                    total_vol: s.total_vol,
+                    picked_by: s.picked_by,
+                }) : null)
+                .filter(m => m && Number.isFinite(Number(m.strike)));
+
+            const resistancesMeta = resistances
+                .map(r => (r && typeof r === 'object') ? ({
+                    strike: Number(r.strike),
+                    total_oi: r.total_oi,
+                    total_vol: r.total_vol,
+                    picked_by: r.picked_by,
+                }) : null)
+                .filter(m => m && Number.isFinite(Number(m.strike)));
 
             const convertedSupports = rawSupports.map(strike => strike + spread);
             const convertedResistances = rawResistances.map(strike => strike + spread);
@@ -2528,6 +2564,8 @@
                 resistances: convertedResistances,
                 spx_supports_raw: rawSupports,
                 spx_resistances_raw: rawResistances,
+                spx_supports_meta: supportsMeta,
+                spx_resistances_meta: resistancesMeta,
             };
 
             lastEsSpxOiConversion = conversion;
@@ -2557,17 +2595,19 @@
             if (!_isWithinLocalWindow(16, 0, 5, now)) return;
             if (!Number.isFinite(latestEsPrice)) return;
 
-            const oi = lastSpxSnapshotCombined && lastSpxSnapshotCombined.openInterest ? lastSpxSnapshotCombined.openInterest : null;
-            if (!oi || oi.error) return;
+            const src = lastSpxSnapshotCombined && (lastSpxSnapshotCombined.hybrid || lastSpxSnapshotCombined.openInterest)
+                ? (lastSpxSnapshotCombined.hybrid || lastSpxSnapshotCombined.openInterest)
+                : null;
+            if (!src || src.error) return;
 
-            const spxPrice = Number(oi.price);
+            const spxPrice = Number(src.price);
             if (!Number.isFinite(spxPrice)) return;
 
             const spread = Number(latestEsPrice) - spxPrice;
             if (!Number.isFinite(spread)) return;
 
-            const supports = Array.isArray(oi.supports) ? oi.supports : [];
-            const resistances = Array.isArray(oi.resistances) ? oi.resistances : [];
+            const supports = Array.isArray(src.supports) ? src.supports : [];
+            const resistances = Array.isArray(src.resistances) ? src.resistances : [];
 
             const rawSupports = supports
                 .map(s => Number(s.strike))
@@ -2575,6 +2615,24 @@
             const rawResistances = resistances
                 .map(r => Number(r.strike))
                 .filter(Number.isFinite);
+
+            const supportsMeta = supports
+                .map(s => (s && typeof s === 'object') ? ({
+                    strike: Number(s.strike),
+                    total_oi: s.total_oi,
+                    total_vol: s.total_vol,
+                    picked_by: s.picked_by,
+                }) : null)
+                .filter(m => m && Number.isFinite(Number(m.strike)));
+
+            const resistancesMeta = resistances
+                .map(r => (r && typeof r === 'object') ? ({
+                    strike: Number(r.strike),
+                    total_oi: r.total_oi,
+                    total_vol: r.total_vol,
+                    picked_by: r.picked_by,
+                }) : null)
+                .filter(m => m && Number.isFinite(Number(m.strike)));
 
             const convertedSupports = rawSupports.map(strike => strike + spread);
             const convertedResistances = rawResistances.map(strike => strike + spread);
@@ -2590,6 +2648,8 @@
                 resistances: convertedResistances,
                 spx_supports_raw: rawSupports,
                 spx_resistances_raw: rawResistances,
+                spx_supports_meta: supportsMeta,
+                spx_resistances_meta: resistancesMeta,
             };
 
             try {
@@ -2644,12 +2704,13 @@
         function displaySpxKeyLevels(payload) {
             const primaryMetric = 'openInterest';
 
-            const isCombined = !!(payload && typeof payload === 'object' && (payload.volume || payload.openInterest || payload.primary_metric));
+            const isCombined = !!(payload && typeof payload === 'object' && (payload.volume || payload.openInterest || payload.hybrid || payload.primary_metric));
             const volData = isCombined ? (payload.volume || null) : ((payload && payload.metric === 'volume') ? payload : null);
             const oiData = isCombined ? (payload.openInterest || null) : ((payload && payload.metric === 'openInterest') ? payload : null);
+            const hybridData = isCombined ? (payload.hybrid || null) : ((payload && payload.metric === 'hybrid') ? payload : null);
 
             const baseData = isCombined
-                ? (payload[primaryMetric] || payload.volume || payload.openInterest || null)
+                ? (payload[primaryMetric] || payload.hybrid || payload.volume || payload.openInterest || null)
                 : (payload || null);
 
             // Update header tooltip with expiry, source, and metric info
@@ -2666,7 +2727,9 @@
 
                 const hasVl = !!(volData && !volData.error);
                 const hasOi = !!(oiData && !oiData.error);
+                const hasHybrid = !!(hybridData && !hybridData.error);
                 if (hasVl && hasOi) tooltipParts.push('Levels: OI+VL');
+                else if (hasHybrid) tooltipParts.push('Levels: Hybrid');
                 else if (hasOi) tooltipParts.push('Levels: OI');
                 else if (hasVl) tooltipParts.push('Levels: VL');
 
@@ -2971,7 +3034,12 @@
 
                     setTooltip(esLiveBox, `Updated: ${(when || '--')}${note}`);
 
-                    updateEsNearSignals();
+                    // Re-render converted levels so supports/resistances stay relative to ES live.
+                    if (lastEsSpxOiConversion) {
+                        renderEsSpxOiConvertedLevels(lastEsSpxOiConversion);
+                    } else {
+                        updateEsNearSignals();
+                    }
                     updatePressureUI();
                     maybeCaptureEsSpxOiConvertedLevels();
                     maybeComputeMorningEsSpxOiConvertedLevels();
@@ -3179,16 +3247,21 @@
                         return data;
                     };
 
-                    const [volRes, oiRes] = await Promise.allSettled([
+                    const [volRes, oiRes, hybridRes] = await Promise.allSettled([
                         fetchOne('volume'),
                         fetchOne('openInterest'),
+                        fetchOne('hybrid'),
                     ]);
 
                     const volumeData = volRes.status === 'fulfilled' ? volRes.value : null;
                     const openInterestData = oiRes.status === 'fulfilled' ? oiRes.value : null;
+                    const hybridData = hybridRes.status === 'fulfilled' ? hybridRes.value : null;
 
-                    if (!volumeData && !openInterestData) {
-                        const reason = (volRes.status === 'rejected' && volRes.reason) ? volRes.reason : (oiRes.status === 'rejected' && oiRes.reason ? oiRes.reason : null);
+                    if (!volumeData && !openInterestData && !hybridData) {
+                        const reason = (volRes.status === 'rejected' && volRes.reason) ? volRes.reason
+                            : (oiRes.status === 'rejected' && oiRes.reason) ? oiRes.reason
+                            : (hybridRes.status === 'rejected' && hybridRes.reason) ? hybridRes.reason
+                            : null;
                         throw (reason instanceof Error ? reason : new Error('SPX fetch failed'));
                     }
 
@@ -3196,11 +3269,12 @@
                         primary_metric: primaryMetric,
                         volume: volumeData,
                         openInterest: openInterestData,
+                        hybrid: hybridData,
                     };
 
                     lastSpxSnapshotCombined = combined;
 
-                    const baseData = combined[primaryMetric] || combined.volume || combined.openInterest;
+                    const baseData = combined[primaryMetric] || combined.hybrid || combined.volume || combined.openInterest;
                     const price = Number(baseData && baseData.price);
                     const gammaFlip = Number(baseData && baseData.gamma_flip);
 
