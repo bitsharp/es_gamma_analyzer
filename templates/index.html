@@ -2369,6 +2369,22 @@
                 try { return Math.round(x).toLocaleString(); } catch (e) { return String(Math.round(x)); }
             };
 
+            const _fmtOi = (n) => {
+                const x = Number(n);
+                if (!Number.isFinite(x)) return '--';
+                try { return Math.round(x).toLocaleString(); } catch (e) { return String(Math.round(x)); }
+            };
+
+            const _fmtVol = (n) => {
+                const x = Number(n);
+                if (!Number.isFinite(x)) return '--';
+                try {
+                    return x.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+                } catch (e) {
+                    return String(Math.round(x * 10) / 10);
+                }
+            };
+
             const _fmtPicked = (v) => {
                 const t = (v || '').toString();
                 if (!t) return '';
@@ -2459,41 +2475,38 @@
                             ? _fmtInt(Number(m.call_vol) + Number(m.put_vol))
                             : null;
 
-                    const metaBits = [];
-                    metaBits.push('SPX ' + spxStrikeText);
-                    if (originSide) metaBits.push(originSide);
-                    if (picked) metaBits.push(picked);
-                    if (totalOi != null) metaBits.push('OI ' + totalOi);
-                    if (totalVol != null) metaBits.push('Vol ' + totalVol);
-
+                    // Keep tooltips minimal: ES price | SPX price | CALL/PUT | Volume | OI
                     const tooltipParts = [`ES ${Number(esLevel).toFixed(2)}`, `SPX ${spxStrikeText}`];
                     if (originSide) tooltipParts.push(originSide);
-                    if (picked) tooltipParts.push(picked);
-                    if (callOi != null || putOi != null || totalOi != null) {
-                        const bits = [];
-                        if (callOi != null) bits.push(`C ${callOi}`);
-                        if (putOi != null) bits.push(`P ${putOi}`);
-                        if (totalOi != null) bits.push(`T ${totalOi}`);
-                        tooltipParts.push(`OI ${bits.join(' / ')}`);
-                    } else {
-                        tooltipParts.push('OI n/a');
+
+                    // Important: show side-specific values (CALL uses call_*, PUT uses put_*).
+                    // Totals can be misleading in the UI.
+                    let volRaw = null;
+                    let oiRaw = null;
+                    if (m && typeof m === 'object') {
+                        if (originSide === 'CALL') {
+                            volRaw = m.call_vol;
+                            oiRaw = m.call_oi;
+                        } else if (originSide === 'PUT') {
+                            volRaw = m.put_vol;
+                            oiRaw = m.put_oi;
+                        }
                     }
-                    if (callVol != null || putVol != null || totalVol != null) {
-                        const bits = [];
-                        if (callVol != null) bits.push(`C ${callVol}`);
-                        if (putVol != null) bits.push(`P ${putVol}`);
-                        if (totalVol != null) bits.push(`T ${totalVol}`);
-                        tooltipParts.push(`Vol ${bits.join(' / ')}`);
-                    } else {
-                        tooltipParts.push('Vol n/a');
-                    }
-                    tooltipParts.push(kindLabel);
-                    if (basedOn) tooltipParts.push('from ' + basedOn);
+
+                    // Fallback to totals only if side-specific data is missing.
+                    const volText = (volRaw != null && Number.isFinite(Number(volRaw)))
+                        ? _fmtVol(volRaw)
+                        : (totalVol != null ? totalVol : 'n/a');
+                    const oiText = (oiRaw != null && Number.isFinite(Number(oiRaw)))
+                        ? _fmtOi(oiRaw)
+                        : (totalOi != null ? totalOi : 'n/a');
+
+                    tooltipParts.push(`Vol ${volText}`);
+                    tooltipParts.push(`OI ${oiText}`);
 
                     return {
                         es: esLevel,
                         spx: spxStrike,
-                        metaLine: metaBits.join(' • '),
                         tooltip: tooltipParts.join(' | '),
                         origin: originSide || '',
                     };
@@ -2531,13 +2544,11 @@
                     const strike = Number(it.es);
                     const text = Number.isFinite(strike) ? strike.toFixed(2) : '--';
                     const tooltip = (it.tooltip || '').toString();
-                    const metaLine = (it.metaLine || '').toString();
                     return `
                         <div class="level-item ${itemTypeClass} ${heat}" data-strike="${strike}" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="${tooltip}">
                             <div class="d-flex justify-content-between align-items-center level-row">
                                 <div class="fw-bold ${prefix === 'S' ? 'text-support' : 'text-resistance'}">${prefix}${i + 1}  ${text}</div>
                             </div>
-                            <div class="text-muted small">${metaLine}</div>
                         </div>
                     `;
                 }).join('');
