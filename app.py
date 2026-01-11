@@ -172,6 +172,10 @@ def _require_login():
 
     path = request.path or '/'
     public_prefixes = ('/login', '/logout', '/auth')
+    # Debug endpoints are public only in local/dev runs (never on Vercel).
+    if (not os.getenv('VERCEL')) and path.startswith('/api/debug/'):
+        return None
+
     if path == '/api/health' or path.startswith(public_prefixes) or path.startswith('/static'):
         return None
 
@@ -1551,65 +1555,149 @@ def _fetch_nasdaq_json(url: str, referer: str) -> Optional[Dict[str, Any]]:
 
 
 def _fetch_yahoo_options(symbol: str) -> Optional[Dict[str, Any]]:
-    """Fetch options data from Yahoo Finance using yfinance library."""
-    if not yf:
-        print("[DEBUG] yfinance library not available")
-        return None
-    
-    print(f"[DEBUG] Fetching Yahoo Finance options for {symbol} using yfinance")
-    try:
-        ticker = yf.Ticker(symbol)
-        
-        # Get current price
-        info = ticker.info
-        current_price = info.get("regularMarketPrice") or info.get("currentPrice")
-        
-        # Get available expiration dates
-        expirations = ticker.options
-        if not expirations:
-            print(f"[DEBUG] No expirations found for {symbol}")
+    """Fetch options chain data from Yahoo Finance.
+
+    Preferred path: `yfinance` (convenient).
+    Fallback path: direct JSON endpoint used by the Yahoo options page.
+
+    We intentionally do NOT scrape the HTML page (it's JS-heavy and fragile).
+    """
+
+    def _fetch_yahoo_options_http(sym: str) -> Optional[Dict[str, Any]]:
+        # The options page (e.g. https://finance.yahoo.com/quote/%5ESPX/options/?straddle=true)
+        # is backed by this JSON endpoint.
+        try:
+            encoded = urllib.parse.quote(sym)
+            base_url = f"https://query2.finance.yahoo.com/v7/finance/options/{encoded}"
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+
+            def _get_json(url: str) -> Optional[Dict[str, Any]]:
+                try:
+                    req = urllib.request.Request(url, headers=headers)
+                    with urllib.request.urlopen(req, timeout=15) as resp:
+                        raw = resp.read().decode("utf-8", errors="replace")
+                    return json.loads(raw)
+                except Exception:
+                    return None
+
+            first = _get_json(base_url)
+            if not first:
+                return None
+
+            oc = (((first.get("optionChain") or {}).get("result") or [])[:1] or [None])[0]
+            if not isinstance(oc, dict):
+                return None
+
+            quote = oc.get("quote") or {}
+            price = quote.get("regularMarketPrice") or quote.get("postMarketPrice") or quote.get("preMarketPrice")
+            try:
+                price_f = float(price) if price is not None else None
+            except Exception:
+                price_f = None
+
+            expirations = oc.get("expirationDates") or []
+            if not expirations:
+                return None
+
+            # Yahoo returns Unix timestamps (seconds). Pick the nearest.
+            try:
+                exp_ts = int(expirations[0])
+            except Exception:
+                return None
+
+            chain = _get_json(f"{base_url}?date={exp_ts}")
+            if not chain:
+                return None
+
+            oc2 = (((chain.get("optionChain") or {}).get("result") or [])[:1] or [None])[0]
+            if not isinstance(oc2, dict):
+                return None
+
+            opt_list = oc2.get("options") or []
+            if not opt_list or not isinstance(opt_list[0], dict):
+                return None
+
+            calls = opt_list[0].get("calls") or []
+            puts = opt_list[0].get("puts") or []
+
+            # Convert expiry to YYYY-MM-DD (to match the yfinance path expectation).
+            try:
+                exp_date = _dt.datetime.utcfromtimestamp(exp_ts).date().isoformat()
+            except Exception:
+                exp_date = None
+
+            return {
+                "symbol": sym,
+                "price": price_f,
+                "expiration": exp_date,
+                "calls": calls,
+                "puts": puts,
+                "source": "yahoo_http",
+            }
+        except Exception:
             return None
-        
-        # Get nearest expiration (0DTE or closest)
-        nearest_exp = expirations[0]
-        print(f"[DEBUG] Using expiration: {nearest_exp}")
-        
-        # Get options chain for nearest expiration
-        opt_chain = ticker.option_chain(nearest_exp)
-        calls_df = opt_chain.calls
-        puts_df = opt_chain.puts
-        
-        # Filter strikes: keep only 15 above and 15 below current price
-        if current_price:
-            # Get all unique strikes
-            all_strikes = sorted(set(calls_df['strike'].tolist() + puts_df['strike'].tolist()))
-            
-            # Find strikes around current price
-            strikes_below = [s for s in all_strikes if s < current_price][-15:]  # Last 15 below
-            strikes_above = [s for s in all_strikes if s >= current_price][:15]  # First 15 above
-            relevant_strikes = set(strikes_below + strikes_above)
-            
-            # Filter calls and puts
-            calls_df = calls_df[calls_df['strike'].isin(relevant_strikes)]
-            puts_df = puts_df[puts_df['strike'].isin(relevant_strikes)]
-            
-            print(f"[DEBUG] Filtered to {len(relevant_strikes)} strikes around price {current_price}")
-        
-        print(f"[DEBUG] Yahoo Finance fetch SUCCESS - {len(calls_df)} calls, {len(puts_df)} puts")
-        
-        # Convert to the expected format
-        return {
-            "symbol": symbol,
-            "price": current_price,
-            "expiration": nearest_exp,
-            "calls": calls_df.to_dict('records'),
-            "puts": puts_df.to_dict('records'),
-        }
-    except Exception as e:
-        print(f"[DEBUG] Yahoo Finance fetch FAILED: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+
+    # 1) Try yfinance if available
+    if yf:
+        print(f"[DEBUG] Fetching Yahoo Finance options for {symbol} using yfinance")
+        try:
+            ticker = yf.Ticker(symbol)
+
+            info = ticker.info
+            current_price = info.get("regularMarketPrice") or info.get("currentPrice")
+
+            expirations = ticker.options
+            if not expirations:
+                print(f"[DEBUG] No expirations found for {symbol} via yfinance")
+            else:
+                nearest_exp = expirations[0]
+                print(f"[DEBUG] Using expiration: {nearest_exp}")
+
+                opt_chain = ticker.option_chain(nearest_exp)
+                calls_df = opt_chain.calls
+                puts_df = opt_chain.puts
+
+                if current_price:
+                    all_strikes = sorted(set(calls_df['strike'].tolist() + puts_df['strike'].tolist()))
+                    strikes_below = [s for s in all_strikes if s < current_price][-15:]
+                    strikes_above = [s for s in all_strikes if s >= current_price][:15]
+                    relevant_strikes = set(strikes_below + strikes_above)
+                    calls_df = calls_df[calls_df['strike'].isin(relevant_strikes)]
+                    puts_df = puts_df[puts_df['strike'].isin(relevant_strikes)]
+                    print(f"[DEBUG] Filtered to {len(relevant_strikes)} strikes around price {current_price}")
+
+                print(f"[DEBUG] Yahoo Finance fetch SUCCESS - {len(calls_df)} calls, {len(puts_df)} puts")
+
+                return {
+                    "symbol": symbol,
+                    "price": current_price,
+                    "expiration": nearest_exp,
+                    "calls": calls_df.to_dict('records'),
+                    "puts": puts_df.to_dict('records'),
+                    "source": "yahoo_yfinance",
+                }
+        except Exception as e:
+            print(f"[DEBUG] Yahoo Finance yfinance fetch FAILED: {e}")
+
+    # 2) Fallback: use Yahoo's JSON endpoint directly
+    print(f"[DEBUG] Fetching Yahoo Finance options for {symbol} using HTTP JSON endpoint")
+    data = _fetch_yahoo_options_http(symbol)
+    if data:
+        try:
+            calls = data.get("calls") or []
+            puts = data.get("puts") or []
+            print(f"[DEBUG] Yahoo HTTP options SUCCESS - {len(calls)} calls, {len(puts)} puts")
+        except Exception:
+            pass
+        return data
+
+    print(f"[DEBUG] Yahoo HTTP options FAILED for {symbol}")
+    return None
 
 
 def get_spx_0dte_volume_levels_cached(max_age_seconds: int = 5 * 60) -> Dict[str, Any]:
@@ -4345,6 +4433,69 @@ def spx_snapshot():
     if not data:
         return jsonify({"error": "Impossibile recuperare SPX option chain in questo momento", "metric": metric}), 200
     return jsonify(data)
+
+
+@app.route('/api/debug/yahoo-options', methods=['GET'])
+def api_debug_yahoo_options():
+    """Debug endpoint: show the JSON-shaped options payload used by the app.
+
+    This is NOT HTML scraping. It reflects the same underlying Yahoo options data
+    that powers https://finance.yahoo.com/quote/%5ESPX/options/?straddle=true.
+
+    Query params:
+      - symbol: defaults to ^SPX
+      - limit: number of calls/puts rows to include (default 3)
+    """
+
+    symbol = (request.args.get('symbol') or '^SPX').strip() or '^SPX'
+    try:
+        limit = int((request.args.get('limit') or '3').strip())
+    except Exception:
+        limit = 3
+    limit = max(0, min(limit, 25))
+
+    data = _fetch_yahoo_options(symbol)
+    if not isinstance(data, dict):
+        return jsonify({
+            "error": "Yahoo options unavailable",
+            "symbol": symbol,
+            "hint": "If you see this intermittently, Yahoo may be rate-limiting or blocking direct access.",
+        }), 200
+
+    calls = data.get('calls') or []
+    puts = data.get('puts') or []
+
+    def _slim_rows(rows: list) -> list:
+        out = []
+        for r in rows[:limit]:
+            if not isinstance(r, dict):
+                continue
+            out.append({
+                "contractSymbol": r.get('contractSymbol') or r.get('contract_symbol'),
+                "strike": r.get('strike'),
+                "bid": r.get('bid'),
+                "ask": r.get('ask'),
+                "lastPrice": r.get('lastPrice') or r.get('last_price'),
+                "volume": r.get('volume'),
+                "openInterest": r.get('openInterest') or r.get('open_interest'),
+                "impliedVolatility": r.get('impliedVolatility') or r.get('implied_volatility'),
+                "inTheMoney": r.get('inTheMoney') or r.get('in_the_money'),
+            })
+        return out
+
+    return jsonify({
+        "symbol": symbol,
+        "source": data.get('source') or 'yahoo',
+        "price": data.get('price'),
+        "expiration": data.get('expiration'),
+        "counts": {"calls": len(calls), "puts": len(puts)},
+        "sample": {
+            "calls": _slim_rows(calls),
+            "puts": _slim_rows(puts),
+        },
+        "yahoo_options_page": f"https://finance.yahoo.com/quote/{urllib.parse.quote(symbol)}/options/?straddle=true",
+        "yahoo_json_endpoint_base": f"https://query2.finance.yahoo.com/v7/finance/options/{urllib.parse.quote(symbol)}",
+    }), 200
 
 
 @app.route('/api/spx-0dte-volume', methods=['GET'])
