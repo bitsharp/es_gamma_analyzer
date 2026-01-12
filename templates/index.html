@@ -2252,6 +2252,125 @@
             }
         }
 
+        let _esSpxOiIntradayRecalcLastAtMs = 0;
+
+        let spxIndexPriceLoadPromise = null;
+        let lastSpxIndexPriceForSpread = null;
+
+        async function loadSpxIndexPriceForSpread(force = false) {
+            if (spxIndexPriceLoadPromise && !force) return spxIndexPriceLoadPromise;
+            spxIndexPriceLoadPromise = (async () => {
+                try {
+                    const url = force ? '/api/spx-index-price?force=1' : '/api/spx-index-price';
+                    const r = await fetch(url);
+                    const data = await r.json();
+                    if (!r.ok || !data || data.error) return null;
+                    const px = Number(data.price);
+                    if (!Number.isFinite(px) || px < 1000) return null;
+                    lastSpxIndexPriceForSpread = {
+                        price: px,
+                        date: (data.date || '').toString(),
+                        time: (data.time || '').toString(),
+                        source: (data.source || '').toString(),
+                        note: (data.note || '').toString(),
+                    };
+                    return lastSpxIndexPriceForSpread;
+                } catch (e) {
+                    return null;
+                }
+            })();
+            return spxIndexPriceLoadPromise;
+        }
+        async function maybeRecalcEsSpxOiConvertedLevelsIntraday(now = new Date()) {
+            // After NY cash opens, keep SPX→ES converted levels in sync by
+            // recalculating the ES/SPX spread from live prices.
+            // Note: this is intentionally disabled when NY cash is closed to
+            // preserve the overnight freeze behavior.
+
+            if (!_isNyCashSessionOpen(now)) return false;
+
+            const nowMs = Date.now();
+            if (_esSpxOiIntradayRecalcLastAtMs && (nowMs - _esSpxOiIntradayRecalcLastAtMs) < 15_000) {
+                return false;
+            }
+
+            if (!lastEsSpxOiConversion || typeof lastEsSpxOiConversion !== 'object') return false;
+            const rawSupports = Array.isArray(lastEsSpxOiConversion.spx_supports_raw) ? lastEsSpxOiConversion.spx_supports_raw : null;
+            const rawResistances = Array.isArray(lastEsSpxOiConversion.spx_resistances_raw) ? lastEsSpxOiConversion.spx_resistances_raw : null;
+            if (!rawSupports || !rawResistances) return false;
+
+            const esPx = Number(latestEsPrice);
+            if (!Number.isFinite(esPx)) return false;
+
+            // Best-effort: fetch a reliable SPX index quote for spread.
+            // Throttled by the same 15s guard above.
+            await loadSpxIndexPriceForSpread(false);
+
+            // Prefer the currently displayed SPX index price (from the snapshot),
+            // otherwise fall back to whatever the conversion already had.
+            // IMPORTANT: when SPX snapshot falls back to SPY proxy, its "price" can be ~1/10 of SPX.
+            // Guard against that to avoid exploding spreads (e.g. +6000).
+            const idxPx = Number(lastSpxIndexPriceForSpread?.price);
+            let spxPx = Number.isFinite(idxPx)
+                ? idxPx
+                : (Number.isFinite(Number(latestSpxPrice)) ? Number(latestSpxPrice) : Number(lastEsSpxOiConversion.spx_price));
+            if (!Number.isFinite(spxPx)) return false;
+
+            let spread = esPx - spxPx;
+
+            // Heuristic: if SPX looks like SPY/XSP scale (< 1000) while ES is in thousands,
+            // try scaling SPX by 10.
+            if (Number.isFinite(spread) && Math.abs(spread) > 500 && spxPx > 0 && spxPx < 1000 && esPx > 2000) {
+                const spx10 = spxPx * 10;
+                const spread10 = esPx - spx10;
+                if (Number.isFinite(spread10) && Math.abs(spread10) <= 500) {
+                    spxPx = spx10;
+                    spread = spread10;
+                }
+            }
+
+            // Final sanity guard: if still implausible, don't overwrite the conversion.
+            if (!Number.isFinite(spread) || Math.abs(spread) > 500) return false;
+
+            const convertedSupports = _computeConvertedLevelsFromRawStrikes(rawSupports, spread);
+            const convertedResistances = _computeConvertedLevelsFromRawStrikes(rawResistances, spread);
+
+            const conversion = {
+                ...lastEsSpxOiConversion,
+                date_key: _nyDateKey(now),
+                captured_at: _formatNyHHMM(now),
+                capture_kind: 'intraday',
+                spread,
+                es_price: esPx,
+                spx_price: spxPx,
+                spx_price_source: (lastSpxIndexPriceForSpread?.source)
+                    ? String(lastSpxIndexPriceForSpread.source)
+                    : (lastEsSpxOiConversion.spx_price_source || ''),
+                spx_price_time: (lastSpxIndexPriceForSpread && (lastSpxIndexPriceForSpread.date || lastSpxIndexPriceForSpread.time))
+                    ? [lastSpxIndexPriceForSpread.date, lastSpxIndexPriceForSpread.time].filter(Boolean).join(' ')
+                    : (lastEsSpxOiConversion.spx_price_time || ''),
+                spx_price_note: (lastSpxIndexPriceForSpread?.note)
+                    ? String(lastSpxIndexPriceForSpread.note)
+                    : (lastEsSpxOiConversion.spx_price_note || ''),
+                supports: convertedSupports,
+                resistances: convertedResistances,
+            };
+
+            lastEsSpxOiConversion = conversion;
+            renderEsSpxOiConvertedLevels(conversion);
+
+            try {
+                const dk = (conversion.date_key || '').toString() || _localDateKey(now);
+                const storageKey = _esSpxOiConversionStorageKey(dk, 'main');
+                localStorage.setItem(storageKey, JSON.stringify(conversion));
+            } catch (e) {
+                // ignore
+            }
+
+            _esSpxOiIntradayRecalcLastAtMs = nowMs;
+            return true;
+        }
+
         function maybeComputeMorningEsSpxOiConvertedLevels(now = new Date()) {
             // NEW RULE:
             // - After-hours (NY cash closed): freeze levels using yesterday close basis (ES/SPX close).
@@ -2345,6 +2464,9 @@
                 spread,
                 es_price: esClose,
                 spx_price: spxClose,
+                spx_price_source: (prev.spx_price_source || prev.source || ''),
+                spx_price_time: (prev.spx_price_time || prev.time || ''),
+                spx_price_note: (prev.spx_price_note || prev.note || ''),
                 supports: convertedSupports,
                 resistances: convertedResistances,
                 spx_supports_raw: rawSupports,
@@ -2437,6 +2559,7 @@
                 : (kindRaw === 'overnight') ? 'overnight'
                 : (kindRaw === 'close') ? '@17:00'
                 : (kindRaw === 'cash_open') ? '@09:30'
+                : (kindRaw === 'intraday') ? 'intraday'
                 : (kindRaw === '1430' || kindRaw === '14:30') ? '@14:30'
                 : (kindRaw ? kindRaw : '@14:30');
             const basedOn = (conversion.based_on_date_key || '').toString();
@@ -2463,7 +2586,15 @@
             const spxPx = Number(conversion.spx_price);
             const esPxText = Number.isFinite(esPx) ? esPx.toFixed(2) : '--';
             const spxPxText = Number.isFinite(spxPx) ? spxPx.toFixed(2) : '--';
-            const tooltip = `Captured ${capturedAt} | Kind ${kindLabel}${basedOn ? ` | Based on ${basedOn}` : ''} | ES ${esPxText} | SPX ${spxPxText} | Spread ${spreadText}`;
+            const spxSrc = (conversion.spx_price_source || '').toString();
+            const spxWhen = (conversion.spx_price_time || '').toString();
+            const spxNote = (conversion.spx_price_note || '').toString();
+            const spxParts = [];
+            if (spxSrc) spxParts.push(`src ${spxSrc}`);
+            if (spxWhen) spxParts.push(spxWhen);
+            if (spxNote) spxParts.push(spxNote);
+
+            const tooltip = `Captured ${capturedAt} | Kind ${kindLabel}${basedOn ? ` | Based on ${basedOn}` : ''} | ES ${esPxText} | SPX ${spxPxText} | Spread ${spreadText}${spxParts.length ? ` | SPX ${spxParts.join(' • ')}` : ''}`;
             esSpxOiConvertedRow.setAttribute('data-bs-toggle', 'tooltip');
             esSpxOiConvertedRow.setAttribute('data-bs-placement', 'top');
             esSpxOiConvertedRow.setAttribute('data-bs-title', tooltip);
@@ -2798,6 +2929,9 @@
                 spread,
                 es_price: Number(latestEsPrice),
                 spx_price: spxPrice,
+                spx_price_source: (src.source || '').toString(),
+                spx_price_time: (src.time || '').toString(),
+                spx_price_note: (src.note || '').toString(),
                 supports: convertedSupports,
                 resistances: convertedResistances,
                 spx_supports_raw: rawSupports,
@@ -2890,6 +3024,9 @@
                 spread,
                 es_price: Number(latestEsPrice),
                 spx_price: spxPrice,
+                spx_price_source: (src.source || '').toString(),
+                spx_price_time: (src.time || '').toString(),
+                spx_price_note: (src.note || '').toString(),
                 supports: convertedSupports,
                 resistances: convertedResistances,
                 spx_supports_raw: rawSupports,
@@ -3311,9 +3448,10 @@
 
                     setTooltip(esLiveBox, `Updated: ${(when || '--')}${note}`);
 
-                    // Re-render converted levels so supports/resistances stay relative to ES live.
+                    // When NY cash is open, recompute spread and update converted levels.
                     if (lastEsSpxOiConversion) {
-                        renderEsSpxOiConvertedLevels(lastEsSpxOiConversion);
+                        const didRecalc = await maybeRecalcEsSpxOiConvertedLevelsIntraday(new Date());
+                        if (!didRecalc) renderEsSpxOiConvertedLevels(lastEsSpxOiConversion);
                     } else {
                         updateEsNearSignals();
                     }
@@ -3555,9 +3693,16 @@
                     const price = Number(baseData && baseData.price);
                     const gammaFlip = Number(baseData && baseData.gamma_flip);
 
+                    const baseNote = (baseData && baseData.note ? String(baseData.note) : '');
+                    const isProxy = baseNote.toLowerCase().includes('proxy');
+
                     if (Number.isFinite(price)) {
-                        if (latestSpxPrice != null) prevSpxPrice = latestSpxPrice;
-                        latestSpxPrice = price;
+                        // If SPX snapshot is a SPY-proxy, its price can be ~1/10 of SPX.
+                        // Do not overwrite `latestSpxPrice` with that value (it breaks ES–SPX spread).
+                        if (!(isProxy && price > 0 && price < 1000)) {
+                            if (latestSpxPrice != null) prevSpxPrice = latestSpxPrice;
+                            latestSpxPrice = price;
+                        }
                     } else {
                         latestSpxPrice = null;
                     }
@@ -3565,6 +3710,7 @@
 
                     displaySpxKeyLevels(combined);
                     updatePressureUI();
+                    await maybeRecalcEsSpxOiConvertedLevelsIntraday(new Date());
                     maybeCaptureEsSpxOiConvertedLevels();
                     maybeComputeMorningEsSpxOiConvertedLevels();
                     maybeCaptureEsSpxOiConvertedLevelsAtClose();

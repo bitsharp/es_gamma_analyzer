@@ -4484,6 +4484,25 @@ def sp500_price():
     return jsonify(data)
 
 
+@app.route('/api/spx-index-price', methods=['GET'])
+def spx_index_price():
+    """Return SPX index price (prefers ^SPX; avoids SPY proxy fallbacks).
+
+    This is intended for ES–SPX spread calculations during cash hours.
+    """
+
+    force = (request.args.get('force') or '').strip() == '1'
+    try:
+        data = get_spx_index_price_cached(max_age_seconds=0 if force else 60)
+    except Exception as e:
+        return jsonify({"error": f"Impossibile recuperare il prezzo SPX: {e}"})
+
+    if not data:
+        return jsonify({"error": "Impossibile recuperare il prezzo SPX in questo momento"})
+
+    return jsonify(data)
+
+
 @app.route('/api/es-price', methods=['GET'])
 def es_price():
     data = get_es_price_cached()
