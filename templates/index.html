@@ -776,9 +776,16 @@
                             <div id="spxKeyLevelsHeader" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="">
                                 <i class="bi bi-graph-up me-2"></i>SPX Key Levels <span class="text-muted" id="spxPcrLabel"></span> <span class="text-muted small" id="spxExpiryLabel" style="display: none;"></span> <span class="text-muted small" id="spxMetricLabel" style="display: none;"></span>
                             </div>
+
+                            <div class="ms-auto">
+                                <button id="toggleSpxKeyLevelsBtn" type="button" class="btn btn-sm btn-outline-secondary" title="Nascondi/Mostra">
+                                    <span id="toggleSpxKeyLevelsBtnText">Nascondi</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div class="card-body">
+                        <div id="spxKeyLevelsHiddenNote" class="text-muted small" style="display:none;">SPX Key Levels nascosta</div>
                         <div class="row g-2 mb-3 price-row">
                             <div class="col-6">
                                 <div class="price-box text-start" id="spxLiveBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
@@ -4591,6 +4598,35 @@
                 startEsSpxSpreadPolling();
             }
         });
+
+        // Allow hiding the SPX Key Levels card (persisted).
+        const SPX_KEY_LEVELS_HIDE_KEY = 'hide_spx_key_levels_card';
+        function applySpxKeyLevelsVisibility() {
+            const card = document.getElementById('spxKeyLevelsCard');
+            const btnText = document.getElementById('toggleSpxKeyLevelsBtnText');
+            const hiddenNote = document.getElementById('spxKeyLevelsHiddenNote');
+            if (!card) return;
+
+            let hidden = false;
+            try { hidden = localStorage.getItem(SPX_KEY_LEVELS_HIDE_KEY) === '1'; } catch (e) { hidden = false; }
+
+            const body = card.querySelector('.card-body');
+            if (body) body.style.display = hidden ? 'none' : '';
+            if (hiddenNote) hiddenNote.style.display = hidden ? 'block' : 'none';
+            if (btnText) btnText.textContent = hidden ? 'Mostra' : 'Nascondi';
+        }
+
+        (function initSpxKeyLevelsToggle() {
+            const btn = document.getElementById('toggleSpxKeyLevelsBtn');
+            if (!btn) return;
+            btn.addEventListener('click', () => {
+                let hidden = false;
+                try { hidden = localStorage.getItem(SPX_KEY_LEVELS_HIDE_KEY) === '1'; } catch (e) { hidden = false; }
+                try { localStorage.setItem(SPX_KEY_LEVELS_HIDE_KEY, hidden ? '0' : '1'); } catch (e) { /* ignore */ }
+                applySpxKeyLevelsVisibility();
+            });
+            applySpxKeyLevelsVisibility();
+        })();
 
         // Restore stored conversion (best-effort)
         loadStoredEsSpxOiConvertedLevels();
