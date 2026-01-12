@@ -2066,6 +2066,100 @@
             return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
         }
 
+        function _nyParts(date = new Date()) {
+            // Robust NY time extraction (DST-safe) using Intl.
+            try {
+                const fmt = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'America/New_York',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                    weekday: 'short',
+                });
+                const parts = fmt.formatToParts(date);
+                const get = (t) => (parts.find(p => p.type === t) || {}).value;
+                const year = Number(get('year'));
+                const month = Number(get('month'));
+                const day = Number(get('day'));
+                const hour = Number(get('hour'));
+                const minute = Number(get('minute'));
+                const weekday = String(get('weekday') || '');
+                return { year, month, day, hour, minute, weekday };
+            } catch (e) {
+                // Fallback: treat local as NY (worst-case) to avoid hard failures.
+                return {
+                    year: date.getFullYear(),
+                    month: date.getMonth() + 1,
+                    day: date.getDate(),
+                    hour: date.getHours(),
+                    minute: date.getMinutes(),
+                    weekday: '',
+                };
+            }
+        }
+
+        function _nyDateKey(date = new Date()) {
+            const p = _nyParts(date);
+            const y = p.year;
+            const m = String(p.month).padStart(2, '0');
+            const d = String(p.day).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        function _formatNyHHMM(date = new Date()) {
+            const p = _nyParts(date);
+            return `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`;
+        }
+
+        function _isWithinNyWindow(targetHour, targetMinute, toleranceMinutes = 3, date = new Date()) {
+            const p = _nyParts(date);
+            const nowMins = p.hour * 60 + p.minute;
+            const targetMins = targetHour * 60 + targetMinute;
+            return Math.abs(nowMins - targetMins) <= toleranceMinutes;
+        }
+
+        function _isNyWeekday(date = new Date()) {
+            // Use the localized weekday string when available.
+            const wd = String((_nyParts(date).weekday || '')).toLowerCase();
+            if (wd) return !wd.startsWith('sat') && !wd.startsWith('sun');
+            // Fallback to local day (best-effort).
+            const d = date.getDay();
+            return d !== 0 && d !== 6;
+        }
+
+        function _isNyCashSessionOpen(date = new Date()) {
+            // Cash session: 09:30–16:00 New York, Mon–Fri.
+            if (!_isNyWeekday(date)) return false;
+            const p = _nyParts(date);
+            const mins = p.hour * 60 + p.minute;
+            const open = 9 * 60 + 30;
+            const close = 16 * 60;
+            return mins >= open && mins <= close;
+        }
+
+        let _esSpxOvernightBasisPromise = null;
+        let lastEsSpxOvernightBasis = null;
+
+        async function loadEsSpxOvernightBasis(force = false) {
+            if (_esSpxOvernightBasisPromise && !force) return _esSpxOvernightBasisPromise;
+            _esSpxOvernightBasisPromise = (async () => {
+                try {
+                    const url = force ? '/api/es-spx-overnight-basis?force=1' : '/api/es-spx-overnight-basis';
+                    const r = await fetch(url);
+                    const data = await r.json();
+                    if (!r.ok || !data || data.error) return null;
+                    lastEsSpxOvernightBasis = data;
+                    return data;
+                } catch (e) {
+                    return null;
+                }
+            })();
+            return _esSpxOvernightBasisPromise;
+        }
+
         function _esSpxOiConversionStorageKey(dateKey, kind = 'main') {
             if (kind === 'close') return `es_spx_oi_to_es_${dateKey}_close`;
             return `es_spx_oi_to_es_${dateKey}`;
@@ -2113,11 +2207,14 @@
                 .map(n => n + s);
         }
 
-        async function loadEsSpxOiConvertedLevelsFromApi(kind = 'auto') {
+        async function loadEsSpxOiConvertedLevelsFromApi(kind = 'auto', dateKey = null) {
             // Prefer server-side conversions (Mongo-backed) when available.
             // This avoids relying on browser localStorage seeding (14:30/close) on each device.
             try {
-                const response = await fetch(`/api/es-spx-oi-to-es?kind=${encodeURIComponent(kind)}`);
+            const qs = new URLSearchParams();
+            qs.set('kind', String(kind || 'auto'));
+            if (dateKey) qs.set('date', String(dateKey));
+            const response = await fetch(`/api/es-spx-oi-to-es?${qs.toString()}`);
                 if (!response.ok) return null;
                 const data = await response.json();
                 if (!data || typeof data !== 'object' || data.error) return null;
@@ -2156,65 +2253,98 @@
         }
 
         function maybeComputeMorningEsSpxOiConvertedLevels(now = new Date()) {
-            // Goal: show a "morning" provisional ES-converted view using yesterday/close SPX raw strikes,
-            // but shifted by today's ES–SPX spread. It will be overwritten at 14:30.
+            // NEW RULE:
+            // - After-hours (NY cash closed): freeze levels using yesterday close basis (ES/SPX close).
+            // - Only update levels when NY cash opens.
 
-            const todayKey = _localDateKey(now);
-            const storageKey = _esSpxOiConversionStorageKey(todayKey, 'main');
+            if (_isNyCashSessionOpen(now)) return;
 
-            // Don't override a final 14:30 capture.
-            if (lastEsSpxOiConversion && lastEsSpxOiConversion.date_key === todayKey && lastEsSpxOiConversion.capture_kind === '1430') {
+            const nyKey = _nyDateKey(now);
+            const localKey = _localDateKey(now);
+
+            // If we already built an overnight snapshot for this NY day, keep it stable.
+            if (lastEsSpxOiConversion && lastEsSpxOiConversion.date_key === nyKey && String(lastEsSpxOiConversion.capture_kind || '') === 'overnight') {
                 return;
             }
 
-            // If we already stored something today (provisional), keep it until 14:30.
+            const storageKeyNy = _esSpxOiConversionStorageKey(nyKey, 'main');
+            const storageKeyLocal = _esSpxOiConversionStorageKey(localKey, 'main');
+
+            // If we already stored an overnight snapshot for this after-hours period, keep it.
             try {
-                const raw = localStorage.getItem(storageKey);
-                if (raw) {
-                    const parsed = JSON.parse(raw);
+                const rawNy = localStorage.getItem(storageKeyNy);
+                if (rawNy) {
+                    const parsed = JSON.parse(rawNy);
                     if (parsed && typeof parsed === 'object') {
-                        lastEsSpxOiConversion = parsed;
-                        renderEsSpxOiConvertedLevels(parsed);
-                        return;
+                        const kind = String(parsed.capture_kind || '');
+                        if (kind === 'overnight') {
+                            lastEsSpxOiConversion = parsed;
+                            renderEsSpxOiConvertedLevels(parsed);
+                            return;
+                        }
+                    }
+                }
+                const rawLocal = localStorage.getItem(storageKeyLocal);
+                if (rawLocal) {
+                    const parsed = JSON.parse(rawLocal);
+                    if (parsed && typeof parsed === 'object') {
+                        const kind = String(parsed.capture_kind || '');
+                        if (kind === 'overnight') {
+                            lastEsSpxOiConversion = parsed;
+                            renderEsSpxOiConvertedLevels(parsed);
+                            return;
+                        }
                     }
                 }
             } catch (e) {
                 // ignore
             }
 
-            // Prefer server-computed ES–SPX spread (hourly-cached, Stooq-based) when available.
-            let spxPrice = Number(lastEsSpxSpread && lastEsSpxSpread.spx_price);
-            let spread = Number(lastEsSpxSpread && lastEsSpxSpread.spread);
-
-            // Fallback: derive spread from SPX snapshot when needed.
-            if (!Number.isFinite(spxPrice) || !Number.isFinite(spread)) {
-                if (!Number.isFinite(latestEsPrice)) return;
-                const oi = lastSpxSnapshotCombined && lastSpxSnapshotCombined.openInterest ? lastSpxSnapshotCombined.openInterest : null;
-                if (!oi || oi.error) return;
-                spxPrice = Number(oi.price);
-                if (!Number.isFinite(spxPrice)) return;
-                spread = Number(latestEsPrice) - spxPrice;
-                if (!Number.isFinite(spread)) return;
-            }
-
-            const prev = _findLatestEsSpxOiConversionBefore(todayKey);
+            const prev = _findLatestEsSpxOiConversionBefore(nyKey) || _findLatestEsSpxOiConversionBefore(localKey);
             if (!prev) return;
 
             const rawSupports = Array.isArray(prev.spx_supports_raw) ? prev.spx_supports_raw : null;
             const rawResistances = Array.isArray(prev.spx_resistances_raw) ? prev.spx_resistances_raw : null;
             if (!rawSupports || !rawResistances) return;
 
+            // Prefer a true close snapshot if we have it, otherwise fall back to the
+            // latest stored conversion (cash_open). This keeps levels stable overnight.
+            let spread = Number(prev.spread);
+            let esClose = Number(prev.es_price);
+            let spxClose = Number(prev.spx_price);
+
+            // Optional: if the server can provide a dedicated overnight basis, use it.
+            if ((!Number.isFinite(spread) || !Number.isFinite(esClose) || !Number.isFinite(spxClose)) && lastEsSpxOvernightBasis) {
+                const s2 = Number(lastEsSpxOvernightBasis.spread_close);
+                const e2 = Number(lastEsSpxOvernightBasis.es_close);
+                const p2 = Number(lastEsSpxOvernightBasis.spx_close);
+                if (Number.isFinite(s2) && Number.isFinite(e2) && Number.isFinite(p2)) {
+                    spread = s2;
+                    esClose = e2;
+                    spxClose = p2;
+                }
+            }
+
+            // Final fallback: use the last computed spread if available.
+            if (!Number.isFinite(spread) && lastEsSpxSpread && Number.isFinite(Number(lastEsSpxSpread.spread))) {
+                spread = Number(lastEsSpxSpread.spread);
+                esClose = Number(lastEsSpxSpread.es_price);
+                spxClose = Number(lastEsSpxSpread.spx_price);
+            }
+
+            if (!Number.isFinite(spread) || !Number.isFinite(esClose) || !Number.isFinite(spxClose)) return;
+
             const convertedSupports = _computeConvertedLevelsFromRawStrikes(rawSupports, spread);
             const convertedResistances = _computeConvertedLevelsFromRawStrikes(rawResistances, spread);
 
             const conversion = {
-                date_key: todayKey,
-                captured_at: _formatLocalHHMM(now),
-                capture_kind: 'morning',
+                date_key: nyKey,
+                captured_at: _formatNyHHMM(now),
+                capture_kind: 'overnight',
                 based_on_date_key: String(prev.date_key || ''),
                 spread,
-                es_price: Number(lastEsSpxSpread && lastEsSpxSpread.es_price) || Number(latestEsPrice),
-                spx_price: spxPrice,
+                es_price: esClose,
+                spx_price: spxClose,
                 supports: convertedSupports,
                 resistances: convertedResistances,
                 spx_supports_raw: rawSupports,
@@ -2226,7 +2356,8 @@
             lastEsSpxOiConversion = conversion;
             renderEsSpxOiConvertedLevels(conversion);
             try {
-                localStorage.setItem(storageKey, JSON.stringify(conversion));
+                localStorage.setItem(storageKeyNy, JSON.stringify(conversion));
+                localStorage.setItem(storageKeyLocal, JSON.stringify(conversion));
             } catch (e) {
                 // ignore
             }
@@ -2248,27 +2379,6 @@
                         spread: Number(data.spread),
                         computed_at: (data.computed_at || '').toString(),
                     };
-
-                    // If we already have a conversion for today and raw strikes, refresh only the spread-derived levels.
-                    try {
-                        const dk = _localDateKey();
-                        const rawS = lastEsSpxOiConversion && Array.isArray(lastEsSpxOiConversion.spx_supports_raw) ? lastEsSpxOiConversion.spx_supports_raw : null;
-                        const rawR = lastEsSpxOiConversion && Array.isArray(lastEsSpxOiConversion.spx_resistances_raw) ? lastEsSpxOiConversion.spx_resistances_raw : null;
-                        const spread = Number(lastEsSpxSpread && lastEsSpxSpread.spread);
-                        if (lastEsSpxOiConversion && lastEsSpxOiConversion.date_key === dk && rawS && rawR && Number.isFinite(spread)) {
-                            const updated = { ...lastEsSpxOiConversion };
-                            updated.spread = spread;
-                            updated.es_price = Number(lastEsSpxSpread.es_price);
-                            updated.spx_price = Number(lastEsSpxSpread.spx_price);
-                            updated.supports = _computeConvertedLevelsFromRawStrikes(rawS, spread);
-                            updated.resistances = _computeConvertedLevelsFromRawStrikes(rawR, spread);
-                            updated.spread_updated_at = (lastEsSpxSpread.computed_at || '');
-                            lastEsSpxOiConversion = updated;
-                            renderEsSpxOiConvertedLevels(updated);
-                        }
-                    } catch (e) {
-                        // ignore
-                    }
 
                     return lastEsSpxSpread;
                 } catch (e) {
@@ -2324,14 +2434,23 @@
             const capturedAt = (conversion.captured_at || '--').toString();
             const kindRaw = (conversion.capture_kind || '').toString();
             const kindLabel = (kindRaw === 'morning') ? 'morning'
-                : (kindRaw === 'close') ? 'close'
+                : (kindRaw === 'overnight') ? 'overnight'
+                : (kindRaw === 'close') ? '@17:00'
+                : (kindRaw === 'cash_open') ? '@09:30'
                 : (kindRaw === '1430' || kindRaw === '14:30') ? '@14:30'
                 : (kindRaw ? kindRaw : '@14:30');
             const basedOn = (conversion.based_on_date_key || '').toString();
             const metaParts = [kindLabel];
             if (basedOn) metaParts.push(`from ${basedOn}`);
             metaParts.push(`spread ${spreadText}`);
-            if (Number.isFinite(Number(latestEsPrice))) metaParts.push(`vs ES live ${Number(latestEsPrice).toFixed(2)}`);
+            // Important: when NY cash is closed, keep the list stable relative to ES close,
+            // not the live ES price (so the list doesn't move during Asia).
+            if (!_isNyCashSessionOpen(new Date())) {
+                const esClose = Number(conversion.es_price);
+                if (Number.isFinite(esClose)) metaParts.push(`vs ES close(17:00) ${esClose.toFixed(2)}`);
+            } else {
+                if (Number.isFinite(Number(latestEsPrice))) metaParts.push(`vs ES live ${Number(latestEsPrice).toFixed(2)}`);
+            }
             const metaLabel = metaParts.join(' • ');
 
             esSpxOiConvertedRow.classList.remove('text-muted');
@@ -2517,14 +2636,17 @@
                 ...buildEntries(conversion.resistances, conversion.spx_resistances_raw, conversion.spx_resistances_meta, 'CALL'),
             ].filter(e => e && Number.isFinite(Number(e.es)));
 
-            const esLive = Number(latestEsPrice);
-            const hasLive = Number.isFinite(esLive);
+            // Classification reference price:
+            // - NY cash closed: ES close (conversion.es_price)
+            // - NY cash open: ES live
+            const esRef = (!_isNyCashSessionOpen(new Date())) ? Number(conversion.es_price) : Number(latestEsPrice);
+            const hasRef = Number.isFinite(esRef);
 
             let supportsForDisplay = [];
             let resistancesForDisplay = [];
-            if (hasLive) {
-                supportsForDisplay = allEntries.filter(e => Number(e.es) < esLive).sort((a, b) => Number(b.es) - Number(a.es));
-                resistancesForDisplay = allEntries.filter(e => Number(e.es) >= esLive).sort((a, b) => Number(a.es) - Number(b.es));
+            if (hasRef) {
+                supportsForDisplay = allEntries.filter(e => Number(e.es) < esRef).sort((a, b) => Number(b.es) - Number(a.es));
+                resistancesForDisplay = allEntries.filter(e => Number(e.es) >= esRef).sort((a, b) => Number(a.es) - Number(b.es));
             } else {
                 supportsForDisplay = buildEntries(conversion.supports, conversion.spx_supports_raw, conversion.spx_supports_meta, 'PUT');
                 resistancesForDisplay = buildEntries(conversion.resistances, conversion.spx_resistances_raw, conversion.spx_resistances_meta, 'CALL');
@@ -2562,9 +2684,11 @@
 
         function loadStoredEsSpxOiConvertedLevels() {
             try {
-                const todayKey = _localDateKey();
-                const key = _esSpxOiConversionStorageKey(todayKey, 'main');
-                const raw = localStorage.getItem(key);
+                const localKey = _localDateKey();
+                const nyKey = _nyDateKey();
+                const keyLocal = _esSpxOiConversionStorageKey(localKey, 'main');
+                const keyNy = _esSpxOiConversionStorageKey(nyKey, 'main');
+                const raw = localStorage.getItem(keyNy) || localStorage.getItem(keyLocal);
 
                 if (raw) {
                     const parsed = JSON.parse(raw);
@@ -2576,7 +2700,7 @@
                 }
 
                 // No data for today yet: show last available (yesterday/close) if present.
-                const prev = _findLatestEsSpxOiConversionBefore(todayKey);
+                const prev = _findLatestEsSpxOiConversionBefore(nyKey) || _findLatestEsSpxOiConversionBefore(localKey);
                 if (prev) {
                     lastEsSpxOiConversion = prev;
                     renderEsSpxOiConvertedLevels(prev);
@@ -2587,23 +2711,33 @@
         }
 
         function maybeCaptureEsSpxOiConvertedLevels(now = new Date()) {
-            const dateKey = _localDateKey(now);
+            // Capture/update ONLY at NY cash open.
+            const dateKey = _nyDateKey(now);
             const storageKey = _esSpxOiConversionStorageKey(dateKey, 'main');
 
             try {
-                if (localStorage.getItem(storageKey)) {
-                    if (!lastEsSpxOiConversion) {
-                        loadStoredEsSpxOiConvertedLevels();
+                const existingRaw = localStorage.getItem(storageKey);
+                if (existingRaw) {
+                    let existing = null;
+                    try { existing = JSON.parse(existingRaw); } catch (e) { existing = null; }
+                    const kind = existing && typeof existing === 'object' ? String(existing.capture_kind || '') : '';
+
+                    // Important: cash-open should overwrite the overnight frozen snapshot.
+                    if (kind && (kind === 'overnight' || kind === 'morning')) {
+                        // continue
+                    } else {
+                        if (!lastEsSpxOiConversion) {
+                            loadStoredEsSpxOiConvertedLevels();
+                        }
+                        return;
                     }
-                    return;
                 }
             } catch (e) {
                 // ignore
             }
 
-            // Capture at 14:30 local time (cash open in user's reference).
-            // This overwrites any morning provisional data for the same day.
-            if (!_isWithinLocalWindow(14, 30, 3, now)) return;
+            // NY cash open (09:30).
+            if (!_isWithinNyWindow(9, 30, 3, now)) return;
             if (!Number.isFinite(latestEsPrice)) return;
 
             const src = lastSpxSnapshotCombined && (lastSpxSnapshotCombined.hybrid || lastSpxSnapshotCombined.openInterest)
@@ -2659,8 +2793,8 @@
 
             const conversion = {
                 date_key: dateKey,
-                captured_at: _formatLocalHHMM(now),
-                capture_kind: '1430',
+                captured_at: _formatNyHHMM(now),
+                capture_kind: 'cash_open',
                 spread,
                 es_price: Number(latestEsPrice),
                 spx_price: spxPrice,
@@ -2685,9 +2819,9 @@
         }
 
         function maybeCaptureEsSpxOiConvertedLevelsAtClose(now = new Date()) {
-            // Best-effort: if the dashboard is open around cash close, store a "close" snapshot
+            // Best-effort: if the dashboard is open around the ES session close (17:00 NY), store a "close" snapshot
             // to be used next morning as a preferred baseline.
-            const dateKey = _localDateKey(now);
+            const dateKey = _nyDateKey(now);
             const storageKey = _esSpxOiConversionStorageKey(dateKey, 'close');
 
             try {
@@ -2696,7 +2830,7 @@
                 // ignore
             }
 
-            if (!_isWithinLocalWindow(16, 0, 5, now)) return;
+            if (!_isWithinNyWindow(17, 0, 5, now)) return;
             if (!Number.isFinite(latestEsPrice)) return;
 
             const src = lastSpxSnapshotCombined && (lastSpxSnapshotCombined.hybrid || lastSpxSnapshotCombined.openInterest)
@@ -4312,11 +4446,25 @@
             }
         });
 
-        // Restore today's stored cash-open conversion (if any)
+        // Restore stored conversion (best-effort)
         loadStoredEsSpxOiConvertedLevels();
 
-        // Prefer loading the latest conversion from the backend (Mongo), if available.
-        loadEsSpxOiConvertedLevelsFromApi('auto');
+        // IMPORTANT: during NY cash-closed hours, do NOT load 'auto' from backend because it may
+        // refresh the spread and move levels. Prefer 'close' instead.
+        (function initEsSpxOiConversion() {
+            const now = new Date();
+            const nyKey = _nyDateKey(now);
+            if (_isNyCashSessionOpen(now)) {
+                loadEsSpxOiConvertedLevelsFromApi('auto', nyKey);
+            } else {
+                loadEsSpxOiConvertedLevelsFromApi('close', nyKey)
+                    .catch(() => {})
+                    .finally(() => {
+                        // Ensure we have an overnight-stable snapshot even if DB close is missing.
+                        maybeComputeMorningEsSpxOiConvertedLevels(new Date());
+                    });
+            }
+        })();
 
         // Kick off price fetch on page load.
         startEsPricePolling();

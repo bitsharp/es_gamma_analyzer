@@ -14,7 +14,7 @@ import io
 import json
 import urllib.request
 import urllib.parse
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 import datetime as _dt
 import tempfile
 import pdfplumber
@@ -1258,6 +1258,12 @@ _ES_SPX_SPREAD_CACHE = {
 }
 
 
+_ES_SPX_OVERNIGHT_BASIS_CACHE = {
+    "value": None,
+    "fetched_at": 0.0,
+}
+
+
 _NVDA_SNAPSHOT_CACHE = {
     "value": None,
     "fetched_at": 0.0,
@@ -1486,6 +1492,65 @@ def _fetch_stooq_latest_close(symbol: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _fetch_stooq_previous_daily_close(symbol: str) -> Optional[Dict[str, Any]]:
+    """Fetch the previous completed *daily* close for a symbol from Stooq.
+
+    We prefer the *previous* daily row to avoid using Stooq's intraday-updating quote.
+    This makes it suitable as an "overnight close basis".
+
+    Returns a dict with keys: symbol, price, date, source.
+    """
+
+    path = f"/q/d/l/?s={urllib.parse.quote(symbol)}&i=d"
+    urls = [f"https://stooq.com{path}", f"http://stooq.com{path}"]
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        "Accept": "text/csv,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    raw = None
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=8) as response:
+                raw = response.read().decode("utf-8", errors="replace")
+            if raw:
+                break
+        except Exception:
+            continue
+
+    if not raw:
+        return None
+
+    if "Exceeded the daily hits limit" in raw:
+        return None
+
+    try:
+        reader = csv.DictReader(io.StringIO(raw))
+        rows = [r for r in reader if isinstance(r, dict)]
+        if not rows:
+            return None
+
+        # Stooq may include today's partial/intraday-updating row.
+        # Use the previous completed row when possible.
+        row = rows[-2] if len(rows) >= 2 else rows[-1]
+        close_val = (row.get("Close") or "").strip()
+        if not close_val or close_val.upper() in {"N/D", "NA", "NULL"}:
+            return None
+
+        date_s = (row.get("Date") or "").strip()
+        return {
+            "symbol": (row.get("Symbol") or symbol).strip(),
+            "price": float(close_val),
+            "date": date_s,
+            "source": "stooq_daily_prev_close",
+        }
+    except Exception:
+        return None
+
+
 def _fetch_yahoo_quote_price(symbol: str) -> Optional[Dict[str, Any]]:
     """Fetch last price for a symbol from Yahoo's public quote endpoint.
 
@@ -1535,6 +1600,139 @@ def _fetch_yahoo_quote_price(symbol: str) -> Optional[Dict[str, Any]]:
         }
     except Exception:
         return None
+
+
+def _fetch_yahoo_quote_snapshot(symbols: List[str]) -> Optional[Dict[str, Any]]:
+    """Fetch selected fields for multiple symbols from Yahoo's public quote endpoint.
+
+    Returns: { "source": "yahoo_quote", "quotes": {<symbol>: {...}} }
+    Each quote includes: regularMarketPrice, regularMarketPreviousClose, regularMarketTime, marketState.
+    """
+
+    syms = [s for s in (symbols or []) if isinstance(s, str) and s.strip()]
+    if not syms:
+        return None
+
+    url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={urllib.parse.quote(','.join(syms))}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=8) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+        payload = json.loads(raw)
+
+        results = ((payload.get("quoteResponse") or {}).get("result") or [])
+        if not isinstance(results, list):
+            return None
+
+        out: Dict[str, Any] = {"source": "yahoo_quote", "quotes": {}}
+        for r in results:
+            if not isinstance(r, dict):
+                continue
+            sym = (r.get("symbol") or "").strip()
+            if not sym:
+                continue
+
+            q = {
+                "symbol": sym,
+                "regularMarketPrice": r.get("regularMarketPrice"),
+                "regularMarketPreviousClose": r.get("regularMarketPreviousClose"),
+                "regularMarketTime": r.get("regularMarketTime"),
+                "marketState": r.get("marketState"),
+            }
+            out["quotes"][sym] = q
+
+        return out
+    except Exception:
+        return None
+
+
+def get_es_spx_overnight_basis_cached(max_age_seconds: int = 10 * 60) -> Optional[Dict[str, Any]]:
+    """Return stable ES/SPX basis prices for after-hours.
+
+    Uses Yahoo quote fields and prefers `regularMarketPreviousClose` for both legs,
+    falling back to `regularMarketPrice` if missing.
+
+    This is intended for freezing SPX OI→ES converted levels overnight.
+    """
+
+    now = time.time()
+    cached = _ES_SPX_OVERNIGHT_BASIS_CACHE.get("value")
+    fetched_at = float(_ES_SPX_OVERNIGHT_BASIS_CACHE.get("fetched_at") or 0.0)
+    if cached and (now - fetched_at) <= max_age_seconds:
+        return cached
+
+    # Preferred: Yahoo quote endpoint (but can fail on some macOS LibreSSL builds).
+    snap = _fetch_yahoo_quote_snapshot(["ES=F", "^GSPC"])
+    if isinstance(snap, dict) and isinstance(snap.get("quotes"), dict):
+        quotes = snap.get("quotes")
+        esq = quotes.get("ES=F") if isinstance(quotes.get("ES=F"), dict) else {}
+        spxq = quotes.get("^GSPC") if isinstance(quotes.get("^GSPC"), dict) else {}
+
+        def _num(v: Any) -> Optional[float]:
+            try:
+                if v is None:
+                    return None
+                return float(v)
+            except Exception:
+                return None
+
+        es_close = _num(esq.get("regularMarketPreviousClose"))
+        if es_close is None:
+            es_close = _num(esq.get("regularMarketPrice"))
+
+        spx_close = _num(spxq.get("regularMarketPreviousClose"))
+        if spx_close is None:
+            spx_close = _num(spxq.get("regularMarketPrice"))
+
+        if es_close is not None and spx_close is not None:
+            payload = {
+                "es_close": es_close,
+                "spx_close": spx_close,
+                "spread_close": (es_close - spx_close),
+                "asof": _dt.datetime.now().isoformat(timespec="seconds"),
+                "source": "yahoo_quote",
+                "raw": {
+                    "es": esq,
+                    "spx": spxq,
+                },
+            }
+            _ES_SPX_OVERNIGHT_BASIS_CACHE["value"] = payload
+            _ES_SPX_OVERNIGHT_BASIS_CACHE["fetched_at"] = now
+            return payload
+
+    # Fallback: Stooq daily previous close for both legs (stable intraday).
+    spx_d = _fetch_stooq_previous_daily_close("^spx")
+    es_d = _fetch_stooq_previous_daily_close("es.f")
+    if not spx_d or not es_d:
+        return None
+
+    try:
+        spx_close = float(spx_d.get("price"))
+        es_close = float(es_d.get("price"))
+    except Exception:
+        return None
+
+    payload = {
+        "es_close": es_close,
+        "spx_close": spx_close,
+        "spread_close": (es_close - spx_close),
+        "asof": _dt.datetime.now().isoformat(timespec="seconds"),
+        "source": "stooq_daily_prev_close",
+        "raw": {
+            "es": es_d,
+            "spx": spx_d,
+        },
+    }
+
+    _ES_SPX_OVERNIGHT_BASIS_CACHE["value"] = payload
+    _ES_SPX_OVERNIGHT_BASIS_CACHE["fetched_at"] = now
+    return payload
 
 
 def _fetch_nasdaq_json(url: str, referer: str) -> Optional[Dict[str, Any]]:
@@ -4313,6 +4511,33 @@ def es_spx_spread():
     # Attach cache age (best-effort)
     try:
         fetched_at = float(_ES_SPX_SPREAD_CACHE.get('fetched_at') or 0.0)
+        if fetched_at:
+            data = dict(data)
+            data['cache_age_seconds'] = int(max(0.0, time.time() - fetched_at))
+    except Exception:
+        pass
+
+    return jsonify(data)
+
+
+@app.route('/api/es-spx-overnight-basis', methods=['GET'])
+def es_spx_overnight_basis():
+    """Return stable ES/SPX close basis for after-hours monitoring.
+
+    The UI uses this to freeze SPX OI→ES converted levels overnight.
+    """
+
+    force = (request.args.get('force') or '').strip() == '1'
+    try:
+        data = get_es_spx_overnight_basis_cached(max_age_seconds=0 if force else 10 * 60)
+    except Exception as e:
+        return jsonify({"error": f"Impossibile recuperare la base overnight ES/SPX: {e}"})
+
+    if not data:
+        return jsonify({"error": "Impossibile recuperare la base overnight ES/SPX in questo momento"})
+
+    try:
+        fetched_at = float(_ES_SPX_OVERNIGHT_BASIS_CACHE.get('fetched_at') or 0.0)
         if fetched_at:
             data = dict(data)
             data['cache_age_seconds'] = int(max(0.0, time.time() - fetched_at))
