@@ -2566,6 +2566,7 @@
                 : (kindRaw === 'overnight') ? 'overnight'
                 : (kindRaw === 'close') ? '@17:00'
                 : (kindRaw === 'cash_open') ? '@09:30'
+                : (kindRaw === 'cash_session') ? 'cash'
                 : (kindRaw === 'intraday') ? 'intraday'
                 : (kindRaw === '1430' || kindRaw === '14:30') ? '@14:30'
                 : (kindRaw ? kindRaw : '@14:30');
@@ -2848,8 +2849,10 @@
             }
         }
 
-        function maybeCaptureEsSpxOiConvertedLevels(now = new Date()) {
-            // Capture/update ONLY at NY cash open.
+        async function maybeCaptureEsSpxOiConvertedLevels(now = new Date()) {
+            // Capture/update after NY cash opens.
+            // If we're within the open window, tag as cash_open; otherwise tag as cash_session
+            // (useful when the page is opened later in the day).
             const dateKey = _nyDateKey(now);
             const storageKey = _esSpxOiConversionStorageKey(dateKey, 'main');
 
@@ -2874,8 +2877,7 @@
                 // ignore
             }
 
-            // NY cash open (09:30).
-            if (!_isWithinNyWindow(9, 30, 3, now)) return;
+            if (!_isNyCashSessionOpen(now)) return;
             if (!Number.isFinite(latestEsPrice)) return;
 
             const src = lastSpxSnapshotCombined && (lastSpxSnapshotCombined.hybrid || lastSpxSnapshotCombined.openInterest)
@@ -2883,8 +2885,35 @@
                 : null;
             if (!src || src.error) return;
 
-            const spxPrice = Number(src.price);
-            if (!Number.isFinite(spxPrice)) return;
+            // If SPX snapshot is a SPY proxy, do NOT capture.
+            // Proxy strikes/prices can corrupt spread (e.g. +6000) and levels.
+            try {
+                const note = (src.note ? String(src.note) : '').toLowerCase();
+                if (note.includes('proxy')) return;
+            } catch (e) {
+                // ignore
+            }
+
+            // Prefer a dedicated SPX index quote for spread (more stable than options snapshot price).
+            // If unavailable, fall back to snapshot price but only if it looks like a real SPX value.
+            try {
+                await loadSpxIndexPriceForSpread(false);
+            } catch (e) {
+                // ignore
+            }
+
+            let spxPrice = Number(lastSpxIndexPriceForSpread?.price);
+            let spxSource = (lastSpxIndexPriceForSpread?.source || '').toString();
+            let spxTime = [lastSpxIndexPriceForSpread?.date, lastSpxIndexPriceForSpread?.time].filter(Boolean).join(' ');
+            let spxNote = (lastSpxIndexPriceForSpread?.note || '').toString();
+
+            if (!Number.isFinite(spxPrice)) {
+                spxPrice = Number(src.price);
+                spxSource = (src.source || '').toString();
+                spxTime = (src.time || '').toString();
+                spxNote = (src.note || '').toString();
+            }
+            if (!Number.isFinite(spxPrice) || spxPrice < 1000) return;
 
             const spread = Number(latestEsPrice) - spxPrice;
             if (!Number.isFinite(spread)) return;
@@ -2929,16 +2958,17 @@
             const convertedSupports = rawSupports.map(strike => strike + spread);
             const convertedResistances = rawResistances.map(strike => strike + spread);
 
+            const isCashOpenWindow = _isWithinNyWindow(9, 30, 3, now);
             const conversion = {
                 date_key: dateKey,
                 captured_at: _formatNyHHMM(now),
-                capture_kind: 'cash_open',
+                capture_kind: isCashOpenWindow ? 'cash_open' : 'cash_session',
                 spread,
                 es_price: Number(latestEsPrice),
                 spx_price: spxPrice,
-                spx_price_source: (src.source || '').toString(),
-                spx_price_time: (src.time || '').toString(),
-                spx_price_note: (src.note || '').toString(),
+                spx_price_source: spxSource,
+                spx_price_time: spxTime,
+                spx_price_note: spxNote,
                 supports: convertedSupports,
                 resistances: convertedResistances,
                 spx_supports_raw: rawSupports,
@@ -3463,7 +3493,7 @@
                         updateEsNearSignals();
                     }
                     updatePressureUI();
-                    maybeCaptureEsSpxOiConvertedLevels();
+                    await maybeCaptureEsSpxOiConvertedLevels();
                     maybeComputeMorningEsSpxOiConvertedLevels();
                     maybeCaptureEsSpxOiConvertedLevelsAtClose();
 
@@ -3718,7 +3748,7 @@
                     displaySpxKeyLevels(combined);
                     updatePressureUI();
                     await maybeRecalcEsSpxOiConvertedLevelsIntraday(new Date());
-                    maybeCaptureEsSpxOiConvertedLevels();
+                    await maybeCaptureEsSpxOiConvertedLevels();
                     maybeComputeMorningEsSpxOiConvertedLevels();
                     maybeCaptureEsSpxOiConvertedLevelsAtClose();
 

@@ -28,6 +28,11 @@ from functools import wraps
 import uuid
 import threading
 
+try:  # Python 3.9+
+    from zoneinfo import ZoneInfo
+except Exception:  # pragma: no cover
+    ZoneInfo = None
+
 try:
     from authlib.integrations.flask_client import OAuth
 except Exception:  # pragma: no cover
@@ -164,6 +169,49 @@ def _wants_json() -> bool:
     return request.path.startswith('/api/') or request.path == '/analyze' or 'application/json' in accept
 
 
+def _sanitize_next_url(next_url: Optional[str]) -> Optional[str]:
+    """Return a safe in-app redirect path or None.
+
+    Avoid redirecting users to static assets (e.g. /favicon.ico) that may have
+    triggered the login flow.
+    """
+
+    if not next_url or not isinstance(next_url, str):
+        return None
+
+    # Only allow relative in-app paths.
+    if not next_url.startswith('/'):
+        return None
+
+    # Strip querystring/fragments for safety and normalization.
+    path_only = next_url.split('#', 1)[0].split('?', 1)[0]
+    if not path_only:
+        return None
+
+    # Never redirect back to login/auth endpoints.
+    if path_only.startswith(('/login', '/logout', '/auth')):
+        return None
+
+    # Never redirect to API or static asset endpoints.
+    if path_only.startswith(('/api/', '/static/')):
+        return None
+
+    # Common asset extensions that should not become a post-login landing.
+    lowered = path_only.lower()
+    if lowered in ('/favicon.ico', '/robots.txt'):
+        return None
+    for ext in (
+        '.ico', '.png', '.jpg', '.jpeg', '.gif', '.svg',
+        '.css', '.js', '.map',
+        '.woff', '.woff2', '.ttf', '.eot',
+        '.txt',
+    ):
+        if lowered.endswith(ext):
+            return None
+
+    return path_only
+
+
 @app.before_request
 def _require_login():
     # Allow preflight
@@ -172,11 +220,12 @@ def _require_login():
 
     path = request.path or '/'
     public_prefixes = ('/login', '/logout', '/auth')
+    public_paths = {'/favicon.ico', '/robots.txt'}
     # Debug endpoints are public only in local/dev runs (never on Vercel).
     if (not os.getenv('VERCEL')) and path.startswith('/api/debug/'):
         return None
 
-    if path == '/api/health' or path.startswith(public_prefixes) or path.startswith('/static'):
+    if path == '/api/health' or path in public_paths or path.startswith(public_prefixes) or path.startswith('/static'):
         return None
 
     if _is_authenticated():
@@ -2706,27 +2755,36 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
     """
 
     now_ts = time.time()
-    now_dt = _dt.datetime.now()
-    
-    # Check if we should fetch new data (only at 8:00 AM or 2:30 PM)
-    should_fetch = False
-    current_hour = now_dt.hour
-    current_minute = now_dt.minute
-    
-    # 8:00 AM window (8:00-8:05)
-    if current_hour == 8 and current_minute < 5:
-        should_fetch = True
-    # 2:30 PM window (14:30-14:35)
-    elif current_hour == 14 and 30 <= current_minute < 35:
-        should_fetch = True
+
+    # Use NY time for the scheduled fetch windows (server may not run in ET).
+    now_dt_local = _dt.datetime.now()
+    now_dt_ny = now_dt_local
+    if ZoneInfo is not None:
+        try:
+            now_dt_ny = _dt.datetime.now(tz=ZoneInfo("America/New_York"))
+        except Exception:
+            now_dt_ny = now_dt_local
 
     # Force refresh path: when callers pass max_age_seconds <= 0 (e.g. /api/spx-snapshot?force=1),
     # allow a Yahoo fetch attempt even outside the scheduled windows.
+    force_refresh = False
     try:
-        if int(max_age_seconds) <= 0:
-            should_fetch = True
+        force_refresh = int(max_age_seconds) <= 0
     except Exception:
-        pass
+        force_refresh = False
+
+    # Check if we should fetch Yahoo data (only at 8:00 AM or 2:30 PM ET).
+    should_fetch_yahoo = False
+    current_hour = now_dt_ny.hour
+    current_minute = now_dt_ny.minute
+    # 8:00 AM window (8:00-8:05)
+    if current_hour == 8 and current_minute < 5:
+        should_fetch_yahoo = True
+    # 2:30 PM window (14:30-14:35)
+    elif current_hour == 14 and 30 <= current_minute < 35:
+        should_fetch_yahoo = True
+    if force_refresh:
+        should_fetch_yahoo = True
     
     metric_norm = (metric or "volume").strip()
     if metric_norm not in {"volume", "openInterest", "hybrid"}:
@@ -2735,22 +2793,49 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
     # Use metric-specific cache key
     cache_key = f"value_{metric_norm}"
     fetched_at_key = f"fetched_at_{metric_norm}"
+
+    last_good_key = f"last_good_{metric_norm}"
+    last_good_fetched_at_key = f"last_good_fetched_at_{metric_norm}"
     
     cached = _SPX_SNAPSHOT_CACHE.get(cache_key)
     fetched_at = float(_SPX_SNAPSHOT_CACHE.get(fetched_at_key) or 0.0)
+
+    def _is_proxy_snapshot(s: Any) -> bool:
+        if not isinstance(s, dict):
+            return False
+        note = (s.get("note") or "")
+        try:
+            return "proxy" in str(note).lower()
+        except Exception:
+            return False
+
+    cached_age = now_ts - fetched_at if fetched_at else None
+    cached_is_proxy = _is_proxy_snapshot(cached)
     
-    # If we're in a fetch window and haven't fetched recently (within 5 minutes)
-    if should_fetch and (now_ts - fetched_at) > 300:
-        print(f"[DEBUG] SPX scheduled fetch time: {current_hour}:{current_minute:02d} with metric={metric}")
-        pass  # Continue to fetch
-    # Otherwise return cached data if available
-    elif cached:
-        print(f"[DEBUG] Using cached SPX data with metric={metric} (fetched {int((now_ts - fetched_at)/60)} minutes ago)")
-        return cached
+    # If we're in a Yahoo fetch window and haven't fetched recently (within 5 minutes), continue.
+    if should_fetch_yahoo and (now_ts - fetched_at) > 300:
+        print(f"[DEBUG] SPX scheduled fetch time (NY): {current_hour}:{current_minute:02d} with metric={metric}")
+        pass
+    # Otherwise, return cached data when it's not proxy.
+    # If the cached snapshot is a proxy (SPY), allow refresh attempts once it's older than max_age_seconds.
+    elif cached and not force_refresh:
+        if not cached_is_proxy:
+            # Preserve previous behavior: serve cached between scheduled windows.
+            print(f"[DEBUG] Using cached SPX data with metric={metric} (fetched {int((now_ts - fetched_at)/60)} minutes ago)")
+            return cached
+
+        # Cached is proxy: only keep it briefly to avoid hammering providers.
+        try:
+            max_age = int(max_age_seconds)
+        except Exception:
+            max_age = 60
+        if max_age > 0 and cached_age is not None and cached_age <= max_age:
+            print(f"[DEBUG] Using cached SPX PROXY data with metric={metric} (age {int(cached_age)}s)")
+            return cached
 
     # Try Yahoo Finance only during scheduled fetch windows.
-    # Outside these windows we prefer Nasdaq/SPY to avoid rate-limits and slow/hanging requests.
-    if should_fetch:
+    # Outside these windows we prefer Nasdaq to avoid rate-limits and slow/hanging requests.
+    if should_fetch_yahoo:
         yahoo_data = _fetch_yahoo_options("^SPX")
         print(f"[DEBUG] Yahoo Finance data received: {yahoo_data is not None}")
         if yahoo_data:
@@ -2761,9 +2846,23 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
                 last_price = yahoo_data.get("price")
                 expiration_str = yahoo_data.get("expiration")
 
+                # Price is sometimes missing on Yahoo options responses.
+                # Fill it from Stooq ^spx (delayed/indicative) to avoid triggering proxy fallback.
+                if not last_price:
+                    stooq_px = _fetch_stooq_latest_close("^spx")
+                    if isinstance(stooq_px, dict):
+                        try:
+                            last_price = float(stooq_px.get("price"))
+                        except Exception:
+                            last_price = None
+
                 if calls and puts and last_price:
-                    # Parse expiration date (YYYY-MM-DD format from yfinance)
-                    expiration_date = _dt.datetime.strptime(expiration_str, "%Y-%m-%d").date()
+                    # Parse expiration date (YYYY-MM-DD format from yfinance/yahoo_http)
+                    expiration_date = None
+                    try:
+                        expiration_date = _dt.datetime.strptime(expiration_str, "%Y-%m-%d").date() if expiration_str else None
+                    except Exception:
+                        expiration_date = None
 
                     # Combine calls and puts per strike keeping BOTH OI and Volume.
                     strike_data: Dict[float, Dict[str, float]] = {}
@@ -2805,8 +2904,8 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
                         snapshot = {
                             "symbol": "SPX",
                             "source": "yahoo",
-                            "expiration": expiration_date.strftime("%B %d, %Y"),
-                            "expiration_date": expiration_date.isoformat(),
+                            "expiration": expiration_date.strftime("%B %d, %Y") if expiration_date else (expiration_str or ""),
+                            "expiration_date": expiration_date.isoformat() if expiration_date else None,
                             "price": last_price,
                             "time": None,
                             "metric": metric_norm,
@@ -2848,10 +2947,12 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
 
                         _SPX_SNAPSHOT_CACHE[cache_key] = snapshot
                         _SPX_SNAPSHOT_CACHE[fetched_at_key] = now_ts
+                        _SPX_SNAPSHOT_CACHE[last_good_key] = snapshot
+                        _SPX_SNAPSHOT_CACHE[last_good_fetched_at_key] = now_ts
                         print(f"[DEBUG] Yahoo Finance SUCCESS - returning SPX snapshot with price {last_price} and metric={metric_norm}")
                         if metric_norm in {"openInterest", "hybrid"}:
                             try:
-                                _maybe_capture_es_spx_conversion(snapshot, now_dt=now_dt)
+                                _maybe_capture_es_spx_conversion(snapshot, now_dt=now_dt_local)
                             except Exception:
                                 pass
                         return snapshot
@@ -2883,6 +2984,18 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
             break
 
     if not payload:
+        # Prefer serving the last known good SPX snapshot over falling back to SPY proxy.
+        last_good = _SPX_SNAPSHOT_CACHE.get(last_good_key)
+        last_good_fetched_at = float(_SPX_SNAPSHOT_CACHE.get(last_good_fetched_at_key) or 0.0)
+        if isinstance(last_good, dict) and not _is_proxy_snapshot(last_good):
+            out = dict(last_good)
+            out["stale"] = True
+            out["stale_reason"] = "Serving last good non-proxy SPX snapshot; providers unavailable"
+            out["stale_age_seconds"] = int(max(0.0, now_ts - last_good_fetched_at)) if last_good_fetched_at else None
+            _SPX_SNAPSHOT_CACHE[cache_key] = out
+            _SPX_SNAPSHOT_CACHE[fetched_at_key] = now_ts
+            return out
+
         # Final fallback to SPY
         proxy = get_spy_snapshot_cached(max_age_seconds=max_age_seconds)
         if not proxy:
@@ -2923,6 +3036,17 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
             expiry_candidates[exp] = parsed
 
     if not expiry_candidates:
+        last_good = _SPX_SNAPSHOT_CACHE.get(last_good_key)
+        last_good_fetched_at = float(_SPX_SNAPSHOT_CACHE.get(last_good_fetched_at_key) or 0.0)
+        if isinstance(last_good, dict) and not _is_proxy_snapshot(last_good):
+            out = dict(last_good)
+            out["stale"] = True
+            out["stale_reason"] = "Serving last good non-proxy SPX snapshot; expiries unavailable"
+            out["stale_age_seconds"] = int(max(0.0, now_ts - last_good_fetched_at)) if last_good_fetched_at else None
+            _SPX_SNAPSHOT_CACHE[cache_key] = out
+            _SPX_SNAPSHOT_CACHE[fetched_at_key] = now_ts
+            return out
+
         proxy = get_spy_snapshot_cached(max_age_seconds=max_age_seconds)
         if not proxy:
             return None
@@ -2982,6 +3106,17 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
         gammas.append(float(gamma_exposure))
 
     if not strikes:
+        last_good = _SPX_SNAPSHOT_CACHE.get(last_good_key)
+        last_good_fetched_at = float(_SPX_SNAPSHOT_CACHE.get(last_good_fetched_at_key) or 0.0)
+        if isinstance(last_good, dict) and not _is_proxy_snapshot(last_good):
+            out = dict(last_good)
+            out["stale"] = True
+            out["stale_reason"] = "Serving last good non-proxy SPX snapshot; strikes unavailable"
+            out["stale_age_seconds"] = int(max(0.0, now_ts - last_good_fetched_at)) if last_good_fetched_at else None
+            _SPX_SNAPSHOT_CACHE[cache_key] = out
+            _SPX_SNAPSHOT_CACHE[fetched_at_key] = now_ts
+            return out
+
         proxy = get_spy_snapshot_cached(max_age_seconds=max_age_seconds)
         if not proxy:
             return None
@@ -3010,12 +3145,32 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
         "metric": metric_norm,
     }
 
+    # If Nasdaq didn't provide a usable price, fill it from Stooq ^spx so hybrid window selection works.
+    if not snapshot.get("price"):
+        stooq_px = _fetch_stooq_latest_close("^spx")
+        if isinstance(stooq_px, dict):
+            try:
+                snapshot["price"] = float(stooq_px.get("price"))
+                snapshot["price_source"] = "stooq^spx"
+            except Exception:
+                pass
+
     if metric_norm == "hybrid":
-        snapshot.update(_compute_spx_hybrid_levels(strike_data, current_price=float(last_sale_price) if last_sale_price else None, window_each_side=15))
+        cur_px = None
+        try:
+            cur_px = float(snapshot.get("price")) if snapshot.get("price") is not None else None
+        except Exception:
+            cur_px = None
+        snapshot.update(_compute_spx_hybrid_levels(strike_data, current_price=cur_px, window_each_side=15))
         snapshot["note"] = "Hybrid levels: max OI + max Volume within ±15 strikes (volume may be missing on Nasdaq)"
-        snapshot["window_levels"] = _build_spx_window_levels(strike_data, current_price=float(last_sale_price) if last_sale_price else None, window_each_side=15)
+        snapshot["window_levels"] = _build_spx_window_levels(strike_data, current_price=cur_px, window_each_side=15)
     else:
-        results = analyze_0dte(df, current_price=float(last_sale_price) if last_sale_price else None)
+        cur_px = None
+        try:
+            cur_px = float(snapshot.get("price")) if snapshot.get("price") is not None else None
+        except Exception:
+            cur_px = None
+        results = analyze_0dte(df, current_price=cur_px)
         if isinstance(results, dict):
             snapshot.update(results)
 
@@ -3023,9 +3178,13 @@ def get_spx_snapshot_cached(metric: str = 'volume', max_age_seconds: int = 60) -
     _SPX_SNAPSHOT_CACHE[fetched_at_key] = now_ts
     if metric_norm in {'openInterest', 'hybrid'}:
         try:
-            _maybe_capture_es_spx_conversion(snapshot, now_dt=now_dt)
+            _maybe_capture_es_spx_conversion(snapshot, now_dt=now_dt_local)
         except Exception:
             pass
+
+    if not _is_proxy_snapshot(snapshot):
+        _SPX_SNAPSHOT_CACHE[last_good_key] = snapshot
+        _SPX_SNAPSHOT_CACHE[last_good_fetched_at_key] = now_ts
     return snapshot
 
 
@@ -4319,6 +4478,13 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/favicon.ico')
+def favicon():
+    # Avoid a 404 page if the browser requests /favicon.ico.
+    # Returning 204 is fine; you can later add a real icon under /static.
+    return ('', 204)
+
+
 @app.route('/login')
 def login():
     if _is_authenticated():
@@ -4377,8 +4543,8 @@ def auth_callback():
 
         _log_login_event('login', user=session.get('user'), extra={"provider": "google"})
 
-        next_url = session.pop('next_url', None)
-        if next_url and isinstance(next_url, str) and next_url.startswith('/'):
+        next_url = _sanitize_next_url(session.pop('next_url', None))
+        if next_url:
             return redirect(next_url)
         return redirect(url_for('index'))
     except Exception as e:
