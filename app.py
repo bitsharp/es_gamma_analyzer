@@ -5646,6 +5646,29 @@ def api_checklist_history():
     return jsonify({'entries': entries})
 
 
+@app.route('/api/checklist/reset', methods=['POST'])
+@login_required
+def api_checklist_reset():
+    """Delete (reset) the checklist for a given date."""
+    payload = request.get_json(silent=True) or {}
+    date_key = (payload.get('date_key') or '').strip()
+
+    import re as _re
+    if not date_key or not _re.match(r'^\d{4}-\d{2}-\d{2}$', date_key):
+        return jsonify({'error': 'Invalid date_key'}), 400
+
+    coll = _get_checklist_collection()
+    if coll is None:
+        return jsonify({'ok': True, 'persisted': False, 'note': 'MongoDB not configured'})
+
+    try:
+        coll.delete_one({'date_key': date_key})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'ok': True, 'date_key': date_key})
+
+
 # ============================================================================
 # APPLICATION ENTRY POINT
 # ============================================================================

@@ -235,8 +235,13 @@
                         </h5>
                         <small class="text-muted" id="currentDateLabel"></small>
                     </div>
-                    <div class="d-flex align-items-center gap-2">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
                         <input type="date" class="inline-input wide" id="dateSelector" style="width:150px;">
+                        <button class="btn btn-sm" id="resetDayBtn"
+                            onclick="confirmReset()"
+                            style="background:rgba(239,68,68,0.12);border:1px solid #ef4444;color:#f87171;font-size:0.8rem;padding:0.25rem 0.65rem;">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                        </button>
                         <span class="save-indicator" id="globalSaveIndicator"><i class="bi bi-check-lg"></i> Salvato</span>
                     </div>
                 </div>
@@ -582,6 +587,29 @@
         </div>
     </template>
 
+    <!-- Reset confirmation modal -->
+    <div class="modal fade" id="resetModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content" style="background:#1b263b;border:2px solid #ef4444;">
+                <div class="modal-header" style="border-bottom:1px solid #415a77;">
+                    <h5 class="modal-title" style="color:#f87171;"><i class="bi bi-exclamation-triangle-fill me-2"></i>Reset giorno</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" style="color:#e2e8f0;">
+                    Stai per cancellare <strong>tutti i dati</strong> della giornata selezionata (<span id="resetDateLabel" style="color:#fbbf24;"></span>).<br><br>
+                    L'operazione è <strong style="color:#f87171;">irreversibile</strong>. Sei sicuro?
+                </div>
+                <div class="modal-footer" style="border-top:1px solid #415a77;">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                    <button type="button" class="btn btn-sm" id="confirmResetBtn"
+                        style="background:#ef4444;border:none;color:#fff;" onclick="doReset()">
+                        <i class="bi bi-trash me-1"></i>Sì, resetta
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
     // =====================================================================
@@ -702,6 +730,36 @@
         const el = document.getElementById('globalSaveIndicator');
         el.classList.add('show');
         setTimeout(() => el.classList.remove('show'), 2500);
+    }
+
+    // =====================================================================
+    // RESET
+    // =====================================================================
+    function confirmReset() {
+        const d = new Date(currentDateKey + 'T12:00:00');
+        document.getElementById('resetDateLabel').textContent =
+            d.toLocaleDateString('it-IT', {weekday:'long', day:'2-digit', month:'long', year:'numeric'});
+        new bootstrap.Modal(document.getElementById('resetModal')).show();
+    }
+
+    async function doReset() {
+        bootstrap.Modal.getInstance(document.getElementById('resetModal')).hide();
+        try {
+            await fetch('/api/checklist/reset', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ date_key: currentDateKey }),
+            });
+        } catch (e) { /* silent */ }
+        // Reset UI
+        checklist = {};
+        tradeCounter = 0;
+        renderChecklist();
+        // Remove active trade cards
+        document.querySelectorAll('.trade-card').forEach(c => c.remove());
+        document.getElementById('noTradesMsg').style.display = '';
+        loadHistory();
+        showSaved();
     }
 
     // =====================================================================
