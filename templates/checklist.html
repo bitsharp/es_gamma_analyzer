@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Checklist — ES Gamma Analyzer</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body {
+            background: #0d1b2a;
+            color: #f8f9fa;
+            min-height: 100vh;
+        }
+        .navbar {
+            background: linear-gradient(135deg, #1b263b 0%, #415a77 100%);
+            border-bottom: 2px solid #778da9;
+        }
+        .navbar-brand { font-size: 1.6rem; font-weight: 700; color: #fff; }
+
+        /* nav links */
+        .nav-link-custom {
+            color: #adb5bd;
+            text-decoration: none;
+            padding: 0.3rem 0.7rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            transition: background 0.2s, color 0.2s;
+        }
+        .nav-link-custom:hover { background: rgba(255,255,255,0.08); color: #fff; }
+        .nav-link-custom.active { background: rgba(119,141,169,0.25); color: #e2e8f0; }
+
+        .section-card {
+            background: #1b263b;
+            border: 1px solid #415a77;
+            border-radius: 12px;
+            margin-bottom: 1.25rem;
+        }
+        .section-card .card-header {
+            background: rgba(65,90,119,0.35);
+            border-bottom: 1px solid #415a77;
+            border-radius: 12px 12px 0 0;
+            padding: 0.75rem 1rem;
+            font-weight: 700;
+            font-size: 1rem;
+        }
+        .section-card .card-body { padding: 1rem; }
+
+        /* checklist items */
+        .check-item {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.45rem 0;
+            border-bottom: 1px solid rgba(65,90,119,0.3);
+        }
+        .check-item:last-child { border-bottom: none; }
+        .check-item label { margin: 0; cursor: pointer; flex: 1; font-size: 0.92rem; }
+
+        .form-check-input {
+            width: 1.15rem; height: 1.15rem;
+            background-color: #0d1b2a;
+            border-color: #778da9;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .form-check-input:checked { background-color: #2dd4bf; border-color: #2dd4bf; }
+
+        /* inline text inputs */
+        .inline-input {
+            background: #0d1b2a;
+            border: 1px solid #415a77;
+            color: #f8f9fa;
+            border-radius: 6px;
+            padding: 0.2rem 0.5rem;
+            font-size: 0.88rem;
+            width: 90px;
+        }
+        .inline-input:focus { outline: none; border-color: #778da9; }
+        .inline-input.wide { width: 140px; }
+
+        /* trade cards */
+        .trade-card {
+            background: #0d1b2a;
+            border: 1px solid #415a77;
+            border-radius: 10px;
+            margin-bottom: 0.8rem;
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+        .trade-card.trade-valid  { border-color: #22c55e; }
+        .trade-card.trade-skip   { border-color: #f59e0b; }
+        .trade-card.trade-invalid{ border-color: #ef4444; }
+
+        .trade-card .trade-header {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem 0.8rem;
+            gap: 0.6rem;
+            background: rgba(65,90,119,0.2);
+            cursor: pointer;
+            user-select: none;
+        }
+        .trade-card .trade-header .trade-num {
+            font-weight: 700; font-size: 0.9rem; white-space: nowrap;
+        }
+        .trade-card .trade-body { padding: 0.8rem; display: none; }
+        .trade-card .trade-body.open { display: block; }
+
+        /* tags */
+        .badge-regime {
+            font-size: 0.72rem; padding: 0.2em 0.5em; border-radius: 4px;
+            background: rgba(119,141,169,0.3); color: #e2e8f0;
+        }
+        .badge-ok   { background: rgba(34,197,94,0.25); color: #4ade80; }
+        .badge-warn { background: rgba(245,158,11,0.25); color: #fbbf24; }
+        .badge-no   { background: rgba(239,68,68,0.25); color: #f87171; }
+
+        /* red flags */
+        .red-flag-item {
+            display: flex; align-items: center; gap: 0.5rem;
+            padding: 0.3rem 0; font-size: 0.88rem; color: #f87171;
+        }
+        .red-flag-item i { font-size: 0.9rem; }
+
+        /* history sidebar */
+        .history-btn {
+            background: #0d1b2a;
+            border: 1px solid #415a77;
+            color: #adb5bd;
+            border-radius: 8px;
+            padding: 0.35rem 0.7rem;
+            font-size: 0.8rem;
+            text-align: left;
+            width: 100%;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .history-btn:hover, .history-btn.active {
+            background: rgba(65,90,119,0.4);
+            color: #e2e8f0;
+            border-color: #778da9;
+        }
+
+        /* save indicator */
+        .save-indicator {
+            font-size: 0.8rem; color: #2dd4bf;
+            opacity: 0; transition: opacity 0.4s;
+        }
+        .save-indicator.show { opacity: 1; }
+
+        /* mantra */
+        .mantra-box {
+            background: rgba(45,212,191,0.07);
+            border: 1px solid rgba(45,212,191,0.3);
+            border-radius: 10px;
+            padding: 0.9rem 1.2rem;
+            font-style: italic;
+            color: #94a3b8;
+            font-size: 0.88rem;
+            line-height: 1.6;
+        }
+        .mantra-box strong { color: #2dd4bf; }
+
+        /* pnl colors */
+        .pnl-positive { color: #4ade80; }
+        .pnl-negative { color: #f87171; }
+
+        textarea.inline-input {
+            width: 100%; height: 60px; resize: vertical;
+        }
+
+        @media (max-width: 575px) {
+            .section-card .card-body { padding: 0.7rem; }
+        }
+    </style>
+</head>
+<body>
+    <!-- NAVBAR -->
+    <nav class="navbar mb-4">
+        <div class="container-fluid px-2 px-lg-3">
+            <div class="d-flex align-items-center justify-content-between w-100">
+                <a href="/" class="navbar-brand text-decoration-none">ES Gamma Analyzer</a>
+
+                <div class="d-flex align-items-center gap-2">
+                    <a href="/" class="nav-link-custom"><i class="bi bi-graph-up me-1"></i>Gamma</a>
+                    <a href="/checklist" class="nav-link-custom active"><i class="bi bi-check2-square me-1"></i>Checklist</a>
+
+                    {% set user = session.get('user') %}
+                    {% if user %}
+                        <div class="dropdown ms-2">
+                            <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                {{ user.get('name') or user.get('email') or 'Account' }}
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" style="background:#1b263b;border:2px solid #415a77;">
+                                {% if user.get('email') %}
+                                    <li><span class="dropdown-item-text" style="color:#adb5bd;">{{ user.get('email') }}</span></li>
+                                    <li><hr class="dropdown-divider" style="border-color:#415a77;"></li>
+                                {% endif %}
+                                <li><a class="dropdown-item" href="/admin" style="color:#f8f9fa;">Admin</a></li>
+                                <li><hr class="dropdown-divider" style="border-color:#415a77;"></li>
+                                <li><a class="dropdown-item" href="/logout" style="color:#f8f9fa;">Logout</a></li>
+                            </ul>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-2 px-lg-3">
+        <div class="row g-3">
+
+            <!-- LEFT: History sidebar -->
+            <div class="col-12 col-md-2">
+                <div class="section-card">
+                    <div class="card-header">
+                        <i class="bi bi-calendar3 me-1"></i> Storico
+                    </div>
+                    <div class="card-body p-2" id="historyList">
+                        <div class="text-muted small text-center py-2">Caricamento…</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CENTER: Main checklist -->
+            <div class="col-12 col-md-7">
+
+                <!-- Date selector -->
+                <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+                    <div>
+                        <h5 class="mb-0 fw-bold">
+                            <i class="bi bi-check2-square me-2" style="color:#2dd4bf;"></i>
+                            PRE-TRADE CHECKLIST
+                        </h5>
+                        <small class="text-muted" id="currentDateLabel"></small>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <input type="date" class="inline-input wide" id="dateSelector" style="width:150px;">
+                        <span class="save-indicator" id="globalSaveIndicator"><i class="bi bi-check-lg"></i> Salvato</span>
+                    </div>
+                </div>
+
+                <!-- ============ MORNING ROUTINE ============ -->
+                <div class="section-card">
+                    <div class="card-header">
+                        <i class="bi bi-sunrise me-2" style="color:#fbbf24;"></i>
+                        🌅 PRIMA DELLA SESSIONE — Morning Routine
+                    </div>
+                    <div class="card-body">
+
+                        <!-- 1. Mindset -->
+                        <div class="mb-3">
+                            <div class="fw-semibold mb-2 small text-uppercase" style="color:#778da9; letter-spacing:.05em;">
+                                1. Mindset Check
+                            </div>
+                            <div class="check-item">
+                                <input class="form-check-input" type="checkbox" id="ms1" data-field="morning.mindset_rested">
+                                <label for="ms1">Sono riposato e mentalmente presente?</label>
+                            </div>
+                            <div class="check-item">
+                                <input class="form-check-input" type="checkbox" id="ms2" data-field="morning.mindset_calm">
+                                <label for="ms2">Non ho stress emotivo che mi condiziona?</label>
+                            </div>
+                            <div class="check-item">
+                                <input class="form-check-input" type="checkbox" id="ms3" data-field="morning.mindset_no_revenge">
+                                <label for="ms3">Non sto ancora pensando al trade sbagliato di ieri?</label>
+                            </div>
+                            <div class="check-item">
+                                <input class="form-check-input" type="checkbox" id="ms4" data-field="morning.mindset_objective">
+                                <label for="ms4">Il mio obiettivo oggi è fare trade <strong>corretti</strong>, non soldi?</label>
+                            </div>
+                        </div>
+
+                        <!-- 2. Market Prep -->
+                        <div class="mb-3">
+                            <div class="fw-semibold mb-2 small text-uppercase" style="color:#778da9; letter-spacing:.05em;">
+                                2. Preparazione Mercato
+                            </div>
+                            <div class="check-item">
+                                <input class="form-check-input" type="checkbox" id="mp1" data-field="morning.market_calendar">
+                                <label for="mp1">Ho controllato il calendario economico?</label>
+                            </div>
+                            <div class="check-item">
+                                <input class="form-check-input" type="checkbox" id="mp2" data-field="morning.market_news">
+                                <label for="mp2">So quali news/eventi possono muovere il mercato oggi?</label>
+                            </div>
+                            <div class="check-item">
+                                <input class="form-check-input" type="checkbox" id="mp3" data-field="morning.market_overcharts">
+                                <label for="mp3">Ho identificato i livelli chiave su Overcharts</label>
+                            </div>
+                            <div class="py-1 d-flex align-items-center gap-2 flex-wrap" style="padding-left:1.8rem;">
+                                <span class="text-muted small">Livelli:</span>
+                                <span class="text-muted small">VAH:</span>
+                                <input type="number" step="0.25" class="inline-input" id="lvlVAH" data-field="morning.vah" placeholder="0.00">
+                                <span class="text-muted small">VAL:</span>
+                                <input type="number" step="0.25" class="inline-input" id="lvlVAL" data-field="morning.val" placeholder="0.00">
+                                <span class="text-muted small">POC:</span>
+                                <input type="number" step="0.25" class="inline-input" id="lvlPOC" data-field="morning.poc" placeholder="0.00">
+                            </div>
+                        </div>
+
+                        <!-- 3. Day Plan -->
+                        <div>
+                            <div class="fw-semibold mb-2 small text-uppercase" style="color:#778da9; letter-spacing:.05em;">
+                                3. Piano della Giornata
+                            </div>
+                            <div class="check-item">
+                                <input class="form-check-input" type="checkbox" id="dp1" data-field="morning.plan_max_trades">
+                                <label for="dp1">Ho definito MAX 5-10 trade per oggi</label>
+                            </div>
+                            <div class="check-item">
+                                <input class="form-check-input" type="checkbox" id="dp2" data-field="morning.plan_max_loss">
+                                <label for="dp2">
+                                    Ho definito la perdita massima accettabile:
+                                    <input type="number" class="inline-input ms-1" id="maxLossAmount" data-field="morning.max_loss_amount" placeholder="€160" style="width:80px;">
+                                </label>
+                            </div>
+                            <div class="check-item">
+                                <input class="form-check-input" type="checkbox" id="dp3" data-field="morning.plan_setups">
+                                <label for="dp3">Ho definito i setup che cercherò</label>
+                            </div>
+                            <div class="pt-1" style="padding-left:1.8rem;">
+                                <textarea class="inline-input" id="setupsDesc" data-field="morning.setups_description" placeholder="Descrivi i setup che cerchi oggi…" style="height:55px; resize:vertical;"></textarea>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- ============ TRADES ============ -->
+                <div class="section-card">
+                    <div class="card-header d-flex align-items-center justify-content-between">
+                        <span><i class="bi bi-list-check me-2" style="color:#60a5fa;"></i>🎯 TRADE DEL GIORNO — Checklist "3C"</span>
+                        <button class="btn btn-sm btn-primary" id="addTradeBtn" style="padding:0.2rem 0.7rem; font-size:0.82rem;">
+                            <i class="bi bi-plus-lg me-1"></i>Aggiungi Trade
+                        </button>
+                    </div>
+                    <div class="card-body" id="tradesContainer">
+                        <div class="text-muted small text-center py-3" id="noTradesMsg">
+                            <i class="bi bi-inbox me-1"></i>Nessun trade registrato. Clicca "+ Aggiungi Trade" per iniziare.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============ END OF SESSION ============ -->
+                <div class="section-card">
+                    <div class="card-header">
+                        <i class="bi bi-flag-fill me-2" style="color:#a78bfa;"></i>
+                        🔚 FINE SESSIONE — Review Obbligatoria
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-2 mb-3">
+                            <div class="col-6 col-sm-3">
+                                <label class="small text-muted d-block mb-1">Trade fatti</label>
+                                <input type="number" class="inline-input" style="width:100%;" id="sessTrades" data-field="session.total_trades" placeholder="0">
+                            </div>
+                            <div class="col-6 col-sm-3">
+                                <label class="small text-muted d-block mb-1">P&amp;L (€)</label>
+                                <input type="number" class="inline-input" style="width:100%;" id="sessPnl" data-field="session.daily_pnl" placeholder="0">
+                            </div>
+                            <div class="col-6 col-sm-3">
+                                <label class="small text-muted d-block mb-1">Commissioni (€)</label>
+                                <input type="number" class="inline-input" style="width:100%;" id="sessComm" data-field="session.commissions" placeholder="0">
+                            </div>
+                            <div class="col-6 col-sm-3">
+                                <label class="small text-muted d-block mb-1">Net P&amp;L</label>
+                                <span class="fw-bold" id="sessNetPnl" style="font-size:1.05rem;">—</span>
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <label class="small text-muted d-block mb-1">Rispettato i miei setup?</label>
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-sm" id="sessSetupYes" data-field="session.respected_setups" data-value="true"
+                                        style="background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#4ade80; font-size:0.8rem;">✅ Sì</button>
+                                    <button class="btn btn-sm" id="sessSetupNo" data-field="session.respected_setups" data-value="false"
+                                        style="background:rgba(239,68,68,0.15);border:1px solid #ef4444;color:#f87171; font-size:0.8rem;">❌ No</button>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <label class="small text-muted d-block mb-1">Rispettato gli stop?</label>
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-sm" id="sessStopYes" data-field="session.respected_stops" data-value="true"
+                                        style="background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#4ade80; font-size:0.8rem;">✅ Sì</button>
+                                    <button class="btn btn-sm" id="sessStopNo" data-field="session.respected_stops" data-value="false"
+                                        style="background:rgba(239,68,68,0.15);border:1px solid #ef4444;color:#f87171; font-size:0.8rem;">❌ No</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="small text-muted d-block mb-1">Note di fine sessione</label>
+                            <textarea class="inline-input" id="sessNotes" data-field="session.notes" placeholder="Cosa ho imparato oggi? Cosa farei diversamente?" style="height:75px;"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /col center -->
+
+            <!-- RIGHT: Quick rules + mantra -->
+            <div class="col-12 col-md-3">
+
+                <!-- Red Flags -->
+                <div class="section-card">
+                    <div class="card-header" style="color:#f87171;">
+                        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                        ⛔ RED FLAGS
+                    </div>
+                    <div class="card-body" style="padding:0.75rem;">
+                        <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> Non c'è contesto chiaro</div>
+                        <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> Stai "sperando" invece di vedere conferma</div>
+                        <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> Hai già perso 2–3 trade di fila</div>
+                        <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> Stai revenge trading</div>
+                        <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> È vicino a news importante</div>
+                        <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> Sei stanco / distratto / emotivo</div>
+                    </div>
+                </div>
+
+                <!-- Absolute Rules -->
+                <div class="section-card">
+                    <div class="card-header">
+                        <i class="bi bi-shield-lock me-1" style="color:#fbbf24;"></i>
+                        📊 REGOLE ASSOLUTE
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-sm mb-0" style="background:transparent;">
+                            <tbody style="font-size:0.82rem;">
+                                <tr><td class="text-muted" style="border-color:#415a77;">Max trade/giorno</td><td style="border-color:#415a77;color:#f8f9fa;text-align:right;">10</td></tr>
+                                <tr><td class="text-muted" style="border-color:#415a77;">Max perdita/giorno</td><td style="border-color:#415a77;color:#f87171;text-align:right;">2% (~€160)</td></tr>
+                                <tr><td class="text-muted" style="border-color:#415a77;">Max perdite consecutive</td><td style="border-color:#415a77;color:#f87171;text-align:right;">3 → STOP</td></tr>
+                                <tr><td class="text-muted" style="border-color:#415a77;">Min Risk:Reward</td><td style="border-color:#415a77;color:#4ade80;text-align:right;">1:1.5</td></tr>
+                                <tr><td class="text-muted" style="border-color:#415a77; border-bottom:none;">Orari trading</td><td style="border-color:#415a77;border-bottom:none;color:#f8f9fa;text-align:right;">Sessioni definite</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Quick Phone Version -->
+                <div class="section-card">
+                    <div class="card-header">
+                        <i class="bi bi-phone me-1" style="color:#60a5fa;"></i>
+                        📱 QUICK — Prima di BUY/SELL
+                    </div>
+                    <div class="card-body" style="font-size:0.88rem; line-height:1.8;">
+                        <div>1️⃣ Contesto? <span class="text-muted">(zona + trend)</span></div>
+                        <div>2️⃣ Conferma? <span class="text-muted">(orderflow)</span></div>
+                        <div>3️⃣ Stop definito?</div>
+                        <div>4️⃣ R:R &gt; 1:1.5?</div>
+                        <div>5️⃣ Non sto revenge trading?</div>
+                        <div class="mt-2 p-2 rounded" style="background:rgba(239,68,68,0.1);color:#f87171;font-weight:700;font-size:0.83rem;">
+                            Se anche solo 1 è NO → NON TRADARE
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mantra -->
+                <div class="mantra-box">
+                    <strong>"</strong>Non devo fare soldi oggi.<br>
+                    Devo fare trade <strong>CORRETTI</strong>.<br><br>
+                    I soldi sono la conseguenza di decisioni corrette.<br>
+                    Un trade saltato è meglio di un trade sbagliato.<br>
+                    La pazienza paga più dell'azione.<br><br>
+                    <strong>Meno trade = più profitto.</strong><strong>"</strong>
+                </div>
+
+            </div><!-- /col right -->
+        </div><!-- /row -->
+    </div><!-- /container -->
+
+    <!-- =================== TRADE TEMPLATE (hidden) =================== -->
+    <template id="tradeTemplate">
+        <div class="trade-card" data-trade-id="">
+            <div class="trade-header" onclick="toggleTrade(this)">
+                <span class="trade-num">Trade #<span class="trade-num-val">1</span></span>
+                <input type="time" class="inline-input trade-time" data-field="time" placeholder="09:30"
+                    onclick="event.stopPropagation()" style="width:85px;">
+                <span class="badge badge-regime trade-status-badge">—</span>
+                <span class="ms-auto me-1 text-muted" style="font-size:0.85rem;">
+                    P&L: <span class="trade-pnl-badge">—</span>
+                </span>
+                <i class="bi bi-chevron-down toggle-icon" style="font-size:0.8rem;"></i>
+                <button class="btn btn-outline-danger btn-sm delete-trade-btn"
+                    onclick="event.stopPropagation(); deleteTradeCard(this);"
+                    style="padding:0.1rem 0.4rem; font-size:0.75rem; margin-left:0.3rem;">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+            <div class="trade-body">
+                <div class="row g-2">
+
+                    <!-- 1: CONTESTO -->
+                    <div class="col-12 col-sm-4">
+                        <div class="fw-semibold small mb-1" style="color:#2dd4bf;">1️⃣ CONTESTO</div>
+                        <div class="check-item">
+                            <input class="form-check-input" type="checkbox" data-trade-field="context.interesting_zone">
+                            <label>Zona interessante? (VAH/VAL/POC)</label>
+                        </div>
+                        <div class="check-item">
+                            <input class="form-check-input" type="checkbox" data-trade-field="context.liquidity_visible">
+                            <label>C'è liquidità visibile?</label>
+                        </div>
+                        <div class="mt-1">
+                            <label class="small text-muted">Trend:</label>
+                            <select class="inline-input" data-trade-field="context.trend" style="width:100%; height:30px;">
+                                <option value="">—</option>
+                                <option value="long">📈 Long</option>
+                                <option value="short">📉 Short</option>
+                                <option value="range">↔️ Range</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- 2: CONFERMA -->
+                    <div class="col-12 col-sm-4">
+                        <div class="fw-semibold small mb-1" style="color:#60a5fa;">2️⃣ CONFERMA</div>
+                        <div class="check-item">
+                            <input class="form-check-input" type="checkbox" data-trade-field="confirmation.orderflow">
+                            <label>Vedo conferma orderflow?</label>
+                        </div>
+                        <div class="check-item">
+                            <input class="form-check-input" type="checkbox" data-trade-field="confirmation.big_trades">
+                            <label>Big trades / Imbalance / Absorption</label>
+                        </div>
+                        <div class="check-item">
+                            <input class="form-check-input" type="checkbox" data-trade-field="confirmation.valid_setup">
+                            <label>Setup valido (non sto inventando)</label>
+                        </div>
+                    </div>
+
+                    <!-- 3: CONTROLLO -->
+                    <div class="col-12 col-sm-4">
+                        <div class="fw-semibold small mb-1" style="color:#a78bfa;">3️⃣ CONTROLLO</div>
+                        <div class="check-item d-flex align-items-center gap-1 flex-wrap">
+                            <input class="form-check-input" type="checkbox" data-trade-field="control.stop_defined">
+                            <label style="flex:none;">Stop Loss:</label>
+                            <input type="number" step="0.25" class="inline-input" data-trade-field="control.stop_loss" placeholder="5745">
+                        </div>
+                        <div class="check-item d-flex align-items-center gap-1 flex-wrap">
+                            <input class="form-check-input" type="checkbox" data-trade-field="control.target_defined">
+                            <label style="flex:none;">Target:</label>
+                            <input type="number" step="0.25" class="inline-input" data-trade-field="control.target" placeholder="5760">
+                        </div>
+                        <div class="check-item">
+                            <input class="form-check-input" type="checkbox" data-trade-field="control.rr_ok">
+                            <label>R:R ≥ 1:1.5 ✅</label>
+                        </div>
+                        <div class="check-item">
+                            <input class="form-check-input" type="checkbox" data-trade-field="control.size_ok">
+                            <label>Size corretta per account</label>
+                        </div>
+                    </div>
+
+                    <!-- RESULT -->
+                    <div class="col-12">
+                        <hr style="border-color:#415a77; margin:0.5rem 0;">
+                        <div class="fw-semibold small mb-1" style="color:#778da9;">📝 RISULTATO</div>
+                        <div class="d-flex gap-3 flex-wrap">
+                            <div>
+                                <label class="text-muted small">Eseguito?</label><br>
+                                <div class="d-flex gap-1 mt-1">
+                                    <button class="btn btn-sm trade-exec-yes" data-trade-field="result.executed" data-value="true"
+                                        style="font-size:0.78rem;padding:0.15rem 0.5rem;background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#4ade80;">✅ Sì</button>
+                                    <button class="btn btn-sm trade-exec-no" data-trade-field="result.executed" data-value="false"
+                                        style="font-size:0.78rem;padding:0.15rem 0.5rem;background:rgba(239,68,68,0.15);border:1px solid #ef4444;color:#f87171;">❌ No</button>
+                                    <button class="btn btn-sm trade-exec-skip" data-trade-field="result.executed" data-value="skip"
+                                        style="font-size:0.78rem;padding:0.15rem 0.5rem;background:rgba(245,158,11,0.15);border:1px solid #f59e0b;color:#fbbf24;">⚠️ Skip</button>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="text-muted small">P&L (€)</label>
+                                <input type="number" class="inline-input d-block mt-1" data-trade-field="result.pnl" placeholder="0" style="width:90px;">
+                            </div>
+                            <div style="flex:1; min-width:140px;">
+                                <label class="text-muted small">Note trade</label>
+                                <textarea class="inline-input d-block mt-1" data-trade-field="result.notes" placeholder="Cosa è andato bene/male?" style="height:50px;"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    // =====================================================================
+    // STATE
+    // =====================================================================
+    let currentDateKey = "";
+    let checklist = null;  // full checklist object loaded from server
+    let saveTimer = null;
+
+    // =====================================================================
+    // INIT
+    // =====================================================================
+    document.addEventListener('DOMContentLoaded', () => {
+        const today = new Date().toISOString().split('T')[0];
+        const dateSel = document.getElementById('dateSelector');
+        dateSel.value = today;
+        currentDateKey = today;
+        updateDateLabel();
+
+        loadChecklist(today);
+        loadHistory();
+
+        dateSel.addEventListener('change', () => {
+            currentDateKey = dateSel.value;
+            updateDateLabel();
+            loadChecklist(currentDateKey);
+        });
+
+        // Global field listeners
+        document.querySelectorAll('[data-field]').forEach(el => {
+            el.addEventListener('change', () => scheduleSave());
+            if (el.tagName === 'TEXTAREA' || el.type === 'number' || el.type === 'text' || el.type === 'date') {
+                el.addEventListener('input', () => scheduleSave());
+            }
+        });
+
+        // Session yes/no buttons
+        document.querySelectorAll('[data-field^="session."]').forEach(btn => {
+            if (btn.tagName === 'BUTTON') {
+                btn.addEventListener('click', () => {
+                    const field = btn.dataset.field;
+                    document.querySelectorAll(`[data-field="${field}"]`).forEach(b => b.classList.remove('fw-bold'));
+                    btn.classList.add('fw-bold');
+                    scheduleSave();
+                });
+            }
+        });
+
+        // Net P&L
+        document.getElementById('sessPnl').addEventListener('input', updateNetPnl);
+        document.getElementById('sessComm').addEventListener('input', updateNetPnl);
+
+        document.getElementById('addTradeBtn').addEventListener('click', addTradeCard);
+    });
+
+    function updateDateLabel() {
+        const parts = currentDateKey.split('-');
+        if (parts.length === 3) {
+            const d = new Date(currentDateKey + 'T12:00:00');
+            document.getElementById('currentDateLabel').textContent = d.toLocaleDateString('it-IT', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+        }
+    }
+
+    function updateNetPnl() {
+        const pnl = parseFloat(document.getElementById('sessPnl').value) || 0;
+        const comm = parseFloat(document.getElementById('sessComm').value) || 0;
+        const net = pnl - comm;
+        const el = document.getElementById('sessNetPnl');
+        el.textContent = '€' + net.toFixed(2);
+        el.className = 'fw-bold ' + (net > 0 ? 'pnl-positive' : net < 0 ? 'pnl-negative' : '');
+    }
+
+    // =====================================================================
+    // LOAD / SAVE
+    // =====================================================================
+    async function loadChecklist(dateKey) {
+        try {
+            const resp = await fetch(`/api/checklist/${dateKey}`);
+            if (!resp.ok) throw new Error('not found');
+            const data = await resp.json();
+            checklist = data.checklist || {};
+            renderChecklist();
+        } catch (e) {
+            checklist = {};
+            renderChecklist();
+        }
+    }
+
+    async function loadHistory() {
+        try {
+            const resp = await fetch('/api/checklist/history?limit=30');
+            const data = await resp.json();
+            renderHistory(data.entries || []);
+        } catch (e) {
+            document.getElementById('historyList').innerHTML = '<div class="text-muted small text-center py-2">—</div>';
+        }
+    }
+
+    function scheduleSave() {
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(saveChecklist, 700);
+    }
+
+    async function saveChecklist() {
+        const payload = collectFormData();
+        try {
+            await fetch('/api/checklist/save', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ date_key: currentDateKey, checklist: payload }),
+            });
+            showSaved();
+            loadHistory();
+        } catch (e) { /* silent */ }
+    }
+
+    function showSaved() {
+        const el = document.getElementById('globalSaveIndicator');
+        el.classList.add('show');
+        setTimeout(() => el.classList.remove('show'), 2500);
+    }
+
+    // =====================================================================
+    // COLLECT FORM DATA
+    // =====================================================================
+    function collectFormData() {
+        const data = { morning: {}, trades: collectTrades(), session: {} };
+
+        document.querySelectorAll('[data-field]').forEach(el => {
+            const field = el.dataset.field;
+            if (!field) return;
+            const parts = field.split('.');
+            const section = parts[0];
+            const key = parts[1];
+            if (!data[section]) return;
+
+            if (el.tagName === 'BUTTON') return; // handled separately
+
+            if (el.type === 'checkbox') {
+                data[section][key] = el.checked;
+            } else {
+                data[section][key] = el.value;
+            }
+        });
+
+        // Session yes/no buttons
+        ['session.respected_setups', 'session.respected_stops'].forEach(field => {
+            const active = document.querySelector(`[data-field="${field}"].fw-bold`);
+            if (active) {
+                const k = field.split('.')[1];
+                data.session[k] = active.dataset.value === 'true';
+            }
+        });
+
+        return data;
+    }
+
+    function collectTrades() {
+        const trades = [];
+        document.querySelectorAll('.trade-card').forEach(card => {
+            const tid = card.dataset.tradeId;
+            const trade = { id: tid };
+
+            card.querySelectorAll('[data-trade-field]').forEach(el => {
+                const fp = el.dataset.tradeField.split('.');
+                if (!trade[fp[0]]) trade[fp[0]] = {};
+                if (el.tagName === 'BUTTON') return;
+                if (el.type === 'checkbox') trade[fp[0]][fp[1]] = el.checked;
+                else trade[fp[0]][fp[1]] = el.value;
+            });
+
+            // Time is top-level
+            const timeEl = card.querySelector('.trade-time');
+            if (timeEl) trade.time = timeEl.value;
+
+            // Executed button
+            const execActive = card.querySelector('[data-trade-field="result.executed"].fw-bold');
+            if (execActive) {
+                if (!trade.result) trade.result = {};
+                trade.result.executed = execActive.dataset.value;
+            }
+
+            trades.push(trade);
+        });
+        return trades;
+    }
+
+    // =====================================================================
+    // RENDER FORM FROM DATA
+    // =====================================================================
+    function renderChecklist() {
+        if (!checklist) return;
+
+        // Morning
+        const m = checklist.morning || {};
+        setField('morning.mindset_rested', m.mindset_rested);
+        setField('morning.mindset_calm', m.mindset_calm);
+        setField('morning.mindset_no_revenge', m.mindset_no_revenge);
+        setField('morning.mindset_objective', m.mindset_objective);
+        setField('morning.market_calendar', m.market_calendar);
+        setField('morning.market_news', m.market_news);
+        setField('morning.market_overcharts', m.market_overcharts);
+        setField('morning.vah', m.vah);
+        setField('morning.val', m.val);
+        setField('morning.poc', m.poc);
+        setField('morning.plan_max_trades', m.plan_max_trades);
+        setField('morning.plan_max_loss', m.plan_max_loss);
+        setField('morning.max_loss_amount', m.max_loss_amount);
+        setField('morning.plan_setups', m.plan_setups);
+        setField('morning.setups_description', m.setups_description);
+
+        // Trades
+        const container = document.getElementById('tradesContainer');
+        const tmpl = document.getElementById('tradeTemplate');
+        // clear existing
+        container.querySelectorAll('.trade-card').forEach(c => c.remove());
+        const trades = checklist.trades || [];
+        if (trades.length === 0) {
+            document.getElementById('noTradesMsg').style.display = '';
+        } else {
+            document.getElementById('noTradesMsg').style.display = 'none';
+            trades.forEach((t, i) => addTradeCard(null, t, i + 1));
+        }
+
+        // Session
+        const s = checklist.session || {};
+        setField('session.total_trades', s.total_trades);
+        setField('session.daily_pnl', s.daily_pnl);
+        setField('session.commissions', s.commissions);
+        setField('session.notes', s.notes);
+
+        // Session buttons
+        if (s.respected_setups !== undefined && s.respected_setups !== null) {
+            const val = s.respected_setups === true || s.respected_setups === 'true' ? 'true' : 'false';
+            const btn = document.querySelector(`[data-field="session.respected_setups"][data-value="${val}"]`);
+            if (btn) btn.classList.add('fw-bold');
+        }
+        if (s.respected_stops !== undefined && s.respected_stops !== null) {
+            const val = s.respected_stops === true || s.respected_stops === 'true' ? 'true' : 'false';
+            const btn = document.querySelector(`[data-field="session.respected_stops"][data-value="${val}"]`);
+            if (btn) btn.classList.add('fw-bold');
+        }
+
+        updateNetPnl();
+    }
+
+    function setField(field, value) {
+        const el = document.querySelector(`[data-field="${field}"]`);
+        if (!el || value === undefined || value === null) return;
+        if (el.type === 'checkbox') el.checked = Boolean(value);
+        else el.value = value;
+    }
+
+    // =====================================================================
+    // TRADE CARDS
+    // =====================================================================
+    let tradeCounter = 0;
+
+    function addTradeCard(event, data, num) {
+        document.getElementById('noTradesMsg').style.display = 'none';
+        const container = document.getElementById('tradesContainer');
+        const tmpl = document.getElementById('tradeTemplate');
+        const clone = tmpl.content.cloneNode(true);
+        const card = clone.querySelector('.trade-card');
+
+        tradeCounter++;
+        const tradeNum = num || tradeCounter;
+        const tradeId = (data && data.id) ? data.id : 'trade_' + Date.now() + '_' + tradeCounter;
+
+        card.dataset.tradeId = tradeId;
+        card.querySelector('.trade-num-val').textContent = tradeNum;
+
+        if (data) {
+            populateTradeCard(card, data);
+        }
+
+        // trade-body starts open for new trades
+        if (!data) card.querySelector('.trade-body').classList.add('open');
+
+        // Listen for changes
+        card.querySelectorAll('input, select, textarea').forEach(el => {
+            el.addEventListener('change', () => { updateTradeStatus(card); scheduleSave(); });
+            if (el.tagName === 'TEXTAREA' || el.type === 'number' || el.type === 'text' || el.type === 'time') {
+                el.addEventListener('input', () => { updateTradeStatus(card); scheduleSave(); });
+            }
+        });
+
+        // Exec buttons
+        card.querySelectorAll('[data-trade-field="result.executed"]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                card.querySelectorAll('[data-trade-field="result.executed"]').forEach(b => b.classList.remove('fw-bold'));
+                btn.classList.add('fw-bold');
+                updateTradeStatus(card);
+                scheduleSave();
+            });
+        });
+
+        container.appendChild(clone);
+        updateTradeStatus(card);
+    }
+
+    function populateTradeCard(card, data) {
+        const timeEl = card.querySelector('.trade-time');
+        if (timeEl && data.time) timeEl.value = data.time;
+
+        const sections = ['context', 'confirmation', 'control', 'result'];
+        sections.forEach(sec => {
+            if (!data[sec]) return;
+            Object.entries(data[sec]).forEach(([key, val]) => {
+                if (key === 'executed') return;
+                const el = card.querySelector(`[data-trade-field="${sec}.${key}"]`);
+                if (!el) return;
+                if (el.type === 'checkbox') el.checked = Boolean(val);
+                else el.value = val || '';
+            });
+        });
+
+        // Executed button
+        if (data.result && data.result.executed !== undefined) {
+            const execVal = data.result.executed;
+            const btn = card.querySelector(`[data-trade-field="result.executed"][data-value="${execVal}"]`);
+            if (btn) btn.classList.add('fw-bold');
+        }
+    }
+
+    function updateTradeStatus(card) {
+        // Count checks
+        const cChecks = [...card.querySelectorAll('[data-trade-field^="context."] input[type="checkbox"], [data-trade-field^="confirmation."] input[type="checkbox"], [data-trade-field^="control."] input[type="checkbox"]')];
+        const checked = cChecks.filter(c => c.checked).length;
+        const total = cChecks.length;
+
+        const execActive = card.querySelector('[data-trade-field="result.executed"].fw-bold');
+        const executed = execActive ? execActive.dataset.value : null;
+        const pnlEl = card.querySelector('[data-trade-field="result.pnl"]');
+        const pnl = pnlEl ? (parseFloat(pnlEl.value) || null) : null;
+
+        // Status badge
+        const badge = card.querySelector('.trade-status-badge');
+        const pnlBadge = card.querySelector('.trade-pnl-badge');
+
+        let statusText = '—';
+        let statusClass = 'badge-regime';
+        let cardClass = '';
+
+        if (executed === 'skip') {
+            statusText = '⚠️ Skip';
+            statusClass = 'badge-regime badge-warn';
+            cardClass = 'trade-skip';
+        } else if (executed === 'true' || executed === 'false') {
+            if (checked < total - 1) {
+                statusText = '⚠️ Incompleto';
+                statusClass = 'badge-regime badge-warn';
+                cardClass = 'trade-skip';
+            } else {
+                statusText = '✅ Completato';
+                statusClass = 'badge-regime badge-ok';
+                cardClass = 'trade-valid';
+            }
+        } else {
+            statusText = '📝 In corso';
+            statusClass = 'badge-regime';
+            cardClass = '';
+        }
+
+        badge.className = 'badge badge-regime ' + statusClass;
+        badge.textContent = statusText;
+        card.className = 'trade-card ' + cardClass;
+
+        if (pnl !== null) {
+            pnlBadge.textContent = (pnl >= 0 ? '+' : '') + '€' + pnl.toFixed(2);
+            pnlBadge.className = 'trade-pnl-badge ' + (pnl >= 0 ? 'pnl-positive' : 'pnl-negative');
+        } else {
+            pnlBadge.textContent = '—';
+            pnlBadge.className = 'trade-pnl-badge';
+        }
+    }
+
+    function toggleTrade(header) {
+        const body = header.nextElementSibling;
+        const icon = header.querySelector('.toggle-icon');
+        body.classList.toggle('open');
+        icon.style.transform = body.classList.contains('open') ? 'rotate(180deg)' : '';
+    }
+
+    function deleteTradeCard(btn) {
+        const card = btn.closest('.trade-card');
+        if (card) {
+            card.remove();
+            const remaining = document.querySelectorAll('.trade-card').length;
+            if (remaining === 0) document.getElementById('noTradesMsg').style.display = '';
+            // Renumber
+            document.querySelectorAll('.trade-num-val').forEach((el, i) => el.textContent = i + 1);
+            scheduleSave();
+        }
+    }
+
+    // =====================================================================
+    // HISTORY
+    // =====================================================================
+    function renderHistory(entries) {
+        const list = document.getElementById('historyList');
+        if (!entries.length) {
+            list.innerHTML = '<div class="text-muted small text-center py-2">Nessun dato</div>';
+            return;
+        }
+        list.innerHTML = entries.map(e => {
+            const pnl = (e.session_pnl !== null && e.session_pnl !== undefined) ? e.session_pnl : null;
+            const pnlStr = pnl !== null ? `<span class="${pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}" style="font-size:0.75rem;">${pnl >= 0 ? '+' : ''}€${parseFloat(pnl).toFixed(0)}</span>` : '';
+            const tradesStr = e.trade_count ? `<span class="text-muted" style="font-size:0.72rem;">${e.trade_count}T</span>` : '';
+            return `<button class="history-btn mb-1 ${e.date_key === currentDateKey ? 'active' : ''}" onclick="selectHistoryDate('${e.date_key}')">
+                <div class="fw-semibold" style="font-size:0.8rem;">${formatHistDate(e.date_key)}</div>
+                <div class="d-flex justify-content-between">${tradesStr}${pnlStr}</div>
+            </button>`;
+        }).join('');
+    }
+
+    function formatHistDate(key) {
+        if (!key) return key;
+        const d = new Date(key + 'T12:00:00');
+        return d.toLocaleDateString('it-IT', {day:'2-digit', month:'short'});
+    }
+
+    function selectHistoryDate(dateKey) {
+        currentDateKey = dateKey;
+        document.getElementById('dateSelector').value = dateKey;
+        updateDateLabel();
+        loadChecklist(dateKey);
+        // Update active state
+        document.querySelectorAll('.history-btn').forEach(b => {
+            b.classList.toggle('active', b.textContent.includes(formatHistDate(dateKey)));
+        });
+    }
+    </script>
+</body>
+</html>

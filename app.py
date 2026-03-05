@@ -4469,6 +4469,125 @@ def analyze_0dte(
     return results
 
 # ============================================================================
+# TRADING CHECKLIST — MongoDB helpers
+# ============================================================================
+
+_MONGO_CHECKLIST_COLLECTION = None
+
+
+def _get_checklist_collection():
+    """Return Mongo collection for trading checklists, or None if not configured."""
+    global _MONGO_CLIENT, _MONGO_CHECKLIST_COLLECTION
+    if _MONGO_CHECKLIST_COLLECTION is not None:
+        return _MONGO_CHECKLIST_COLLECTION
+
+    if MongoClient is None:
+        return None
+
+    uri = (os.getenv("MONGODB_URI") or "").strip()
+    if not uri:
+        return None
+
+    db_name = (os.getenv("MONGODB_DB") or "es_gamma_analyzer").strip()
+    coll_name = (os.getenv("MONGODB_CHECKLIST_COLLECTION") or "trading_checklist").strip()
+
+    try:
+        if _MONGO_CLIENT is None:
+            _MONGO_CLIENT = MongoClient(uri, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+
+        db = _MONGO_CLIENT[db_name]
+        coll = db[coll_name]
+
+        # Unique per date_key
+        try:
+            coll.create_index([("date_key", 1)], unique=True)
+        except Exception:
+            pass
+
+        _MONGO_CHECKLIST_COLLECTION = coll
+        return _MONGO_CHECKLIST_COLLECTION
+    except Exception:
+        return None
+
+
+def _checklist_upsert(date_key: str, checklist_data: dict) -> bool:
+    coll = _get_checklist_collection()
+    if coll is None:
+        return False
+
+    now_dt = _dt.datetime.utcnow()
+    try:
+        coll.update_one(
+            {"date_key": date_key},
+            {
+                "$set": {
+                    "date_key": date_key,
+                    "checklist": checklist_data,
+                    "updated_at": now_dt,
+                },
+                "$setOnInsert": {"created_at": now_dt},
+            },
+            upsert=True,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _checklist_get(date_key: str) -> Optional[dict]:
+    coll = _get_checklist_collection()
+    if coll is None:
+        return None
+
+    try:
+        doc = coll.find_one({"date_key": date_key})
+    except Exception:
+        return None
+
+    if not doc or not isinstance(doc, dict):
+        return None
+
+    return {
+        "date_key": doc.get("date_key"),
+        "checklist": doc.get("checklist") or {},
+        "updated_at": doc.get("updated_at").isoformat() if doc.get("updated_at") else None,
+    }
+
+
+def _checklist_history(limit: int = 30) -> list:
+    coll = _get_checklist_collection()
+    if coll is None:
+        return []
+
+    try:
+        docs = list(coll.find({}, sort=[("date_key", -1)], limit=limit))
+    except TypeError:
+        docs = list(coll.find({}).sort("date_key", -1).limit(limit))
+    except Exception:
+        return []
+
+    out = []
+    for doc in docs:
+        cl = doc.get("checklist") or {}
+        session = cl.get("session") or {}
+        trades = cl.get("trades") or []
+
+        pnl = None
+        try:
+            pnl = float(session.get("daily_pnl")) if session.get("daily_pnl") not in (None, "", "null") else None
+        except Exception:
+            pass
+
+        out.append({
+            "date_key": doc.get("date_key"),
+            "trade_count": len(trades),
+            "session_pnl": pnl,
+            "updated_at": doc.get("updated_at").isoformat() if doc.get("updated_at") else None,
+        })
+    return out
+
+
+# ============================================================================
 # WEB ROUTES - Authentication & Admin
 # ============================================================================
 
@@ -5463,6 +5582,69 @@ def analyze():
         
     except Exception as e:
         return jsonify({'error': f'Errore durante l\'analisi: {str(e)}'}), 500
+
+# ============================================================================
+# WEB ROUTES - Trading Checklist
+# ============================================================================
+
+
+@app.route('/checklist')
+@login_required
+def checklist_page():
+    return render_template('checklist.html')
+
+
+@app.route('/api/checklist/<date_key>', methods=['GET'])
+@login_required
+def api_checklist_get(date_key):
+    """Return the checklist for a given date (YYYY-MM-DD)."""
+    import re as _re
+    if not _re.match(r'^\d{4}-\d{2}-\d{2}$', date_key):
+        return jsonify({'error': 'Invalid date format'}), 400
+
+    doc = _checklist_get(date_key)
+    if not doc:
+        return jsonify({'date_key': date_key, 'checklist': {}, 'found': False})
+
+    return jsonify({'date_key': date_key, 'checklist': doc.get('checklist') or {}, 'found': True, 'updated_at': doc.get('updated_at')})
+
+
+@app.route('/api/checklist/save', methods=['POST'])
+@login_required
+def api_checklist_save():
+    """Save (upsert) the full checklist for a date."""
+    payload = request.get_json(silent=True) or {}
+    date_key = (payload.get('date_key') or '').strip()
+    checklist_data = payload.get('checklist')
+
+    import re as _re
+    if not date_key or not _re.match(r'^\d{4}-\d{2}-\d{2}$', date_key):
+        return jsonify({'error': 'Invalid date_key'}), 400
+
+    if not isinstance(checklist_data, dict):
+        return jsonify({'error': 'Invalid checklist data'}), 400
+
+    ok = _checklist_upsert(date_key, checklist_data)
+    if not ok:
+        # MongoDB not configured: return success anyway (data is ephemeral in session)
+        return jsonify({'ok': True, 'persisted': False, 'note': 'MongoDB not configured — data not persisted'})
+
+    return jsonify({'ok': True, 'persisted': True})
+
+
+@app.route('/api/checklist/history', methods=['GET'])
+@login_required
+def api_checklist_history():
+    """Return a list of recent checklist dates with summary stats."""
+    try:
+        limit = int((request.args.get('limit') or '30').strip())
+        limit = max(1, min(limit, 365))
+    except Exception:
+        limit = 30
+
+    entries = _checklist_history(limit=limit)
+    return jsonify({'entries': entries})
+
 
 # ============================================================================
 # APPLICATION ENTRY POINT
