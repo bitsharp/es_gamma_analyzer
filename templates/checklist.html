@@ -290,12 +290,12 @@
                                 <label for="mp3">Ho identificato i livelli chiave su Overcharts</label>
                             </div>
                             <div class="py-1 d-flex align-items-center gap-2 flex-wrap" style="padding-left:1.8rem;">
-                                <span class="text-muted small">Livelli:</span>
-                                <span class="text-muted small">VAH:</span>
+                                <span class="small" style="color:#cbd5e1;">Livelli:</span>
+                                <span class="small" style="color:#cbd5e1;">VAH:</span>
                                 <input type="number" step="0.25" class="inline-input" id="lvlVAH" data-field="morning.vah" placeholder="0.00">
-                                <span class="text-muted small">VAL:</span>
+                                <span class="small" style="color:#cbd5e1;">VAL:</span>
                                 <input type="number" step="0.25" class="inline-input" id="lvlVAL" data-field="morning.val" placeholder="0.00">
-                                <span class="text-muted small">POC:</span>
+                                <span class="small" style="color:#cbd5e1;">POC:</span>
                                 <input type="number" step="0.25" class="inline-input" id="lvlPOC" data-field="morning.poc" placeholder="0.00">
                             </div>
                         </div>
@@ -352,25 +352,25 @@
                     <div class="card-body">
                         <div class="row g-2 mb-3">
                             <div class="col-6 col-sm-3">
-                                <label class="small text-muted d-block mb-1">Trade fatti</label>
+                                <label class="small d-block mb-1" style="color:#cbd5e1;">Trade fatti</label>
                                 <input type="number" class="inline-input" style="width:100%;" id="sessTrades" data-field="session.total_trades" placeholder="0">
                             </div>
                             <div class="col-6 col-sm-3">
-                                <label class="small text-muted d-block mb-1">P&amp;L (€)</label>
+                                <label class="small d-block mb-1" style="color:#cbd5e1;">P&amp;L (€)</label>
                                 <input type="number" class="inline-input" style="width:100%;" id="sessPnl" data-field="session.daily_pnl" placeholder="0">
                             </div>
                             <div class="col-6 col-sm-3">
-                                <label class="small text-muted d-block mb-1">Commissioni (€)</label>
+                                <label class="small d-block mb-1" style="color:#cbd5e1;">Commissioni (€)</label>
                                 <input type="number" class="inline-input" style="width:100%;" id="sessComm" data-field="session.commissions" placeholder="0">
                             </div>
                             <div class="col-6 col-sm-3">
-                                <label class="small text-muted d-block mb-1">Net P&amp;L</label>
+                                <label class="small d-block mb-1" style="color:#cbd5e1;">Net P&amp;L</label>
                                 <span class="fw-bold" id="sessNetPnl" style="font-size:1.05rem;">—</span>
                             </div>
                         </div>
                         <div class="row g-2 mb-3">
                             <div class="col-6">
-                                <label class="small text-muted d-block mb-1">Rispettato i miei setup?</label>
+                                <label class="small d-block mb-1" style="color:#cbd5e1;">Rispettato i miei setup?</label>
                                 <div class="d-flex gap-2">
                                     <button class="btn btn-sm" id="sessSetupYes" data-field="session.respected_setups" data-value="true"
                                         style="background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#4ade80; font-size:0.8rem;">✅ Sì</button>
@@ -379,7 +379,7 @@
                                 </div>
                             </div>
                             <div class="col-6">
-                                <label class="small text-muted d-block mb-1">Rispettato gli stop?</label>
+                                <label class="small d-block mb-1" style="color:#cbd5e1;">Rispettato gli stop?</label>
                                 <div class="d-flex gap-2">
                                     <button class="btn btn-sm" id="sessStopYes" data-field="session.respected_stops" data-value="true"
                                         style="background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#4ade80; font-size:0.8rem;">✅ Sì</button>
@@ -389,7 +389,7 @@
                             </div>
                         </div>
                         <div>
-                            <label class="small text-muted d-block mb-1">Note di fine sessione</label>
+                            <label class="small d-block mb-1" style="color:#cbd5e1;">Note di fine sessione</label>
                             <textarea class="inline-input" id="sessNotes" data-field="session.notes" placeholder="Cosa ho imparato oggi? Cosa farei diversamente?" style="height:75px;"></textarea>
                         </div>
                     </div>
@@ -556,7 +556,7 @@
                         <div class="fw-semibold small mb-1" style="color:#778da9;">📝 RISULTATO</div>
                         <div class="d-flex gap-3 flex-wrap">
                             <div>
-                                <label class="text-muted small">Eseguito?</label><br>
+                                <label class="small" style="color:#cbd5e1;">Eseguito?</label><br>
                                 <div class="d-flex gap-1 mt-1">
                                     <button class="btn btn-sm trade-exec-yes" data-trade-field="result.executed" data-value="true"
                                         style="font-size:0.78rem;padding:0.15rem 0.5rem;background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#4ade80;">✅ Sì</button>
@@ -567,11 +567,11 @@
                                 </div>
                             </div>
                             <div>
-                                <label class="text-muted small">P&L (€)</label>
+                                <label class="small" style="color:#cbd5e1;">P&L (€)</label>
                                 <input type="number" class="inline-input d-block mt-1" data-trade-field="result.pnl" placeholder="0" style="width:90px;">
                             </div>
                             <div style="flex:1; min-width:140px;">
-                                <label class="text-muted small">Note trade</label>
+                                <label class="small" style="color:#cbd5e1;">Note trade</label>
                                 <textarea class="inline-input d-block mt-1" data-trade-field="result.notes" placeholder="Cosa è andato bene/male?" style="height:50px;"></textarea>
                             </div>
                         </div>
