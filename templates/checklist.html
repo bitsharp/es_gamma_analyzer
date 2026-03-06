@@ -140,7 +140,7 @@
         /* red flags */
         .red-flag-item {
             display: flex; align-items: center; gap: 0.5rem;
-            padding: 0.3rem 0; font-size: 0.88rem; color: #f87171;
+            padding: 0.3rem 0; font-size: 0.9rem; color: #f87171;
         }
         .red-flag-item i { font-size: 0.9rem; }
 
@@ -439,11 +439,11 @@
 
                 <!-- Red Flags -->
                 <div class="section-card">
-                    <div class="card-header" style="color:#f87171;">
-                        <i class="fas fa-ban me-1"></i>
+                    <div class="card-header">
+                        <i class="fas fa-ban me-1" style="color:#f87171;"></i>
                         RED FLAGS
                     </div>
-                    <div class="card-body" style="padding:0.75rem;">
+                    <div class="card-body">
                         <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> Non c'è contesto chiaro</div>
                         <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> Stai "sperando" invece di vedere conferma</div>
                         <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> Hai già perso 2–3 trade di fila</div>
@@ -459,14 +459,14 @@
                         <i class="fas fa-shield-halved me-1" style="color:#fbbf24;"></i>
                         REGOLE ASSOLUTE
                     </div>
-                    <div class="card-body p-0">
+                    <div class="card-body">
                         <table class="table table-sm mb-0" style="background:transparent;">
-                            <tbody style="font-size:0.82rem;">
-                                <tr><td class="text-muted" style="border-color:#415a77;">Max trade/giorno</td><td style="border-color:#415a77;color:#f8f9fa;text-align:right;">10</td></tr>
-                                <tr><td class="text-muted" style="border-color:#415a77;">Max perdita/giorno</td><td style="border-color:#415a77;color:#f87171;text-align:right;">2% (~€160)</td></tr>
-                                <tr><td class="text-muted" style="border-color:#415a77;">Max perdite consecutive</td><td style="border-color:#415a77;color:#f87171;text-align:right;">3 → STOP</td></tr>
-                                <tr><td class="text-muted" style="border-color:#415a77;">Min Risk:Reward</td><td style="border-color:#415a77;color:#4ade80;text-align:right;">1:1.5</td></tr>
-                                <tr><td class="text-muted" style="border-color:#415a77; border-bottom:none;">Orari trading</td><td style="border-color:#415a77;border-bottom:none;color:#f8f9fa;text-align:right;">Sessioni definite</td></tr>
+                            <tbody style="font-size:0.9rem;">
+                                <tr><td style="border-color:#415a77;color:#94a3b8;">Max trade/giorno</td><td style="border-color:#415a77;color:#f8f9fa;text-align:right;">10</td></tr>
+                                <tr><td style="border-color:#415a77;color:#94a3b8;">Max perdita/giorno</td><td style="border-color:#415a77;color:#f87171;text-align:right;">2% (~€160)</td></tr>
+                                <tr><td style="border-color:#415a77;color:#94a3b8;">Max perdite consecutive</td><td style="border-color:#415a77;color:#f87171;text-align:right;">3 → STOP</td></tr>
+                                <tr><td style="border-color:#415a77;color:#94a3b8;">Min Risk:Reward</td><td style="border-color:#415a77;color:#4ade80;text-align:right;">1:1.5</td></tr>
+                                <tr><td style="border-color:#415a77;color:#94a3b8;border-bottom:none;">Orari trading</td><td style="border-color:#415a77;border-bottom:none;color:#f8f9fa;text-align:right;">Sessioni definite</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -478,7 +478,7 @@
                         <i class="fas fa-mobile-screen-button me-1" style="color:#60a5fa;"></i>
                         QUICK — Prima di BUY/SELL
                     </div>
-                    <div class="card-body" style="font-size:0.88rem; line-height:1.8;">
+                    <div class="card-body" style="font-size:0.9rem; line-height:1.8;">
                         <div><i class="fas fa-1 me-1" style="color:#60a5fa;"></i>Contesto? <span class="text-muted">(zona + trend)</span></div>
                         <div><i class="fas fa-2 me-1" style="color:#60a5fa;"></i>Conferma? <span class="text-muted">(orderflow)</span></div>
                         <div><i class="fas fa-3 me-1" style="color:#60a5fa;"></i>Stop definito?</div>
@@ -491,13 +491,19 @@
                 </div>
 
                 <!-- Mantra -->
-                <div class="mantra-box">
-                    <strong>"</strong>Non devo fare soldi oggi.<br>
-                    Devo fare trade <strong>CORRETTI</strong>.<br><br>
-                    I soldi sono la conseguenza di decisioni corrette.<br>
-                    Un trade saltato è meglio di un trade sbagliato.<br>
-                    La pazienza paga più dell'azione.<br><br>
-                    <strong>Meno trade = più profitto.</strong><strong>"</strong>
+                <div class="section-card">
+                    <div class="card-header">
+                        <i class="fas fa-quote-left me-1" style="color:#2dd4bf;"></i>
+                        MANTRA
+                    </div>
+                    <div class="card-body" style="font-style:italic; color:#94a3b8; font-size:0.9rem; line-height:1.7;">
+                        <strong style="color:#2dd4bf;">"</strong>Non devo fare soldi oggi.<br>
+                        Devo fare trade <strong style="color:#2dd4bf;">CORRETTI</strong>.<br><br>
+                        I soldi sono la conseguenza di decisioni corrette.<br>
+                        Un trade saltato è meglio di un trade sbagliato.<br>
+                        La pazienza paga più dell'azione.<br><br>
+                        <strong style="color:#2dd4bf;">Meno trade = più profitto.</strong><strong style="color:#2dd4bf;">"</strong>
+                    </div>
                 </div>
 
             </div><!-- /col right -->
