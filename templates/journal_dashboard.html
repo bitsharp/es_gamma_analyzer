@@ -1,0 +1,436 @@
+{% extends "journal_base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+
+<!-- Sync row -->
+<div class="d-flex align-items-center justify-content-between mb-3" style="font-size:12px; color:var(--muted);">
+    <div>
+        <strong style="color:var(--neutral);">Last import</strong>: Nov 14, 2025 05:47 AM
+        <a href="#" style="color:var(--accent); margin-left:8px; font-size:11.5px;">Resync</a>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="ctrl-btn accent"><i class="bi bi-rocket-takeoff"></i> Start my day</button>
+        <button class="ctrl-btn"><i class="bi bi-gear"></i></button>
+    </div>
+</div>
+
+<!-- ===== METRIC CARDS ===== -->
+<div class="row g-2 mb-3">
+
+    <!-- Net P&L -->
+    <div class="col">
+        <div class="card-box">
+            <div class="card-ttl">
+                Net P&amp;L <i class="bi bi-info-circle"></i>
+                <span style="margin-left:auto; background:var(--bg-hover); color:var(--muted); font-size:10px; padding:1px 7px; border-radius:10px;">78</span>
+            </div>
+            <div class="m-val neg">-$1,306.68</div>
+            <div style="height:42px; margin-top:6px;"><canvas id="sparkPnl"></canvas></div>
+        </div>
+    </div>
+
+    <!-- Trade win % -->
+    <div class="col">
+        <div class="card-box">
+            <div class="card-ttl">Trade win % <i class="bi bi-info-circle"></i></div>
+            <div class="m-val neu">33.33%</div>
+            <div class="gauge-wrap" style="height:68px;">
+                <canvas id="gaugeWin"></canvas>
+                <div class="gauge-labels"><span>26</span><span>0</span><span>52</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Profit factor -->
+    <div class="col">
+        <div class="card-box">
+            <div class="card-ttl">Profit factor <i class="bi bi-info-circle"></i></div>
+            <div class="m-val neu">0.68</div>
+            <div class="gauge-wrap" style="height:68px;">
+                <canvas id="gaugePF"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Day win % -->
+    <div class="col">
+        <div class="card-box">
+            <div class="card-ttl">Day win % <i class="bi bi-info-circle"></i></div>
+            <div class="m-val neu">57.14%</div>
+            <div class="gauge-wrap" style="height:68px;">
+                <canvas id="gaugeDayWin"></canvas>
+                <div class="gauge-labels"><span>4</span><span>0</span><span>3</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Avg win/loss trade -->
+    <div class="col">
+        <div class="card-box">
+            <div class="card-ttl">Avg win/loss trade <i class="bi bi-info-circle"></i></div>
+            <div class="d-flex align-items-center gap-3 mt-1">
+                <div class="avg-ratio">1.35</div>
+                <div class="avg-bars">
+                    <div class="avg-bar-row">
+                        <div class="avg-track"><div class="avg-fill-w" style="width:62%;"></div></div>
+                        <div class="avg-lbl pos">$105</div>
+                    </div>
+                    <div class="avg-bar-row">
+                        <div class="avg-track"><div class="avg-fill-l" style="width:46%;"></div></div>
+                        <div class="avg-lbl neg">-$77.5</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== CHARTS ROW 1 ===== -->
+<div class="row g-2 mb-3">
+
+    <!-- Trade Score (Radar) -->
+    <div class="col-md-4">
+        <div class="card-box h-100">
+            <div class="card-ttl">Trade Score <i class="bi bi-info-circle"></i></div>
+            <div style="height:215px;"><canvas id="radarChart"></canvas></div>
+            <div class="score-bottom">
+                <div class="d-flex align-items-end justify-content-between mb-2">
+                    <div>
+                        <div style="font-size:11.5px; color:var(--muted);">Your Trade Score</div>
+                        <div class="score-big">22.75</div>
+                    </div>
+                </div>
+                <div class="score-track">
+                    <div class="score-fill" style="width:100%;"></div>
+                    <div class="score-ptr" style="left:22.75%;"></div>
+                </div>
+                <div class="score-ticks"><span>0</span><span>20</span><span>40</span><span>60</span><span>80</span><span>100</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Tracker -->
+    <div class="col-md-5">
+        <div class="card-box h-100">
+            <div class="card-ttl d-flex align-items-center">
+                Progress tracker <i class="bi bi-info-circle ms-1"></i>
+                <button class="ctrl-btn accent ms-auto" style="font-size:11px; padding:4px 10px;">Explore</button>
+            </div>
+            <div id="heatmapWrap"></div>
+            <div class="d-flex align-items-end justify-content-between mt-3">
+                <div style="flex:1;">
+                    <div style="font-size:11px; color:var(--muted);">Today's score <i class="bi bi-info-circle"></i></div>
+                    <div class="score-track mt-1" style="height:5px; width:180px;">
+                        <div class="score-fill" style="width:0%;"></div>
+                    </div>
+                    <div style="font-size:14px; font-weight:600; margin-top:4px;">0/5</div>
+                </div>
+                <button class="day-act-btn">Daily checklist</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Daily net cumulative P&L -->
+    <div class="col-md-3">
+        <div class="card-box h-100">
+            <div class="card-ttl">Daily net cumulative P&amp;L <i class="bi bi-info-circle"></i></div>
+            <div style="height:290px;"><canvas id="cumPnlChart"></canvas></div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== CHARTS ROW 2 ===== -->
+<div class="row g-2">
+
+    <!-- Net daily P&L -->
+    <div class="col-md-4">
+        <div class="card-box h-100">
+            <div class="card-ttl">Net daily P&amp;L <i class="bi bi-info-circle"></i></div>
+            <div style="height:220px;"><canvas id="dailyPnlChart"></canvas></div>
+        </div>
+    </div>
+
+    <!-- Recent trades / Open positions -->
+    <div class="col-md-5">
+        <div class="card-box h-100">
+            <div class="tab-row">
+                <button class="tab-btn active" onclick="switchTab(this,'recent')">Recent trades</button>
+                <button class="tab-btn" onclick="switchTab(this,'open')">Open positions</button>
+            </div>
+            <div id="tab-recent">
+                <table class="data-tbl">
+                    <thead><tr><th>Close Date</th><th>Symbol</th><th>Net P&amp;L</th></tr></thead>
+                    <tbody>
+                        <tr><td>11/13/2025</td><td><strong>MES</strong></td><td class="neg">-$47.7</td></tr>
+                        <tr><td>11/13/2025</td><td><strong>MES</strong></td><td class="neg">-$185.2</td></tr>
+                        <tr><td>11/13/2025</td><td><strong>MES</strong></td><td class="neg">-$10.2</td></tr>
+                        <tr><td>11/13/2025</td><td><strong>MES</strong></td><td class="neg">-$110.2</td></tr>
+                        <tr><td>11/13/2025</td><td><strong>MES</strong></td><td class="neg">-$256.45</td></tr>
+                        <tr><td>11/12/2025</td><td><strong>MES</strong></td><td class="neg">-$135.2</td></tr>
+                        <tr><td>11/12/2025</td><td><strong>MES</strong></td><td class="neg">-$147.7</td></tr>
+                        <tr><td>11/11/2025</td><td><strong>MES</strong></td><td class="pos">+$172.3</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div id="tab-open" style="display:none;">
+                <div style="text-align:center; color:var(--muted); padding:40px 0; font-size:13px;">No open positions</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Account balance -->
+    <div class="col-md-3">
+        <div class="card-box h-100">
+            <div class="card-ttl">Account balance <i class="bi bi-info-circle"></i></div>
+            <div class="d-flex gap-3 mb-2" style="font-size:11px; color:var(--muted);">
+                <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#818cf8;margin-right:4px;"></span>Account Balance</span>
+                <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-right:4px;"></span>Deposits / Withdrawals</span>
+            </div>
+            <div style="height:215px;"><canvas id="balanceChart"></canvas></div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+Chart.defaults.color = '#8b949e';
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+Chart.defaults.font.size = 11;
+
+/* ---- helper: create semicircle gauge ---- */
+function mkGauge(id, pct, color) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    new Chart(el, {
+        type: 'doughnut',
+        data: {
+            datasets: [{
+                data: [pct, 100 - pct],
+                backgroundColor: [color, '#252d42'],
+                borderWidth: 0, hoverOffset: 0
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            rotation: -90, circumference: 180, cutout: '72%',
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+            animation: { duration: 800 }
+        }
+    });
+}
+
+mkGauge('gaugeWin',    33.33, '#22c55e');
+mkGauge('gaugePF',     68,    '#6366f1');
+mkGauge('gaugeDayWin', 57.14, '#22c55e');
+
+/* ---- Sparkline (Net P&L) ---- */
+new Chart(document.getElementById('sparkPnl'), {
+    type: 'line',
+    data: {
+        labels: ['','','','','','','',''],
+        datasets: [{
+            data: [0, 120, 280, 156, 156, 312, -519, -1307],
+            borderColor: '#ef4444',
+            backgroundColor: 'rgba(239,68,68,.12)',
+            fill: true, borderWidth: 1.5, tension: .4, pointRadius: 0
+        }]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: { x: { display: false }, y: { display: false } }
+    }
+});
+
+/* ---- Radar chart (Trade Score) ---- */
+new Chart(document.getElementById('radarChart'), {
+    type: 'radar',
+    data: {
+        labels: ['Win %', 'Profit factor', 'Avg win/loss', 'Recovery factor', 'Max drawdown', 'Consistency'],
+        datasets: [{
+            data: [33, 25, 35, 20, 15, 22],
+            backgroundColor: 'rgba(124,58,237,.15)',
+            borderColor: '#7c3aed', borderWidth: 2,
+            pointBackgroundColor: '#7c3aed', pointRadius: 3,
+        }]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+            r: {
+                min: 0, max: 100, beginAtZero: true,
+                grid: { color: '#252d42' },
+                angleLines: { color: '#252d42' },
+                pointLabels: { font: { size: 10 }, color: '#8b949e' },
+                ticks: { display: false, stepSize: 25 }
+            }
+        },
+        plugins: { legend: { display: false }, tooltip: { enabled: false } }
+    }
+});
+
+/* ---- Cumulative P&L ---- */
+const cumDates = ['11/04','11/05','11/06','11/07','11/10','11/11','11/12','11/13'];
+const cumVals  = [0, 110, 265, 156, 156, 312, -518, -1307];
+
+new Chart(document.getElementById('cumPnlChart'), {
+    type: 'line',
+    data: {
+        labels: cumDates,
+        datasets: [{
+            data: cumVals,
+            borderColor: '#22c55e',
+            backgroundColor: (ctx) => {
+                const { chartArea, ctx: c } = ctx.chart;
+                if (!chartArea) return 'transparent';
+                const g = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                g.addColorStop(0,   'rgba(34,197,94,.3)');
+                g.addColorStop(.45, 'rgba(34,197,94,.05)');
+                g.addColorStop(1,   'rgba(239,68,68,.25)');
+                return g;
+            },
+            fill: true, borderWidth: 1.5, tension: .4, pointRadius: 0,
+        }]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { grid: { color: '#1c2235' }, ticks: { font: { size: 10 } } },
+            y: { grid: { color: '#1c2235' }, ticks: { callback: v => '$'+v.toLocaleString(), font: { size: 10 } } }
+        }
+    }
+});
+
+/* ---- Daily P&L bar ---- */
+const dailyVals = [110, 155, 122, 0, 0, 156, -830, -1409];
+new Chart(document.getElementById('dailyPnlChart'), {
+    type: 'bar',
+    data: {
+        labels: cumDates,
+        datasets: [{
+            data: dailyVals,
+            backgroundColor: dailyVals.map(v => v >= 0 ? 'rgba(34,197,94,.7)' : 'rgba(239,68,68,.7)'),
+            borderRadius: 3,
+        }]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { grid: { display: false } },
+            y: { grid: { color: '#1c2235' }, ticks: { callback: v => '$'+v.toLocaleString(), font: { size: 10 } } }
+        }
+    }
+});
+
+/* ---- Account balance ---- */
+new Chart(document.getElementById('balanceChart'), {
+    type: 'line',
+    data: {
+        labels: cumDates,
+        datasets: [
+            {
+                label: 'Account Balance',
+                data: [51450, 51560, 51715, 51590, 51590, 51745, 50915, 50305],
+                borderColor: '#818cf8', backgroundColor: 'transparent',
+                borderWidth: 1.5, tension: .4, pointRadius: 0,
+            },
+            {
+                label: 'Deposits / Withdrawals',
+                data: [51000, 51000, 51000, 51000, 51000, 51000, 51000, 51000],
+                borderColor: '#ef4444', backgroundColor: 'transparent',
+                borderWidth: 1, borderDash: [4, 3], tension: 0, pointRadius: 0,
+            }
+        ]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+            y: { grid: { color: '#1c2235' }, ticks: { callback: v => '$'+(v/1000).toFixed(0)+'k', font: { size: 10 } } }
+        }
+    }
+});
+
+/* ---- Heatmap ---- */
+(function buildHeatmap() {
+    const container = document.getElementById('heatmapWrap');
+    const weeks = 18;
+    const dayLabels = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+
+    // Generate deterministic fake data
+    const data = [];
+    const seed = [0,2,3,-1,4,-2,0,3,-3,2,1,-4,0,3,2,-1,4,-2,
+                  0,3,-2,0,2,4,-1,0,3,-3,2,-2,4,0,1,-1,3,-2,
+                  0,0,2,-3,4,1,0,-2,3,-1,2,0,4,-3,0,1,-2,3,0,
+                  0,2,-1,4,-2,0,3,-3,2,1,0,-4,0,3,2,-1,0,-2,
+                  4,0,1,-1,3,-2,0,0,2,-3,4,1,0,-2,3,-1,0,2,
+                  0,4,-3,0,1,-2,3,0,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5];
+    let si = 0;
+    for (let w = 0; w < weeks; w++) {
+        const week = [];
+        for (let d = 0; d < 7; d++) {
+            if (d === 0 || d === 6) { week.push(0); continue; }
+            const v = seed[si++ % seed.length];
+            week.push(v > 4 ? 0 : v);
+        }
+        data.push(week);
+    }
+
+    // Month labels row
+    const monthPos = {0:'Dec', 4:'Jan', 9:'Feb', 14:'Mar'};
+    let html = '<div style="display:flex; margin-left:26px; margin-bottom:3px;">';
+    for (let w = 0; w < weeks; w++) {
+        html += `<div style="width:15px; font-size:9.5px; color:var(--muted);">${monthPos[w]||''}</div>`;
+    }
+    html += '</div>';
+
+    html += '<div style="display:flex; gap:0; align-items:flex-start;">';
+    // Day labels
+    html += '<div style="display:flex; flex-direction:column; gap:2px; margin-right:5px; padding-top:0;">';
+    for (let d = 0; d < 7; d++) {
+        html += `<div style="height:13px; font-size:9px; color:var(--muted); line-height:13px;">${d%2===1?dayLabels[d]:''}</div>`;
+    }
+    html += '</div>';
+
+    // Grid
+    html += '<div style="display:flex; gap:2px;">';
+    for (let w = 0; w < weeks; w++) {
+        html += '<div style="display:flex; flex-direction:column; gap:2px;">';
+        for (let d = 0; d < 7; d++) {
+            const v = data[w][d];
+            let cls = 'hm-cell ';
+            if (v === 0) cls += 'hm-dot';
+            else if (v > 0) cls += 'hm-w' + Math.min(v, 4);
+            else cls += 'hm-l' + Math.min(Math.abs(v), 4);
+            html += `<div class="${cls}"></div>`;
+        }
+        html += '</div>';
+    }
+    html += '</div></div>';
+
+    // Legend
+    html += '<div class="hm-legend"><span>Less</span>';
+    for (let i=4;i>=1;i--) html += `<div class="hm-legend-cell hm-l${i}"></div>`;
+    html += '<div class="hm-legend-cell hm-dot"></div>';
+    for (let i=1;i<=4;i++) html += `<div class="hm-legend-cell hm-w${i}"></div>`;
+    html += '<span>More</span></div>';
+
+    container.innerHTML = html;
+})();
+
+/* ---- Tab switching ---- */
+function switchTab(btn, tab) {
+    btn.closest('.tab-row').querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-recent').style.display = tab === 'recent' ? '' : 'none';
+    document.getElementById('tab-open').style.display  = tab === 'open'   ? '' : 'none';
+}
+</script>
+{% endblock %}

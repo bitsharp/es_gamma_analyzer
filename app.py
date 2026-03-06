@@ -4597,6 +4597,25 @@ def index():
     return render_template('index.html')
 
 
+# ============================================================================
+# TRADING JOURNAL (TradeZella-style interface)
+# ============================================================================
+
+@app.route('/journal')
+def journal_dashboard():
+    return render_template('journal_dashboard.html', active_page='dashboard')
+
+
+@app.route('/journal/trade-view')
+def journal_trade_view():
+    return render_template('journal_trade_view.html', active_page='trade-view')
+
+
+@app.route('/journal/day-view')
+def journal_day_view():
+    return render_template('journal_day_view.html', active_page='day-view')
+
+
 @app.route('/favicon.ico')
 def favicon():
     # Avoid a 404 page if the browser requests /favicon.ico.
@@ -5667,6 +5686,242 @@ def api_checklist_reset():
         return jsonify({'error': str(e)}), 500
 
     return jsonify({'ok': True, 'date_key': date_key})
+
+
+# ============================================================================
+# APEX CSV IMPORT — parse Overcharts order export into round-trip trades
+# ============================================================================
+
+def _parse_apex_csv(content: str, date_filter: str = '') -> list:
+    """Parse an Overcharts/Apex TSV export and return a list of round-trip trade dicts.
+
+    Only 'Filled' rows are considered.  If date_filter is provided (YYYY-MM-DD),
+    only fills whose fill date matches that day are included — this is essential
+    because Overcharts exports often span multiple trading days.
+
+    Fills are grouped by account, then sorted chronologically within each account.
+    Position tracking (FIFO) groups fills into round trips per account.
+    Each resulting trade is tagged with 'account' and 'imported': True.
+
+    ES multiplier: 1 point = $50 (E-mini S&P 500).
+    """
+    import csv as _csv
+    import io as _io
+    from collections import defaultdict as _defaultdict
+
+    _ES_MULTIPLIER = 50.0
+
+    # Parse date_filter into a date object for comparison
+    filter_date = None
+    if date_filter:
+        try:
+            filter_date = _dt.datetime.strptime(date_filter, '%Y-%m-%d').date()
+        except Exception:
+            pass
+
+    reader = _csv.reader(_io.StringIO(content), delimiter='\t')
+    rows = list(reader)
+
+    if len(rows) < 2:
+        return []
+
+    fills = []
+    for row in rows[1:]:
+        if len(row) < 17:
+            continue
+        state = row[8].strip()
+        if state != 'Filled':
+            continue
+
+        side = row[1].strip()           # 'Buy' or 'Sell'
+        symbol = row[0].strip()         # e.g. 'MESH26', 'MESH26' (ES), 'MESH26' (MES)
+        filled_qty_str = row[5].strip()
+        avg_price_str = row[6].strip()
+        account = row[12].strip() if len(row) > 12 else 'Unknown'
+        fill_date = row[15].strip()     # MM/DD/YYYY
+        fill_time_raw = row[16].strip() # HH:MM:SS.mmm
+
+        try:
+            filled_qty = int(filled_qty_str)
+            avg_price = float(avg_price_str)
+        except (ValueError, TypeError):
+            continue
+
+        if filled_qty <= 0 or avg_price <= 0:
+            continue
+
+        try:
+            dt = _dt.datetime.strptime(
+                f"{fill_date} {fill_time_raw[:8]}", "%m/%d/%Y %H:%M:%S"
+            )
+        except Exception:
+            continue
+
+        # Filter by date if requested
+        if filter_date is not None and dt.date() != filter_date:
+            continue
+
+        fills.append({
+            'dt': dt,
+            'time_str': fill_time_raw[:5],  # HH:MM
+            'side': side,
+            'qty': filled_qty,
+            'price': avg_price,
+            'account': account,
+            'symbol': symbol,
+        })
+
+    if not fills:
+        return []
+
+    # Group fills by account, process each independently
+    accounts_fills: dict = _defaultdict(list)
+    for f in fills:
+        accounts_fills[f['account']].append(f)
+
+    result = []
+
+    for account_name, acct_fills in accounts_fills.items():
+        # Sort chronologically within this account
+        acct_fills.sort(key=lambda x: x['dt'])
+
+        # Group into round-trip trades using net-position tracking
+        position = 0
+        current_round: list = []
+        round_trips: list = []
+
+        for f in acct_fills:
+            current_round.append(f)
+            if f['side'] == 'Buy':
+                position += f['qty']
+            else:
+                position -= f['qty']
+
+            if position == 0:
+                round_trips.append(list(current_round))
+                current_round = []
+
+        if current_round:
+            round_trips.append(list(current_round))
+
+        for rt in round_trips:
+            buys = [f for f in rt if f['side'] == 'Buy']
+            sells = [f for f in rt if f['side'] == 'Sell']
+
+            if not (buys and sells):
+                # Skip pure directional open positions with no fills on the other side
+                continue
+
+            is_long = rt[0]['side'] == 'Buy'
+
+            total_buy_qty = sum(f['qty'] for f in buys)
+            total_sell_qty = sum(f['qty'] for f in sells)
+            closed_qty = min(total_buy_qty, total_sell_qty)
+            is_open = total_buy_qty != total_sell_qty
+
+            if is_long:
+                entry_fills, exit_fills = buys, sells
+            else:
+                entry_fills, exit_fills = sells, buys
+
+            total_entry_qty = sum(f['qty'] for f in entry_fills)
+            total_exit_qty = sum(f['qty'] for f in exit_fills)
+
+            avg_entry = (
+                sum(f['qty'] * f['price'] for f in entry_fills) / total_entry_qty
+                if total_entry_qty else 0.0
+            )
+            avg_exit = (
+                sum(f['qty'] * f['price'] for f in exit_fills) / total_exit_qty
+                if total_exit_qty else 0.0
+            )
+
+            if is_long:
+                pnl_points = (avg_exit - avg_entry) * closed_qty
+            else:
+                pnl_points = (avg_entry - avg_exit) * closed_qty
+
+            # Dynamic multiplier based on contract symbol
+            # Micro contracts must be checked before their full-size counterparts
+            _sym = (rt[0].get('symbol') or '').upper()
+            if _sym.startswith('MNQ'):   _mult = 2.0    # Micro E-mini NASDAQ
+            elif _sym.startswith('MES'): _mult = 5.0    # Micro E-mini S&P 500
+            elif _sym.startswith('M2K'): _mult = 5.0    # Micro Russell 2000
+            elif _sym.startswith('MGC'): _mult = 10.0   # Micro Gold
+            elif _sym.startswith('MCL'): _mult = 100.0  # Micro Crude Oil
+            elif _sym.startswith('NQ'):  _mult = 20.0   # E-mini NASDAQ
+            elif _sym.startswith('RTY'): _mult = 50.0   # E-mini Russell 2000
+            elif _sym.startswith('GC'):  _mult = 100.0  # Gold
+            elif _sym.startswith('CL'):  _mult = 1000.0 # Crude Oil
+            else:                        _mult = _ES_MULTIPLIER  # ES default $50
+
+            pnl_dollars = round(pnl_points * _mult, 2)
+
+            direction_label = 'Long' if is_long else 'Short'
+            _sym_label = rt[0].get('symbol', '')
+            note_parts = [
+                f"{direction_label} {closed_qty}x {_sym_label}".strip(),
+                f"entry {avg_entry:.2f} → exit {avg_exit:.2f}",
+            ]
+            if is_open:
+                note_parts.append("(posizione aperta)")
+
+            result.append({
+                'time': rt[0]['time_str'],
+                'account': account_name,
+                'imported': True,
+                'qty': closed_qty,
+                'context': {'trend': 'long' if is_long else 'short'},
+                'result': {
+                    'executed': 'true',
+                    'pnl': '' if is_open else str(pnl_dollars),
+                    'notes': ' | '.join(note_parts),
+                },
+            })
+
+    # Sort final list by time across all accounts
+    result.sort(key=lambda x: x.get('time', ''))
+    return result
+
+
+@app.route('/api/checklist/import-apex', methods=['POST'])
+@login_required
+def api_import_apex():
+    """Parse an Overcharts/Apex CSV export and return trade objects.
+
+    Accepts multipart form fields:
+      - file: the CSV/TSV file
+      - date_key: YYYY-MM-DD — only fills matching this date are imported
+    """
+    if 'file' not in request.files:
+        return jsonify({'error': 'Nessun file caricato'}), 400
+
+    f = request.files['file']
+    if not f.filename:
+        return jsonify({'error': 'Nome file vuoto'}), 400
+
+    date_key = (request.form.get('date_key') or '').strip()
+    import re as _re
+    if date_key and not _re.match(r'^\d{4}-\d{2}-\d{2}$', date_key):
+        return jsonify({'error': 'date_key non valido'}), 400
+
+    # Accept only plain text / CSV — guard against large uploads
+    MAX_SIZE = 2 * 1024 * 1024  # 2 MB
+    raw = f.read(MAX_SIZE + 1)
+    if len(raw) > MAX_SIZE:
+        return jsonify({'error': 'File troppo grande (max 2 MB)'}), 413
+
+    try:
+        content = raw.decode('utf-8-sig', errors='replace')
+    except Exception:
+        return jsonify({'error': 'Impossibile decodificare il file'}), 400
+
+    try:
+        trades = _parse_apex_csv(content, date_filter=date_key)
+    except Exception as e:
+        return jsonify({'error': f'Errore parsing: {e}'}), 500
+
+    return jsonify({'ok': True, 'trades': trades, 'count': len(trades), 'date_filter': date_key})
 
 
 # ============================================================================

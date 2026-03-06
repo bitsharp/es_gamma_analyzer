@@ -1,0 +1,307 @@
+{% extends "journal_base.html" %}
+{% block title %}Day View{% endblock %}
+{% block page_title %}Day View{% endblock %}
+
+{% block header_controls %}
+<button class="ctrl-btn"><i class="bi bi-funnel"></i> Filters <i class="bi bi-chevron-down"></i></button>
+<button class="ctrl-btn"><i class="bi bi-calendar-range"></i> Date range <i class="bi bi-chevron-down"></i></button>
+<button class="ctrl-btn"><i class="bi bi-building"></i> Rithmic 81 <i class="bi bi-chevron-down"></i></button>
+{% endblock %}
+
+{% block extra_css %}
+.toggle-bar { display:inline-flex; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+.toggle-btn { background:none; border:none; padding:6px 18px; color:var(--muted); font-size:12.5px; cursor:pointer; transition:background .15s, color .15s; }
+.toggle-btn.active { background:var(--bg-hover); color:var(--neutral); font-weight:600; }
+{% endblock %}
+
+{% block content %}
+
+<div class="row g-3">
+    <!-- ===== DAY LIST (left) ===== -->
+    <div class="col-lg-9">
+
+        <!-- Day / Week toggle + Start my day -->
+        <div class="d-flex align-items-center justify-content-between mb-3">
+            <div class="toggle-bar">
+                <button class="toggle-btn active" onclick="setView(this,'day')">Day</button>
+                <button class="toggle-btn" onclick="setView(this,'week')">Week</button>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="ctrl-btn accent"><i class="bi bi-rocket-takeoff"></i> Start my day</button>
+                <button class="ctrl-btn"><i class="bi bi-gear"></i></button>
+            </div>
+        </div>
+
+        <!-- ========================================
+             Day cards
+             ======================================== -->
+
+        <!-- DAY: Thu Nov 13, 2025 -->
+        <div class="day-card">
+            <div class="day-hdr" onclick="toggleDayCard(this)">
+                <i class="bi bi-chevron-down day-chev open"></i>
+                <span class="day-date">Thu, Nov 13, 2025</span>
+                <span class="day-pnl-neg">• Net P&amp;L -$1,409.22</span>
+                <div class="day-acts">
+                    <button class="day-act-btn"><i class="bi bi-play-fill"></i> Replay</button>
+                    <button class="day-act-btn"><i class="bi bi-plus"></i> Add note</button>
+                    <div class="day-avatar">TJ</div>
+                </div>
+            </div>
+            <div class="day-body">
+                <div class="row g-0">
+                    <div class="col-md-5" style="border-right:1px solid var(--border); padding-right:16px;">
+                        <div style="height:120px;"><canvas id="dc0"></canvas></div>
+                    </div>
+                    <div class="col-md-7" style="padding-left:18px;">
+                        <div class="day-stats-grid">
+                            <div><div class="ds-label">Total Trades</div><div class="ds-val">16</div></div>
+                            <div><div class="ds-label">Gross P&amp;L</div><div class="ds-val neg">-$1,245</div></div>
+                            <div><div class="ds-label">Winners / Losers</div><div class="ds-val">1 / 15</div></div>
+                            <div><div class="ds-label">Commissions</div><div class="ds-val muted">$164.22</div></div>
+                            <div><div class="ds-label">Win Rate</div><div class="ds-val">6.25%</div></div>
+                            <div><div class="ds-label">Volume</div><div class="ds-val">161</div></div>
+                            <div><div class="ds-label">Profit Factor</div><div class="ds-val">0.11</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DAY: Wed Nov 12, 2025 -->
+        <div class="day-card">
+            <div class="day-hdr" onclick="toggleDayCard(this)">
+                <i class="bi bi-chevron-down day-chev open"></i>
+                <span class="day-date">Wed, Nov 12, 2025</span>
+                <span class="day-pnl-neg">• Net P&amp;L -$830.31</span>
+                <div class="day-acts">
+                    <button class="day-act-btn"><i class="bi bi-play-fill"></i> Replay</button>
+                    <button class="day-act-btn"><i class="bi bi-plus"></i> Add note</button>
+                    <div class="day-avatar">TJ</div>
+                </div>
+            </div>
+            <div class="day-body">
+                <div class="row g-0">
+                    <div class="col-md-5" style="border-right:1px solid var(--border); padding-right:16px;">
+                        <div style="height:120px;"><canvas id="dc1"></canvas></div>
+                    </div>
+                    <div class="col-md-7" style="padding-left:18px;">
+                        <div class="day-stats-grid">
+                            <div><div class="ds-label">Total Trades</div><div class="ds-val">21</div></div>
+                            <div><div class="ds-label">Gross P&amp;L</div><div class="ds-val neg">-$648.75</div></div>
+                            <div><div class="ds-label">Winners / Losers</div><div class="ds-val">4 / 17</div></div>
+                            <div><div class="ds-label">Commissions</div><div class="ds-val muted">$181.56</div></div>
+                            <div><div class="ds-label">Win Rate</div><div class="ds-val">19.05%</div></div>
+                            <div><div class="ds-label">Volume</div><div class="ds-val">178</div></div>
+                            <div><div class="ds-label">Profit Factor</div><div class="ds-val">0.41</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DAY: Tue Nov 11, 2025 (GREEN) -->
+        <div class="day-card">
+            <div class="day-hdr" onclick="toggleDayCard(this)">
+                <i class="bi bi-chevron-down day-chev open"></i>
+                <span class="day-date">Tue, Nov 11, 2025</span>
+                <span class="day-pnl-pos">• Net P&amp;L +$155.87</span>
+                <div class="day-acts">
+                    <button class="day-act-btn"><i class="bi bi-play-fill"></i> Replay</button>
+                    <button class="day-act-btn"><i class="bi bi-plus"></i> Add note</button>
+                    <div class="day-avatar">TJ</div>
+                </div>
+            </div>
+            <div class="day-body">
+                <div class="row g-0">
+                    <div class="col-md-5" style="border-right:1px solid var(--border); padding-right:16px;">
+                        <div style="height:120px;"><canvas id="dc2"></canvas></div>
+                    </div>
+                    <div class="col-md-7" style="padding-left:18px;">
+                        <div class="day-stats-grid">
+                            <div><div class="ds-label">Total Trades</div><div class="ds-val">12</div></div>
+                            <div><div class="ds-label">Gross P&amp;L</div><div class="ds-val pos">+$226.25</div></div>
+                            <div><div class="ds-label">Winners / Losers</div><div class="ds-val">7 / 5</div></div>
+                            <div><div class="ds-label">Commissions</div><div class="ds-val muted">$70.38</div></div>
+                            <div><div class="ds-label">Win Rate</div><div class="ds-val">58.33%</div></div>
+                            <div><div class="ds-label">Volume</div><div class="ds-val">98</div></div>
+                            <div><div class="ds-label">Profit Factor</div><div class="ds-val">2.14</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DAY: Thu Nov 7, 2025 (collapsed) -->
+        <div class="day-card">
+            <div class="day-hdr" onclick="toggleDayCard(this)">
+                <i class="bi bi-chevron-right day-chev"></i>
+                <span class="day-date">Thu, Nov 7, 2025</span>
+                <span class="day-pnl-neg">• Net P&amp;L -$125.20</span>
+                <div class="day-acts">
+                    <button class="day-act-btn"><i class="bi bi-play-fill"></i> Replay</button>
+                    <button class="day-act-btn"><i class="bi bi-plus"></i> Add note</button>
+                    <div class="day-avatar">TJ</div>
+                </div>
+            </div>
+            <div class="day-body" style="display:none;">
+                <div class="row g-0">
+                    <div class="col-md-5" style="border-right:1px solid var(--border); padding-right:16px;">
+                        <div style="height:120px;"><canvas id="dc3"></canvas></div>
+                    </div>
+                    <div class="col-md-7" style="padding-left:18px;">
+                        <div class="day-stats-grid">
+                            <div><div class="ds-label">Total Trades</div><div class="ds-val">8</div></div>
+                            <div><div class="ds-label">Gross P&amp;L</div><div class="ds-val neg">-$82.00</div></div>
+                            <div><div class="ds-label">Winners / Losers</div><div class="ds-val">2 / 6</div></div>
+                            <div><div class="ds-label">Commissions</div><div class="ds-val muted">$43.20</div></div>
+                            <div><div class="ds-label">Win Rate</div><div class="ds-val">25.00%</div></div>
+                            <div><div class="ds-label">Volume</div><div class="ds-val">64</div></div>
+                            <div><div class="ds-label">Profit Factor</div><div class="ds-val">0.63</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DAY: Thu Nov 6, 2025 (collapsed, green) -->
+        <div class="day-card">
+            <div class="day-hdr" onclick="toggleDayCard(this)">
+                <i class="bi bi-chevron-right day-chev"></i>
+                <span class="day-date">Thu, Nov 6, 2025</span>
+                <span class="day-pnl-pos">• Net P&amp;L +$153.00</span>
+                <div class="day-acts">
+                    <button class="day-act-btn"><i class="bi bi-play-fill"></i> Replay</button>
+                    <button class="day-act-btn"><i class="bi bi-plus"></i> Add note</button>
+                    <div class="day-avatar">TJ</div>
+                </div>
+            </div>
+            <div class="day-body" style="display:none;">
+                <div class="row g-0">
+                    <div class="col-md-5" style="border-right:1px solid var(--border); padding-right:16px;">
+                        <div style="height:120px;"><canvas id="dc4"></canvas></div>
+                    </div>
+                    <div class="col-md-7" style="padding-left:18px;">
+                        <div class="day-stats-grid">
+                            <div><div class="ds-label">Total Trades</div><div class="ds-val">10</div></div>
+                            <div><div class="ds-label">Gross P&amp;L</div><div class="ds-val pos">+$203.50</div></div>
+                            <div><div class="ds-label">Winners / Losers</div><div class="ds-val">6 / 4</div></div>
+                            <div><div class="ds-label">Commissions</div><div class="ds-val muted">$50.50</div></div>
+                            <div><div class="ds-label">Win Rate</div><div class="ds-val">60.00%</div></div>
+                            <div><div class="ds-label">Volume</div><div class="ds-val">82</div></div>
+                            <div><div class="ds-label">Profit Factor</div><div class="ds-val">1.89</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /col-lg-9 -->
+
+    <!-- ===== MINI CALENDAR (right) ===== -->
+    <div class="col-lg-3">
+        <div class="card-box" style="position:sticky; top:16px;">
+            <div class="mini-cal-hdr">
+                <button class="mini-cal-nav" onclick="calNav(-1)"><i class="bi bi-chevron-left"></i></button>
+                <span id="calMonthLabel">November 2025</span>
+                <button class="mini-cal-nav" onclick="calNav(1)"><i class="bi bi-chevron-right"></i></button>
+            </div>
+            <div class="cal-grid" id="calGrid"></div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+Chart.defaults.color = '#8b949e';
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+Chart.defaults.font.size = 11;
+
+/* ---- Day card chart helper ---- */
+function mkDayChart(id, data, isWin) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const color = isWin ? '#22c55e' : '#ef4444';
+    new Chart(el, {
+        type: 'line',
+        data: {
+            labels: data.map((_,i) => i),
+            datasets: [{
+                data,
+                borderColor: color,
+                backgroundColor: isWin ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.15)',
+                fill: true, borderWidth: 1.5, tension: .45, pointRadius: 0,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend:{display:false}, tooltip:{enabled:false} },
+            scales: { x:{display:false}, y:{ grid:{color:'#1c2235'}, ticks:{font:{size:10}, callback:v=>'$'+v} } }
+        }
+    });
+}
+
+mkDayChart('dc0', [0,-80,-220,-340,-590,-820,-1050,-1180,-1409], false);
+mkDayChart('dc1', [0,80,150,-20,-180,-420,-648,-830],            false);
+mkDayChart('dc2', [0,40,90,155,120,195,156,226],                 true);
+mkDayChart('dc3', [0,-20,-50,-30,-82,-125],                      false);
+mkDayChart('dc4', [0,45,80,130,110,165,180,204],                 true);
+
+/* ---- Toggle day card ---- */
+function toggleDayCard(hdr) {
+    const body = hdr.nextElementSibling;
+    const chev = hdr.querySelector('.day-chev');
+    const isOpen = body.style.display !== 'none';
+    body.style.display = isOpen ? 'none' : '';
+    chev.className = isOpen
+        ? 'bi bi-chevron-right day-chev'
+        : 'bi bi-chevron-down day-chev open';
+}
+
+/* ---- Day / Week toggle ---- */
+function setView(btn, view) {
+    btn.closest('.toggle-bar').querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+}
+
+/* ---- Mini calendar ---- */
+const CAL_WIN_DAYS  = new Set([5,6,11,18,20,25]);   // day numbers that are wins
+const CAL_LOSS_DAYS = new Set([7,12,13,14,19,21]);  // day numbers that are losses
+
+let calYear  = 2025;
+let calMonth = 10; // 0-indexed, so 10 = November
+
+function renderCal() {
+    const months = ['January','February','March','April','May','June',
+                    'July','August','September','October','November','December'];
+    document.getElementById('calMonthLabel').textContent = months[calMonth] + ' ' + calYear;
+
+    const grid = document.getElementById('calGrid');
+    const dows = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+    let html = dows.map(d => `<div class="cal-dow">${d}</div>`).join('');
+
+    const firstDay = new Date(calYear, calMonth, 1).getDay();
+    const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+
+    for (let i=0; i<firstDay; i++) html += '<div class="cal-day empty">.</div>';
+    for (let d=1; d<=daysInMonth; d++) {
+        let cls = 'cal-day';
+        if (CAL_WIN_DAYS.has(d))  cls += ' w';
+        if (CAL_LOSS_DAYS.has(d)) cls += ' l';
+        html += `<div class="${cls}">${d}</div>`;
+    }
+    grid.innerHTML = html;
+}
+
+function calNav(dir) {
+    calMonth += dir;
+    if (calMonth > 11) { calMonth = 0; calYear++; }
+    if (calMonth < 0)  { calMonth = 11; calYear--; }
+    renderCal();
+}
+
+renderCal();
+</script>
+{% endblock %}

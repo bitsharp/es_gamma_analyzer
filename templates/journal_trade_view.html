@@ -1,0 +1,182 @@
+{% extends "journal_base.html" %}
+{% block title %}Trade View{% endblock %}
+{% block page_title %}Trade View{% endblock %}
+
+{% block content %}
+
+<!-- ===== TOP METRICS ===== -->
+<div class="row g-2 mb-3">
+
+    <!-- Net cumulative P&L -->
+    <div class="col-md-3">
+        <div class="card-box">
+            <div class="card-ttl">
+                Net cumulative P&amp;L
+                <span style="margin-left:6px; background:var(--bg-hover); color:var(--muted); font-size:10px; padding:1px 7px; border-radius:10px;">78</span>
+            </div>
+            <div class="m-val neg" style="font-size:20px;">-$1,306.68</div>
+            <div style="height:48px; margin-top:6px;"><canvas id="tv_spark"></canvas></div>
+        </div>
+    </div>
+
+    <!-- Profit factor -->
+    <div class="col-md-3">
+        <div class="card-box">
+            <div class="card-ttl">Profit factor <i class="bi bi-info-circle"></i></div>
+            <div class="m-val neu" style="font-size:20px;">0.68</div>
+            <div class="gauge-wrap" style="height:66px; margin-top:4px;">
+                <canvas id="tv_gaugePF"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trade win % -->
+    <div class="col-md-3">
+        <div class="card-box">
+            <div class="card-ttl">Trade win % <i class="bi bi-info-circle"></i></div>
+            <div class="m-val neu" style="font-size:20px;">33.33%</div>
+            <div class="gauge-wrap" style="height:66px; margin-top:4px;">
+                <canvas id="tv_gaugeWin"></canvas>
+                <div class="gauge-labels"><span>26</span><span>0</span><span>52</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Avg win/loss -->
+    <div class="col-md-3">
+        <div class="card-box">
+            <div class="card-ttl">Avg win/loss trade <i class="bi bi-info-circle"></i></div>
+            <div class="d-flex align-items-center gap-3 mt-1">
+                <div class="avg-ratio" style="font-size:20px;">1.35</div>
+                <div class="avg-bars">
+                    <div class="avg-bar-row">
+                        <div class="avg-track"><div class="avg-fill-w" style="width:62%;"></div></div>
+                        <div class="avg-lbl pos">$105</div>
+                    </div>
+                    <div class="avg-bar-row">
+                        <div class="avg-track"><div class="avg-fill-l" style="width:46%;"></div></div>
+                        <div class="avg-lbl neg">-$77.5</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== TRADE TABLE ===== -->
+<div class="card-box">
+    <div class="d-flex align-items-center justify-content-end mb-3 gap-2">
+        <button class="ctrl-btn"><i class="bi bi-gear"></i></button>
+        <button class="ctrl-btn">Bulk actions <i class="bi bi-chevron-down"></i></button>
+    </div>
+    <div style="overflow-x:auto;">
+        <table class="data-tbl">
+            <thead>
+                <tr>
+                    <th style="width:32px;"><input type="checkbox" style="accent-color:var(--accent);"></th>
+                    <th>Open date <i class="bi bi-arrow-down-up" style="opacity:.5; font-size:9px;"></i></th>
+                    <th>Symbol</th>
+                    <th>Status</th>
+                    <th>Close date</th>
+                    <th>Entry price</th>
+                    <th>Exit price</th>
+                    <th>Net P&amp;L</th>
+                    <th>Net ROI</th>
+                    <th>Insights Score</th>
+                    <th>Trade Scale</th>
+                </tr>
+            </thead>
+            <tbody id="tradeBody"></tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+Chart.defaults.color = '#8b949e';
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+Chart.defaults.font.size = 11;
+
+/* ---- Trade data ---- */
+const trades = [
+    { d:'11/13/2025', sym:'MES', win:false, cd:'11/13/2025', ep:6831.75,  xp:6832.500, pnl:-47.7,   roi:-0.01, sc:3, bar:.45 },
+    { d:'11/13/2025', sym:'MES', win:false, cd:'11/13/2025', ep:6830.25,  xp:6833.750, pnl:-185.2,  roi:-0.05, sc:3, bar:.55 },
+    { d:'11/13/2025', sym:'MES', win:false, cd:'11/13/2025', ep:6831.00,  xp:6831.000, pnl:-10.2,   roi:-0.00, sc:2, bar:.20 },
+    { d:'11/13/2025', sym:'MES', win:false, cd:'11/13/2025', ep:6827.75,  xp:6825.750, pnl:-110.2,  roi:-0.03, sc:2, bar:.35 },
+    { d:'11/13/2025', sym:'MES', win:false, cd:'11/13/2025', ep:6830.25,  xp:6825.325, pnl:-256.45, roi:-0.08, sc:1, bar:.15 },
+    { d:'11/13/2025', sym:'MES', win:false, cd:'11/13/2025', ep:6829.25,  xp:6826.750, pnl:-135.2,  roi:-0.04, sc:2, bar:.30 },
+    { d:'11/13/2025', sym:'MES', win:false, cd:'11/13/2025', ep:6831.75,  xp:6829.000, pnl:-147.7,  roi:-0.04, sc:2, bar:.28 },
+    { d:'11/13/2025', sym:'MES', win:false, cd:'11/13/2025', ep:6852.00,  xp:6850.000, pnl:-110.2,  roi:-0.03, sc:2, bar:.32 },
+    { d:'11/13/2025', sym:'MES', win:true,  cd:'11/13/2025', ep:6852.75,  xp:6853.000, pnl:172.3,   roi:0.05,  sc:4, bar:.80 },
+    { d:'11/12/2025', sym:'MES', win:false, cd:'11/12/2025', ep:6820.50,  xp:6818.000, pnl:-135.2,  roi:-0.04, sc:2, bar:.30 },
+    { d:'11/12/2025', sym:'MES', win:false, cd:'11/12/2025', ep:6825.25,  xp:6822.750, pnl:-147.7,  roi:-0.04, sc:3, bar:.35 },
+    { d:'11/12/2025', sym:'MES', win:true,  cd:'11/12/2025', ep:6810.50,  xp:6813.000, pnl:142.3,   roi:0.04,  sc:4, bar:.75 },
+    { d:'11/11/2025', sym:'MES', win:true,  cd:'11/11/2025', ep:6780.25,  xp:6784.500, pnl:217.8,   roi:0.06,  sc:5, bar:.90 },
+    { d:'11/11/2025', sym:'MES', win:true,  cd:'11/11/2025', ep:6790.00,  xp:6795.250, pnl:262.3,   roi:0.08,  sc:5, bar:.95 },
+    { d:'11/07/2025', sym:'MES', win:false, cd:'11/07/2025', ep:6770.00,  xp:6767.500, pnl:-125.2,  roi:-0.04, sc:2, bar:.25 },
+    { d:'11/06/2025', sym:'MES', win:true,  cd:'11/06/2025', ep:6748.25,  xp:6752.000, pnl:187.5,   roi:0.06,  sc:4, bar:.82 },
+    { d:'11/05/2025', sym:'MES', win:true,  cd:'11/05/2025', ep:6725.50,  xp:6728.750, pnl:162.3,   roi:0.05,  sc:4, bar:.78 },
+    { d:'11/04/2025', sym:'MES', win:false, cd:'11/04/2025', ep:6712.00,  xp:6709.250, pnl:-137.8,  roi:-0.04, sc:2, bar:.22 },
+];
+
+/* ---- Render table ---- */
+const tbody = document.getElementById('tradeBody');
+trades.forEach(t => {
+    const pPos = t.pnl >= 0;
+    const pnlStr = (pPos?'+':'')+' $'+Math.abs(t.pnl).toFixed(1);
+    const roiStr = (pPos?'+':'')+Math.abs(t.roi*100).toFixed(2)+'%';
+    const stars  = '★'.repeat(t.sc) + '☆'.repeat(5-t.sc);
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td><input type="checkbox" style="accent-color:var(--accent);"></td>
+        <td style="color:var(--muted);">${t.d}</td>
+        <td><strong>${t.sym}</strong></td>
+        <td><span class="${t.win?'badge-w':'badge-l'}">${t.win?'WIN':'LOSS'}</span></td>
+        <td style="color:var(--muted);">${t.cd}</td>
+        <td>$${t.ep.toFixed(2)}</td>
+        <td>$${t.xp.toFixed(3)}</td>
+        <td class="${pPos?'pos':'neg'}">${pnlStr}</td>
+        <td class="${pPos?'pos':'neg'}">${roiStr}</td>
+        <td style="color:var(--muted); letter-spacing:1px; font-size:11px;">${stars}</td>
+        <td>
+            <div class="scale-bar">
+                <div class="${t.win?'scale-w':'scale-l'}" style="width:${Math.round(t.bar*100)}%;"></div>
+            </div>
+        </td>`;
+    tbody.appendChild(row);
+});
+
+/* ---- Gauges ---- */
+function mkGauge(id, pct, color) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    new Chart(el, {
+        type: 'doughnut',
+        data: { datasets: [{ data:[pct,100-pct], backgroundColor:[color,'#252d42'], borderWidth:0 }] },
+        options: {
+            responsive:true, maintainAspectRatio:false,
+            rotation:-90, circumference:180, cutout:'72%',
+            plugins:{ legend:{display:false}, tooltip:{enabled:false} }
+        }
+    });
+}
+mkGauge('tv_gaugeWin', 33.33, '#22c55e');
+mkGauge('tv_gaugePF',  68,    '#6366f1');
+
+/* ---- Sparkline ---- */
+new Chart(document.getElementById('tv_spark'), {
+    type: 'line',
+    data: {
+        labels: ['','','','','','','',''],
+        datasets: [{ data:[0,110,265,156,156,312,-518,-1307], borderColor:'#ef4444', backgroundColor:'rgba(239,68,68,.12)', fill:true, borderWidth:1.5, tension:.4, pointRadius:0 }]
+    },
+    options: {
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false}, tooltip:{enabled:false} },
+        scales:{ x:{display:false}, y:{display:false} }
+    }
+});
+</script>
+{% endblock %}
