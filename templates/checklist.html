@@ -141,8 +141,10 @@
         .red-flag-item {
             display: flex; align-items: center; gap: 0.5rem;
             padding: 0.3rem 0; font-size: 0.9rem; color: #f87171;
+            border-bottom: 1px solid rgba(65,90,119,0.3); line-height: 1.5;
         }
-        .red-flag-item i { font-size: 0.9rem; }
+        .red-flag-item:last-child { border-bottom: none; }
+        .red-flag-item i { font-size: 0.9rem; flex-shrink: 0; }
 
         /* history sidebar */
         .history-btn {
@@ -444,12 +446,12 @@
                         RED FLAGS
                     </div>
                     <div class="card-body">
-                        <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> Non c'è contesto chiaro</div>
-                        <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> Stai "sperando" invece di vedere conferma</div>
-                        <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> Hai già perso 2–3 trade di fila</div>
-                        <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> Stai revenge trading</div>
-                        <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> È vicino a news importante</div>
-                        <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> Sei stanco / distratto / emotivo</div>
+                        <div class="red-flag-item"><i class="fas fa-circle-xmark"></i> Non c'è contesto chiaro</div>
+                        <div class="red-flag-item"><i class="fas fa-circle-xmark"></i> Stai "sperando" invece di vedere conferma</div>
+                        <div class="red-flag-item"><i class="fas fa-circle-xmark"></i> Hai già perso 2–3 trade di fila</div>
+                        <div class="red-flag-item"><i class="fas fa-circle-xmark"></i> Stai revenge trading</div>
+                        <div class="red-flag-item"><i class="fas fa-circle-xmark"></i> È vicino a news importante</div>
+                        <div class="red-flag-item"><i class="fas fa-circle-xmark"></i> Sei stanco / distratto / emotivo</div>
                     </div>
                 </div>
 
@@ -461,12 +463,12 @@
                     </div>
                     <div class="card-body">
                         <table class="table table-sm mb-0" style="background:transparent;">
-                            <tbody style="font-size:0.9rem;">
-                                <tr><td style="border-color:#415a77;color:#94a3b8;">Max trade/giorno</td><td style="border-color:#415a77;color:#f8f9fa;text-align:right;">10</td></tr>
+                            <tbody style="font-size:0.9rem; line-height:1.7;">
+                                <tr><td style="border-color:#415a77;color:#94a3b8;">Max trade/giorno</td><td style="border-color:#415a77;color:#e2e8f0;text-align:right;">10</td></tr>
                                 <tr><td style="border-color:#415a77;color:#94a3b8;">Max perdita/giorno</td><td style="border-color:#415a77;color:#f87171;text-align:right;">2% (~€160)</td></tr>
                                 <tr><td style="border-color:#415a77;color:#94a3b8;">Max perdite consecutive</td><td style="border-color:#415a77;color:#f87171;text-align:right;">3 → STOP</td></tr>
                                 <tr><td style="border-color:#415a77;color:#94a3b8;">Min Risk:Reward</td><td style="border-color:#415a77;color:#4ade80;text-align:right;">1:1.5</td></tr>
-                                <tr><td style="border-color:#415a77;color:#94a3b8;border-bottom:none;">Orari trading</td><td style="border-color:#415a77;border-bottom:none;color:#f8f9fa;text-align:right;">Sessioni definite</td></tr>
+                                <tr><td style="border-color:#415a77;color:#94a3b8;border-bottom:none;">Orari trading</td><td style="border-color:#415a77;border-bottom:none;color:#e2e8f0;text-align:right;">Sessioni definite</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -478,13 +480,13 @@
                         <i class="fas fa-mobile-screen-button me-1" style="color:#60a5fa;"></i>
                         QUICK — Prima di BUY/SELL
                     </div>
-                    <div class="card-body" style="font-size:0.9rem; line-height:1.8;">
-                        <div><i class="fas fa-1 me-1" style="color:#60a5fa;"></i>Contesto? <span class="text-muted">(zona + trend)</span></div>
-                        <div><i class="fas fa-2 me-1" style="color:#60a5fa;"></i>Conferma? <span class="text-muted">(orderflow)</span></div>
+                    <div class="card-body" style="font-size:0.9rem; line-height:1.7; color:#e2e8f0;">
+                        <div><i class="fas fa-1 me-1" style="color:#60a5fa;"></i>Contesto? <span style="color:#94a3b8;">(zona + trend)</span></div>
+                        <div><i class="fas fa-2 me-1" style="color:#60a5fa;"></i>Conferma? <span style="color:#94a3b8;">(orderflow)</span></div>
                         <div><i class="fas fa-3 me-1" style="color:#60a5fa;"></i>Stop definito?</div>
                         <div><i class="fas fa-4 me-1" style="color:#60a5fa;"></i>R:R &gt; 1:1.5?</div>
                         <div><i class="fas fa-5 me-1" style="color:#60a5fa;"></i>Non sto revenge trading?</div>
-                        <div class="mt-2 p-2 rounded" style="background:rgba(239,68,68,0.1);color:#f87171;font-weight:700;font-size:0.83rem;">
+                        <div class="mt-2 p-2 rounded" style="background:rgba(239,68,68,0.1);color:#f87171;font-weight:700;font-size:0.9rem;">
                             Se anche solo 1 è NO → NON TRADARE
                         </div>
                     </div>
