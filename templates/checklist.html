@@ -6,6 +6,7 @@
     <title>Trading Checklist — ES Gamma Analyzer</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>
         body {
             background: #0d1b2a;
@@ -250,7 +251,7 @@
                 <div class="section-card">
                     <div class="card-header">
                         <i class="bi bi-sunrise me-2" style="color:#fbbf24;"></i>
-                        🌅 PRIMA DELLA SESSIONE — Morning Routine
+                        PRIMA DELLA SESSIONE — Morning Routine
                     </div>
                     <div class="card-body">
 
@@ -336,7 +337,7 @@
                 <!-- ============ TRADES ============ -->
                 <div class="section-card">
                     <div class="card-header d-flex align-items-center justify-content-between">
-                        <span><i class="bi bi-list-check me-2" style="color:#60a5fa;"></i>🎯 TRADE DEL GIORNO — Checklist "3C"</span>
+                        <span><i class="bi bi-list-check me-2" style="color:#60a5fa;"></i>TRADE DEL GIORNO — Checklist "3C"</span>
                         <button class="btn btn-sm btn-primary" id="addTradeBtn" style="padding:0.2rem 0.7rem; font-size:0.82rem;">
                             <i class="bi bi-plus-lg me-1"></i>Aggiungi Trade
                         </button>
@@ -352,7 +353,7 @@
                 <div class="section-card">
                     <div class="card-header">
                         <i class="bi bi-flag-fill me-2" style="color:#a78bfa;"></i>
-                        🔚 FINE SESSIONE — Review Obbligatoria
+                        FINE SESSIONE — Review Obbligatoria
                     </div>
                     <div class="card-body">
                         <div class="row g-2 mb-3">
@@ -378,18 +379,18 @@
                                 <label class="small d-block mb-1" style="color:#cbd5e1;">Rispettato i miei setup?</label>
                                 <div class="d-flex gap-2">
                                     <button class="btn btn-sm" id="sessSetupYes" data-field="session.respected_setups" data-value="true"
-                                        style="background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#4ade80; font-size:0.8rem;">✅ Sì</button>
+                                        style="background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#4ade80; font-size:0.8rem;"><i class="fas fa-check me-1"></i>Sì</button>
                                     <button class="btn btn-sm" id="sessSetupNo" data-field="session.respected_setups" data-value="false"
-                                        style="background:rgba(239,68,68,0.15);border:1px solid #ef4444;color:#f87171; font-size:0.8rem;">❌ No</button>
+                                        style="background:rgba(239,68,68,0.15);border:1px solid #ef4444;color:#f87171; font-size:0.8rem;"><i class="fas fa-xmark me-1"></i>No</button>
                                 </div>
                             </div>
                             <div class="col-6">
                                 <label class="small d-block mb-1" style="color:#cbd5e1;">Rispettato gli stop?</label>
                                 <div class="d-flex gap-2">
                                     <button class="btn btn-sm" id="sessStopYes" data-field="session.respected_stops" data-value="true"
-                                        style="background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#4ade80; font-size:0.8rem;">✅ Sì</button>
+                                        style="background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#4ade80; font-size:0.8rem;"><i class="fas fa-check me-1"></i>Sì</button>
                                     <button class="btn btn-sm" id="sessStopNo" data-field="session.respected_stops" data-value="false"
-                                        style="background:rgba(239,68,68,0.15);border:1px solid #ef4444;color:#f87171; font-size:0.8rem;">❌ No</button>
+                                        style="background:rgba(239,68,68,0.15);border:1px solid #ef4444;color:#f87171; font-size:0.8rem;"><i class="fas fa-xmark me-1"></i>No</button>
                                 </div>
                             </div>
                         </div>
@@ -408,8 +409,8 @@
                 <!-- Red Flags -->
                 <div class="section-card">
                     <div class="card-header" style="color:#f87171;">
-                        <i class="bi bi-exclamation-triangle-fill me-1"></i>
-                        ⛔ RED FLAGS
+                        <i class="fas fa-ban me-1"></i>
+                        RED FLAGS
                     </div>
                     <div class="card-body" style="padding:0.75rem;">
                         <div class="red-flag-item"><i class="bi bi-x-circle-fill"></i> Non c'è contesto chiaro</div>
@@ -424,8 +425,8 @@
                 <!-- Absolute Rules -->
                 <div class="section-card">
                     <div class="card-header">
-                        <i class="bi bi-shield-lock me-1" style="color:#fbbf24;"></i>
-                        📊 REGOLE ASSOLUTE
+                        <i class="fas fa-shield-halved me-1" style="color:#fbbf24;"></i>
+                        REGOLE ASSOLUTE
                     </div>
                     <div class="card-body p-0">
                         <table class="table table-sm mb-0" style="background:transparent;">
@@ -443,15 +444,15 @@
                 <!-- Quick Phone Version -->
                 <div class="section-card">
                     <div class="card-header">
-                        <i class="bi bi-phone me-1" style="color:#60a5fa;"></i>
-                        📱 QUICK — Prima di BUY/SELL
+                        <i class="fas fa-mobile-screen-button me-1" style="color:#60a5fa;"></i>
+                        QUICK — Prima di BUY/SELL
                     </div>
                     <div class="card-body" style="font-size:0.88rem; line-height:1.8;">
-                        <div>1️⃣ Contesto? <span class="text-muted">(zona + trend)</span></div>
-                        <div>2️⃣ Conferma? <span class="text-muted">(orderflow)</span></div>
-                        <div>3️⃣ Stop definito?</div>
-                        <div>4️⃣ R:R &gt; 1:1.5?</div>
-                        <div>5️⃣ Non sto revenge trading?</div>
+                        <div><i class="fas fa-1 me-1" style="color:#60a5fa;"></i>Contesto? <span class="text-muted">(zona + trend)</span></div>
+                        <div><i class="fas fa-2 me-1" style="color:#60a5fa;"></i>Conferma? <span class="text-muted">(orderflow)</span></div>
+                        <div><i class="fas fa-3 me-1" style="color:#60a5fa;"></i>Stop definito?</div>
+                        <div><i class="fas fa-4 me-1" style="color:#60a5fa;"></i>R:R &gt; 1:1.5?</div>
+                        <div><i class="fas fa-5 me-1" style="color:#60a5fa;"></i>Non sto revenge trading?</div>
                         <div class="mt-2 p-2 rounded" style="background:rgba(239,68,68,0.1);color:#f87171;font-weight:700;font-size:0.83rem;">
                             Se anche solo 1 è NO → NON TRADARE
                         </div>
@@ -495,7 +496,7 @@
 
                     <!-- 1: CONTESTO -->
                     <div class="col-12 col-sm-4">
-                        <div class="fw-semibold small mb-1" style="color:#2dd4bf;">1️⃣ CONTESTO</div>
+                        <div class="fw-semibold small mb-1" style="color:#2dd4bf;"><i class="fas fa-1 me-1"></i>CONTESTO</div>
                         <div class="check-item">
                             <input class="form-check-input" type="checkbox" data-trade-field="context.interesting_zone">
                             <label>Zona interessante? (VAH/VAL/POC)</label>
@@ -508,16 +509,16 @@
                             <label class="small text-muted">Trend:</label>
                             <select class="inline-input" data-trade-field="context.trend" style="width:100%; height:30px;">
                                 <option value="">—</option>
-                                <option value="long">📈 Long</option>
-                                <option value="short">📉 Short</option>
-                                <option value="range">↔️ Range</option>
+                                <option value="long">↑ Long</option>
+                                <option value="short">↓ Short</option>
+                                <option value="range">↔ Range</option>
                             </select>
                         </div>
                     </div>
 
                     <!-- 2: CONFERMA -->
                     <div class="col-12 col-sm-4">
-                        <div class="fw-semibold small mb-1" style="color:#60a5fa;">2️⃣ CONFERMA</div>
+                        <div class="fw-semibold small mb-1" style="color:#60a5fa;"><i class="fas fa-2 me-1"></i>CONFERMA</div>
                         <div class="check-item">
                             <input class="form-check-input" type="checkbox" data-trade-field="confirmation.orderflow">
                             <label>Vedo conferma orderflow?</label>
@@ -534,7 +535,7 @@
 
                     <!-- 3: CONTROLLO -->
                     <div class="col-12 col-sm-4">
-                        <div class="fw-semibold small mb-1" style="color:#a78bfa;">3️⃣ CONTROLLO</div>
+                        <div class="fw-semibold small mb-1" style="color:#a78bfa;"><i class="fas fa-3 me-1"></i>CONTROLLO</div>
                         <div class="check-item d-flex align-items-center gap-1 flex-wrap">
                             <input class="form-check-input" type="checkbox" data-trade-field="control.stop_defined">
                             <label style="flex:none;">Stop Loss:</label>
@@ -547,7 +548,7 @@
                         </div>
                         <div class="check-item">
                             <input class="form-check-input" type="checkbox" data-trade-field="control.rr_ok">
-                            <label>R:R ≥ 1:1.5 ✅</label>
+                            <label>R:R ≥ 1:1.5 <i class="fas fa-check" style="color:#4ade80;"></i></label>
                         </div>
                         <div class="check-item">
                             <input class="form-check-input" type="checkbox" data-trade-field="control.size_ok">
@@ -558,17 +559,17 @@
                     <!-- RESULT -->
                     <div class="col-12">
                         <hr style="border-color:#415a77; margin:0.5rem 0;">
-                        <div class="fw-semibold small mb-1" style="color:#778da9;">📝 RISULTATO</div>
+                        <div class="fw-semibold small mb-1" style="color:#778da9;"><i class="fas fa-pen me-1"></i>RISULTATO</div>
                         <div class="d-flex gap-3 flex-wrap">
                             <div>
                                 <label class="small" style="color:#cbd5e1;">Eseguito?</label><br>
                                 <div class="d-flex gap-1 mt-1">
                                     <button class="btn btn-sm trade-exec-yes" data-trade-field="result.executed" data-value="true"
-                                        style="font-size:0.78rem;padding:0.15rem 0.5rem;background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#4ade80;">✅ Sì</button>
+                                        style="font-size:0.78rem;padding:0.15rem 0.5rem;background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#4ade80;"><i class="fas fa-check me-1"></i>Sì</button>
                                     <button class="btn btn-sm trade-exec-no" data-trade-field="result.executed" data-value="false"
-                                        style="font-size:0.78rem;padding:0.15rem 0.5rem;background:rgba(239,68,68,0.15);border:1px solid #ef4444;color:#f87171;">❌ No</button>
+                                        style="font-size:0.78rem;padding:0.15rem 0.5rem;background:rgba(239,68,68,0.15);border:1px solid #ef4444;color:#f87171;"><i class="fas fa-xmark me-1"></i>No</button>
                                     <button class="btn btn-sm trade-exec-skip" data-trade-field="result.executed" data-value="skip"
-                                        style="font-size:0.78rem;padding:0.15rem 0.5rem;background:rgba(245,158,11,0.15);border:1px solid #f59e0b;color:#fbbf24;">⚠️ Skip</button>
+                                        style="font-size:0.78rem;padding:0.15rem 0.5rem;background:rgba(245,158,11,0.15);border:1px solid #f59e0b;color:#fbbf24;"><i class="fas fa-triangle-exclamation me-1"></i>Skip</button>
                                 </div>
                             </div>
                             <div>
@@ -985,27 +986,27 @@
         let cardClass = '';
 
         if (executed === 'skip') {
-            statusText = '⚠️ Skip';
+            statusText = '<i class="fas fa-triangle-exclamation me-1"></i>Skip';
             statusClass = 'badge-regime badge-warn';
             cardClass = 'trade-skip';
         } else if (executed === 'true' || executed === 'false') {
             if (checked < total - 1) {
-                statusText = '⚠️ Incompleto';
+                statusText = '<i class="fas fa-triangle-exclamation me-1"></i>Incompleto';
                 statusClass = 'badge-regime badge-warn';
                 cardClass = 'trade-skip';
             } else {
-                statusText = '✅ Completato';
+                statusText = '<i class="fas fa-circle-check me-1"></i>Completato';
                 statusClass = 'badge-regime badge-ok';
                 cardClass = 'trade-valid';
             }
         } else {
-            statusText = '📝 In corso';
+            statusText = '<i class="fas fa-pen me-1"></i>In corso';
             statusClass = 'badge-regime';
             cardClass = '';
         }
 
         badge.className = 'badge badge-regime ' + statusClass;
-        badge.textContent = statusText;
+        badge.innerHTML = statusText;
         card.className = 'trade-card ' + cardClass;
 
         if (pnl !== null) {
