@@ -361,10 +361,15 @@
                 <!-- ============ TRADES ============ -->
                 <div class="section-card">
                     <div class="card-header collapsible collapsed" data-bs-toggle="collapse" data-bs-target="#collapseTrades" aria-expanded="false">
-                        <span>
-                            <i class="bi bi-list-check me-2" style="color:#60a5fa;"></i>TRADE DEL GIORNO — Checklist "3C"
-                        </span>
+                        <span><i class="bi bi-list-check me-2" style="color:#60a5fa;"></i>🎯 TRADE DEL GIORNO — Checklist "3C"</span>
                         <span class="d-flex align-items-center gap-2">
+                            <input type="file" id="apexCsvInput" accept=".csv,.tsv,.txt" style="display:none;">
+                            <button class="btn btn-sm btn-outline-info" id="importApexBtn"
+                                onclick="event.stopPropagation(); document.getElementById('apexCsvInput').click()"
+                                style="padding:0.2rem 0.7rem; font-size:0.82rem;"
+                                title="Importa ordini eseguiti dal CSV di Overcharts/Apex">
+                                <i class="bi bi-upload me-1"></i>Importa CSV Apex
+                            </button>
                             <button class="btn btn-sm btn-primary" id="addTradeBtn" style="padding:0.2rem 0.7rem; font-size:0.82rem;" onclick="event.stopPropagation();">
                                 <i class="bi bi-plus-lg me-1"></i>Aggiungi Trade
                             </button>
@@ -388,7 +393,24 @@
                     </div>
                     <div class="collapse" id="collapseSession">
                     <div class="card-body">
-                        <div class="row g-2 mb-3">
+                        <!-- Account PNL Summary (auto-populated on import) -->
+                        <div id="accountPnlSummary" class="mb-3" style="display:none;">
+                            <div class="d-flex align-items-center justify-content-between mb-1">
+                                <label class="small mb-0" style="color:#2dd4bf;">
+                                    <i class="bi bi-bar-chart-line-fill me-1"></i>P&amp;L per Account
+                                </label>
+                                <span>
+                                    <input type="file" id="accountCsvInput" accept=".csv,.tsv,.txt" style="display:none;">
+                                    <button class="btn btn-sm" id="importAccountBtn"
+                                        onclick="document.getElementById('accountCsvInput').click()"
+                                        style="padding:0.15rem 0.55rem;font-size:0.75rem;background:rgba(45,212,191,0.1);border:1px solid rgba(45,212,191,0.35);color:#2dd4bf;">
+                                        <i class="bi bi-upload me-1"></i>Importa CSV Account
+                                    </button>
+                                </span>
+                            </div>
+                            <div id="accountPnlTable" style="border:1px solid #415a77;border-radius:8px;overflow:hidden;"></div>
+                        </div>
+                        <div class="row g-2 mb-2">
                             <div class="col-6 col-sm-3">
                                 <label class="small d-block mb-1" style="color:#cbd5e1;">Trade fatti</label>
                                 <input type="number" class="inline-input" style="width:100%;" id="sessTrades" data-field="session.total_trades" placeholder="0">
@@ -405,6 +427,18 @@
                                 <label class="small d-block mb-1" style="color:#cbd5e1;">Net P&amp;L</label>
                                 <span class="fw-bold" id="sessNetPnl" style="font-size:1.05rem;">—</span>
                             </div>
+                        </div>
+                        <!-- Commission rate helper -->
+                        <div class="mb-3">
+                            <span class="small" style="color:#64748b;">
+                                <i class="bi bi-calculator me-1"></i>Commissione per contratto RT ($):
+                                <input type="number" class="inline-input ms-1" id="commPerContract"
+                                       data-field="session.comm_per_contract" value="" step="0.01" min="0"
+                                       placeholder="es. 3.50"
+                                       style="width:70px; display:inline-block;"
+                                       title="Commissione per contratto round-trip (entry + exit) — lascia vuoto per non calcolare">
+                                <span style="color:#475569;"> — lascia vuoto per inserire manualmente</span>
+                            </span>
                         </div>
                         <div class="row g-2 mb-3">
                             <div class="col-6">
@@ -515,10 +549,13 @@
     <!-- =================== TRADE TEMPLATE (hidden) =================== -->
     <template id="tradeTemplate">
         <div class="trade-card" data-trade-id="">
+            <input type="hidden" class="trade-account-input" value="">
+            <input type="hidden" class="trade-qty-input" value="0">
             <div class="trade-header" onclick="toggleTrade(this)">
                 <span class="trade-num">Trade #<span class="trade-num-val">1</span></span>
                 <input type="time" class="inline-input trade-time" data-field="time" placeholder="09:30"
                     onclick="event.stopPropagation()" style="width:85px;">
+                <span class="badge trade-account-badge" style="font-size:0.7rem;background:rgba(96,165,250,0.15);color:#93c5fd;border:1px solid rgba(96,165,250,0.25);border-radius:4px;padding:0.15em 0.5em;display:none;"></span>
                 <span class="badge badge-regime trade-status-badge">—</span>
                 <span class="ms-auto me-1 text-muted" style="font-size:0.85rem;">
                     P&L: <span class="trade-pnl-badge">—</span>
@@ -711,8 +748,123 @@
         // Net P&L
         document.getElementById('sessPnl').addEventListener('input', updateNetPnl);
         document.getElementById('sessComm').addEventListener('input', updateNetPnl);
+        // Re-compute commissions when rate changes
+        document.getElementById('commPerContract').addEventListener('input', () => {
+            updateSessionFromTrades();
+            scheduleSave();
+        });
+
+        // Account CSV import
+        document.getElementById('accountCsvInput').addEventListener('change', function () {
+            const file = this.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const text = e.target.result.replace(/\r/g, '');
+                const lines = text.split('\n').filter(l => l.trim());
+                if (lines.length < 2) { alert('File account non valido.'); return; }
+
+                // Detect separator (tab or comma)
+                const sep = lines[0].includes('\t') ? '\t' : ',';
+                const headers = lines[0].split(sep).map(h => h.trim().toLowerCase());
+                const col = (name) => headers.indexOf(name);
+
+                const iAccount  = col('account');
+                const iCash     = col('cash');
+                const iNetLiq   = col('net liq');
+                const iRealPnl  = col('realized p/l');
+
+                if (iAccount === -1 || iCash === -1 || iNetLiq === -1) {
+                    alert('Colonne richieste non trovate nel file (Account, Cash, Net Liq).');
+                    return;
+                }
+
+                let imported = 0;
+                for (let i = 1; i < lines.length; i++) {
+                    const cols = lines[i].split(sep).map(c => c.trim());
+                    const acc     = cols[iAccount]  || '';
+                    const cash    = parseFloat(cols[iCash])   || 0;
+                    const netliq  = parseFloat(cols[iNetLiq]) || 0;
+
+                    if (!acc) continue;
+                    if (!accountNetLiq[acc]) accountNetLiq[acc] = { end: '', cash: '' };
+                    accountNetLiq[acc].end  = netliq.toFixed(2);
+                    accountNetLiq[acc].cash = cash.toFixed(2);
+                    imported++;
+                }
+
+                if (imported === 0) { alert('Nessun account trovato nel file.'); return; }
+
+                // Re-render the table to reflect new values
+                updateAccountPnlSummary();
+                scheduleSave();
+                this.value = '';
+            };
+            reader.readAsText(file, 'utf-8');
+        });
 
         document.getElementById('addTradeBtn').addEventListener('click', addTradeCard);
+
+        // Apex CSV import
+        document.getElementById('apexCsvInput').addEventListener('change', async function () {
+            const file = this.files[0];
+            if (!file) return;
+
+            const importBtn = document.getElementById('importApexBtn');
+            const origHtml = importBtn.innerHTML;
+            importBtn.disabled = true;
+            importBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Importo…';
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('date_key', currentDateKey);
+
+                const resp = await fetch('/api/checklist/import-apex', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const data = await resp.json();
+
+                if (!resp.ok || !data.ok) {
+                    alert('Errore importazione: ' + (data.error || 'Errore sconosciuto'));
+                    return;
+                }
+
+                if (!data.trades || data.trades.length === 0) {
+                    const dateLabel = currentDateKey || 'la data selezionata';
+                    alert(`Nessun trade trovato per il ${dateLabel} nel file.\nAssicurati che il CSV contenga ordini "Filled" per questo giorno.`);
+                    return;
+                }
+
+                // Remove ALL existing trade cards (full replace on import)
+                document.querySelectorAll('.trade-card').forEach(c => c.remove());
+                tradeCounter = 0;
+
+                // Add newly imported trades
+                let added = 0;
+                for (const trade of data.trades) {
+                    addTradeCard(null, trade, null);
+                    added++;
+                }
+
+                // Re-number all visible trade cards
+                document.querySelectorAll('.trade-num-val').forEach((el, i) => el.textContent = i + 1);
+
+                const remaining = document.querySelectorAll('.trade-card').length;
+                document.getElementById('noTradesMsg').style.display = remaining === 0 ? '' : 'none';
+
+                updateAccountPnlSummary();
+                scheduleSave();
+                alert(`✅ Importati ${added} trade del ${currentDateKey} da "${file.name}"`);
+            } catch (e) {
+                alert('Errore importazione: ' + e.message);
+            } finally {
+                importBtn.disabled = false;
+                importBtn.innerHTML = origHtml;
+                this.value = ''; // allow re-selecting the same file
+            }
+        });
     });
 
     function updateDateLabel() {
@@ -720,6 +872,15 @@
         if (parts.length === 3) {
             const d = new Date(currentDateKey + 'T12:00:00');
             document.getElementById('currentDateLabel').textContent = d.toLocaleDateString('it-IT', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+
+            // Aggiorna il pulsante di import mostrando la data filtro
+            const shortDate = d.toLocaleDateString('it-IT', {day:'2-digit', month:'2-digit'});
+            const longDate  = d.toLocaleDateString('it-IT', {day:'2-digit', month:'2-digit', year:'numeric'});
+            const importBtn = document.getElementById('importApexBtn');
+            if (importBtn) {
+                importBtn.innerHTML = `<i class="bi bi-upload me-1"></i>Importa CSV ${shortDate}`;
+                importBtn.title = `Importa solo i trade del ${longDate} dal CSV Overcharts/Apex`;
+            }
         }
     }
 
@@ -844,6 +1005,9 @@
             }
         });
 
+        // Persist Net Liq / Cash data per account
+        data.session.account_netliq = Object.assign({}, accountNetLiq);
+
         return data;
     }
 
@@ -855,15 +1019,31 @@
 
             card.querySelectorAll('[data-trade-field]').forEach(el => {
                 const fp = el.dataset.tradeField.split('.');
-                if (!trade[fp[0]]) trade[fp[0]] = {};
                 if (el.tagName === 'BUTTON') return;
-                if (el.type === 'checkbox') trade[fp[0]][fp[1]] = el.checked;
-                else trade[fp[0]][fp[1]] = el.value;
+                if (fp.length === 1) {
+                    // top-level field
+                    trade[fp[0]] = (el.type === 'checkbox') ? el.checked : el.value;
+                } else {
+                    if (!trade[fp[0]]) trade[fp[0]] = {};
+                    if (el.type === 'checkbox') trade[fp[0]][fp[1]] = el.checked;
+                    else trade[fp[0]][fp[1]] = el.value;
+                }
             });
 
             // Time is top-level
             const timeEl = card.querySelector('.trade-time');
             if (timeEl) trade.time = timeEl.value;
+
+            // Account (from hidden input)
+            const accountEl = card.querySelector('.trade-account-input');
+            if (accountEl) trade.account = accountEl.value;
+
+            // Contracts (from hidden input)
+            const qtyEl = card.querySelector('.trade-qty-input');
+            if (qtyEl) trade.qty = parseInt(qtyEl.value) || 0;
+
+            // Imported flag (from dataset)
+            trade.imported = card.dataset.imported === '1';
 
             // Executed button
             const execActive = card.querySelector('[data-trade-field="result.executed"].fw-bold');
@@ -919,6 +1099,7 @@
         setField('session.total_trades', s.total_trades);
         setField('session.daily_pnl', s.daily_pnl);
         setField('session.commissions', s.commissions);
+        setField('session.comm_per_contract', s.comm_per_contract != null ? s.comm_per_contract : '');
         setField('session.notes', s.notes);
 
         // Session buttons
@@ -934,6 +1115,8 @@
         }
 
         updateNetPnl();
+        accountNetLiq = (s.account_netliq) || {};
+        updateAccountPnlSummary();
     }
 
     function setField(field, value) {
@@ -947,6 +1130,7 @@
     // TRADE CARDS
     // =====================================================================
     let tradeCounter = 0;
+    let accountNetLiq = {};  // { accountName: { end: '', cash: '' } }
 
     function addTradeCard(event, data, num) {
         document.getElementById('noTradesMsg').style.display = 'none';
@@ -964,6 +1148,8 @@
 
         if (data) {
             populateTradeCard(card, data);
+            // Restore imported flag
+            if (data.imported) card.dataset.imported = '1';
         }
 
         // trade-body starts open for new trades
@@ -994,6 +1180,23 @@
     function populateTradeCard(card, data) {
         const timeEl = card.querySelector('.trade-time');
         if (timeEl && data.time) timeEl.value = data.time;
+
+        // Account name
+        const accountEl = card.querySelector('.trade-account-input');
+        if (accountEl && data.account) accountEl.value = data.account;
+
+        const qtyEl = card.querySelector('.trade-qty-input');
+        if (qtyEl && data.qty != null) qtyEl.value = parseInt(data.qty) || 0;
+
+        const accountBadge = card.querySelector('.trade-account-badge');
+        if (accountBadge) {
+            if (data.account) {
+                accountBadge.textContent = data.account;
+                accountBadge.style.display = '';
+            } else {
+                accountBadge.style.display = 'none';
+            }
+        }
 
         const sections = ['context', 'confirmation', 'control', 'result'];
         sections.forEach(sec => {
@@ -1056,7 +1259,10 @@
 
         badge.className = 'badge badge-regime ' + statusClass;
         badge.innerHTML = statusText;
+        // preserve data-imported when reassigning className
+        const wasImported = card.dataset.imported;
         card.className = 'trade-card ' + cardClass;
+        if (wasImported) card.dataset.imported = wasImported;
 
         if (pnl !== null) {
             pnlBadge.textContent = (pnl >= 0 ? '+' : '') + '€' + pnl.toFixed(2);
@@ -1065,6 +1271,8 @@
             pnlBadge.textContent = '—';
             pnlBadge.className = 'trade-pnl-badge';
         }
+
+        updateAccountPnlSummary();
     }
 
     function toggleTrade(header) {
@@ -1082,8 +1290,222 @@
             if (remaining === 0) document.getElementById('noTradesMsg').style.display = '';
             // Renumber
             document.querySelectorAll('.trade-num-val').forEach((el, i) => el.textContent = i + 1);
+            updateAccountPnlSummary();
             scheduleSave();
         }
+    }
+
+    // =====================================================================
+    // ACCOUNT PNL SUMMARY
+    // =====================================================================
+    function updateAccountPnlSummary() {
+        const summary = {};
+        document.querySelectorAll('.trade-card').forEach(card => {
+            const accountEl = card.querySelector('.trade-account-input');
+            const account = accountEl ? accountEl.value.trim() : '';
+            if (!account) return;
+
+            const pnlEl = card.querySelector('[data-trade-field="result.pnl"]');
+            const pnlVal = pnlEl ? pnlEl.value.trim() : '';
+            if (pnlVal === '') return;
+            const pnl = parseFloat(pnlVal) || 0;
+
+            const execActive = card.querySelector('[data-trade-field="result.executed"].fw-bold');
+            const executed = execActive ? execActive.dataset.value : null;
+            if (executed === 'skip') return;
+
+            if (!summary[account]) summary[account] = { pnl: 0, count: 0, contracts: 0 };
+            summary[account].pnl += pnl;
+            summary[account].count++;
+
+            const qtyEl = card.querySelector('.trade-qty-input');
+            summary[account].contracts += qtyEl ? (parseInt(qtyEl.value) || 0) : 0;
+        });
+
+        const summaryDiv = document.getElementById('accountPnlSummary');
+        const tableDiv  = document.getElementById('accountPnlTable');
+        const accounts  = Object.keys(summary);
+
+        if (accounts.length === 0) {
+            summaryDiv.style.display = 'none';
+            return;
+        }
+
+        summaryDiv.style.display = '';
+        const rows = accounts.map(acc => {
+            const d   = summary[acc];
+            const nl  = accountNetLiq[acc] || { end: '', cash: '' };
+            const cls = d.pnl > 0 ? 'pnl-positive' : d.pnl < 0 ? 'pnl-negative' : '';
+            const esc = acc.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+            return `<div class="px-3 py-2" style="border-bottom:1px solid rgba(65,90,119,0.4);">
+                <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-1">
+                    <span class="small" style="color:#93c5fd;">${esc}</span>
+                    <div class="d-flex align-items-center gap-3 ms-auto">
+                        <span class="netliq-comm-display" data-account="${esc}" style="font-size:0.78rem;color:#94a3b8;">Comm: —</span>
+                        <span class="fw-bold ${cls}" style="font-size:0.9rem;">${d.pnl >= 0 ? '+' : ''}$${d.pnl.toFixed(2)}
+                          <span class="text-muted" style="font-size:0.72rem;font-weight:400;">(${d.count}T / ${d.contracts}K)</span></span>
+                    </div>
+                </div>
+                <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.77rem;color:#64748b;">
+                    <span>Net Liq:</span>
+                    <input type="number" class="inline-input netliq-end" data-account="${esc}"
+                        value="${nl.end}" placeholder="25000.00" step="0.01"
+                        style="width:105px;font-size:0.77rem;padding:0.1rem 0.3rem;">
+                    <span>Cash:</span>
+                    <input type="number" class="inline-input netliq-cash" data-account="${esc}"
+                        value="${nl.cash}" placeholder="25000.00" step="0.01"
+                        style="width:105px;font-size:0.77rem;padding:0.1rem 0.3rem;">
+                </div>
+            </div>`;
+        });
+
+        if (accounts.length > 0) {
+            const total      = Object.values(summary).reduce((s, d) => s + d.pnl, 0);
+            const tot_count  = Object.values(summary).reduce((s, d) => s + d.count, 0);
+            const tot_contr  = Object.values(summary).reduce((s, d) => s + d.contracts, 0);
+            const cls = total > 0 ? 'pnl-positive' : total < 0 ? 'pnl-negative' : '';
+            rows.push(`<div class="d-flex justify-content-between align-items-center px-3 py-2 flex-wrap gap-1" style="background:rgba(65,90,119,0.2);">
+                <span class="small fw-bold" style="color:#e2e8f0;">TOTALE</span>
+                <div class="d-flex align-items-center gap-3 ms-auto">
+                    <span class="netliq-total-comm" style="font-size:0.78rem;color:#94a3b8;">Comm tot: —</span>
+                    <span class="fw-bold ${cls}" style="font-size:0.9rem;">${total >= 0 ? '+' : ''}$${total.toFixed(2)}
+                      <span class="text-muted" style="font-size:0.72rem;font-weight:400;">(${tot_count}T / ${tot_contr}K)</span></span>
+                </div>
+            </div>`);
+        }
+
+        tableDiv.innerHTML = rows.join('');
+
+        // Wire up Net Liq / Cash inputs (no full re-render — update in place)
+        tableDiv.querySelectorAll('.netliq-end, .netliq-cash').forEach(inp => {
+            inp.addEventListener('input', () => {
+                const acc = inp.dataset.account;
+                if (!accountNetLiq[acc]) accountNetLiq[acc] = { end: '', cash: '' };
+                if (inp.classList.contains('netliq-end'))       accountNetLiq[acc].end   = inp.value;
+                else if (inp.classList.contains('netliq-cash')) accountNetLiq[acc].cash  = inp.value;
+                refreshAccountCommDisplay(acc, summary[acc] ? summary[acc].contracts : 0);
+                recalcCommissionsFromNetLiq();
+                scheduleSave();
+            });
+        });
+
+        // Refresh displays with already-saved Net Liq data
+        accounts.forEach(acc => refreshAccountCommDisplay(acc, summary[acc].contracts));
+        recalcCommissionsFromNetLiq();
+        updateSessionFromTrades();
+    }
+
+    function refreshAccountCommDisplay(acc, contracts) {
+        const nl  = accountNetLiq[acc] || {};
+        const tableDiv = document.getElementById('accountPnlTable');
+        if (!tableDiv) return;
+        let span = null;
+        tableDiv.querySelectorAll('.netliq-comm-display').forEach(s => {
+            if (s.dataset.account === acc) span = s;
+        });
+        if (!span) return;
+        const cash = parseFloat(nl.cash);
+        const end  = parseFloat(nl.end);
+        if (nl.cash != null && nl.cash !== '' && nl.end != null && nl.end !== '' && !isNaN(cash) && !isNaN(end)) {
+            const comm = cash - end;  // Comm = Cash − Net Liq
+            const perK = (contracts > 0) ? ` | $${(comm / contracts).toFixed(2)}/K` : '';
+            span.innerHTML = `<span class="fw-bold pnl-negative">Comm: $${comm.toFixed(2)}${perK}</span>`;
+        } else {
+            span.textContent = 'Comm: —';
+        }
+    }
+
+    function recalcCommissionsFromNetLiq() {
+        // Rebuild account summary from DOM
+        const summary = {};
+        document.querySelectorAll('.trade-card').forEach(card => {
+            const accountEl = card.querySelector('.trade-account-input');
+            const account = accountEl ? accountEl.value.trim() : '';
+            if (!account) return;
+            const pnlEl  = card.querySelector('[data-trade-field="result.pnl"]');
+            const pnlVal = pnlEl ? pnlEl.value.trim() : '';
+            if (pnlVal === '') return;
+            const pnl = parseFloat(pnlVal) || 0;
+            const execActive = card.querySelector('[data-trade-field="result.executed"].fw-bold');
+            if (execActive && execActive.dataset.value === 'skip') return;
+            if (!summary[account]) summary[account] = { pnl: 0, contracts: 0 };
+            summary[account].pnl += pnl;
+            const qtyEl = card.querySelector('.trade-qty-input');
+            summary[account].contracts += qtyEl ? (parseInt(qtyEl.value) || 0) : 0;
+        });
+        const accounts = Object.keys(summary);
+        if (accounts.length === 0) return;
+
+        let totalComm      = 0;
+        let totalContracts = 0;
+        let allProvided    = true;
+        for (const acc of accounts) {
+            const nl   = accountNetLiq[acc] || {};
+            if (nl.cash == null || nl.cash === '' || nl.end == null || nl.end === '') { allProvided = false; break; }
+            const cash = parseFloat(nl.cash);
+            const end  = parseFloat(nl.end);
+            if (isNaN(cash) || isNaN(end)) { allProvided = false; break; }
+            totalComm      += cash - end;  // Comm = Cash − Net Liq
+            totalContracts += summary[acc].contracts;
+        }
+        if (allProvided) {
+            document.getElementById('sessComm').value = totalComm.toFixed(2);
+            updateNetPnl();
+
+            // Update total row comm label
+            const tableDiv = document.getElementById('accountPnlTable');
+            if (tableDiv) {
+                const totalSpan = tableDiv.querySelector('.netliq-total-comm');
+                if (totalSpan) {
+                    const perK = totalContracts > 0 ? ` | $${(totalComm / totalContracts).toFixed(2)}/K` : '';
+                    totalSpan.textContent = `Comm tot: $${totalComm.toFixed(2)}${perK}`;
+                }
+            }
+        }
+    }
+
+    function updateSessionFromTrades() {
+        let tradeCount     = 0;
+        let totalPnl       = 0;
+        let totalContracts = 0;
+
+        document.querySelectorAll('.trade-card').forEach(card => {
+            const execActive = card.querySelector('[data-trade-field="result.executed"].fw-bold');
+            const executed   = execActive ? execActive.dataset.value : null;
+            if (executed === 'skip') return;
+
+            const pnlEl  = card.querySelector('[data-trade-field="result.pnl"]');
+            const pnlVal = pnlEl ? pnlEl.value.trim() : '';
+            if (pnlVal === '') return; // skip trades with no PNL yet
+
+            const pnl = parseFloat(pnlVal);
+            if (isNaN(pnl)) return;
+
+            totalPnl += pnl;
+            tradeCount++;
+
+            const qtyEl = card.querySelector('.trade-qty-input');
+            totalContracts += qtyEl ? (parseInt(qtyEl.value) || 0) : 0;
+        });
+
+        if (tradeCount === 0) return; // nothing imported yet — leave manual entries untouched
+
+        document.getElementById('sessTrades').value = tradeCount;
+        document.getElementById('sessPnl').value    = totalPnl.toFixed(2);
+
+        // Net Liq method takes priority for commissions; commPerContract is fallback
+        const hasNetLiqData = Object.values(accountNetLiq).some(nl => nl && nl.start !== '' && nl.end !== '');
+        if (!hasNetLiqData) {
+            const commRateRaw = document.getElementById('commPerContract').value.trim();
+            if (commRateRaw !== '' && totalContracts > 0) {
+                const commRate = parseFloat(commRateRaw);
+                if (!isNaN(commRate) && commRate > 0) {
+                    document.getElementById('sessComm').value = (totalContracts * commRate).toFixed(2);
+                }
+            }
+        }
+
+        updateNetPnl();
     }
 
     // =====================================================================
