@@ -5774,15 +5774,15 @@ def _parse_apex_csv(content: str, date_filter: str = '') -> list:
     if not fills:
         return []
 
-    # Group fills by account, process each independently
+    # Group fills by (account, symbol) so MES and MNQ positions are tracked independently
     accounts_fills: dict = _defaultdict(list)
     for f in fills:
-        accounts_fills[f['account']].append(f)
+        accounts_fills[(f['account'], f['symbol'])].append(f)
 
     result = []
 
-    for account_name, acct_fills in accounts_fills.items():
-        # Sort chronologically within this account
+    for (account_name, _sym_key), acct_fills in accounts_fills.items():
+        # Sort chronologically within this account+symbol bucket
         acct_fills.sort(key=lambda x: x['dt'])
 
         # Group into round-trip trades using net-position tracking
@@ -5866,9 +5866,13 @@ def _parse_apex_csv(content: str, date_filter: str = '') -> list:
             if is_open:
                 note_parts.append("(posizione aperta)")
 
+            # Clean symbol for display: strip exchange suffix (e.g. MESH6.CME -> MESH6)
+            _sym_display = _sym_label.split('.')[0] if _sym_label else ''
+
             result.append({
                 'time': rt[0]['time_str'],
                 'account': account_name,
+                'symbol': _sym_display,
                 'imported': True,
                 'qty': closed_qty,
                 'context': {'trend': 'long' if is_long else 'short'},

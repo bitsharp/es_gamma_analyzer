@@ -550,11 +550,13 @@
     <template id="tradeTemplate">
         <div class="trade-card" data-trade-id="">
             <input type="hidden" class="trade-account-input" value="">
+            <input type="hidden" class="trade-symbol-input" value="">
             <input type="hidden" class="trade-qty-input" value="0">
             <div class="trade-header" onclick="toggleTrade(this)">
                 <span class="trade-num">Trade #<span class="trade-num-val">1</span></span>
                 <input type="time" class="inline-input trade-time" data-field="time" placeholder="09:30"
                     onclick="event.stopPropagation()" style="width:85px;">
+                <span class="badge trade-symbol-badge" style="font-size:0.7rem;background:rgba(167,139,250,0.15);color:#c4b5fd;border:1px solid rgba(167,139,250,0.3);border-radius:4px;padding:0.15em 0.5em;display:none;"></span>
                 <span class="badge trade-account-badge" style="font-size:0.7rem;background:rgba(96,165,250,0.15);color:#93c5fd;border:1px solid rgba(96,165,250,0.25);border-radius:4px;padding:0.15em 0.5em;display:none;"></span>
                 <span class="badge badge-regime trade-status-badge">—</span>
                 <span class="ms-auto me-1 text-muted" style="font-size:0.85rem;">
@@ -1038,6 +1040,10 @@
             const accountEl = card.querySelector('.trade-account-input');
             if (accountEl) trade.account = accountEl.value;
 
+            // Symbol (from hidden input)
+            const symbolEl = card.querySelector('.trade-symbol-input');
+            if (symbolEl) trade.symbol = symbolEl.value;
+
             // Contracts (from hidden input)
             const qtyEl = card.querySelector('.trade-qty-input');
             if (qtyEl) trade.qty = parseInt(qtyEl.value) || 0;
@@ -1187,6 +1193,19 @@
 
         const qtyEl = card.querySelector('.trade-qty-input');
         if (qtyEl && data.qty != null) qtyEl.value = parseInt(data.qty) || 0;
+
+        const symbolEl = card.querySelector('.trade-symbol-input');
+        if (symbolEl && data.symbol) symbolEl.value = data.symbol;
+
+        const symbolBadge = card.querySelector('.trade-symbol-badge');
+        if (symbolBadge) {
+            if (data.symbol) {
+                symbolBadge.textContent = data.symbol;
+                symbolBadge.style.display = '';
+            } else {
+                symbolBadge.style.display = 'none';
+            }
+        }
 
         const accountBadge = card.querySelector('.trade-account-badge');
         if (accountBadge) {
