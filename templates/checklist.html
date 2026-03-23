@@ -410,6 +410,17 @@
                             </div>
                             <div id="accountPnlTable" style="border:1px solid #415a77;border-radius:8px;overflow:hidden;"></div>
                         </div>
+
+                        <!-- Apex Trail Monitor ($25k accounts) -->
+                        <div id="apexTrailSection" class="mb-3" style="display:none;">
+                            <div class="d-flex align-items-center mb-2">
+                                <label class="small mb-0" style="color:#f59e0b;">
+                                    <i class="bi bi-graph-up-arrow me-1"></i>APEX TRAIL — Conti $25k
+                                </label>
+                            </div>
+                            <div id="apexTrailCards"></div>
+                        </div>
+
                         <div class="row g-2 mb-2">
                             <div class="col-6 col-sm-3">
                                 <label class="small d-block mb-1" style="color:#cbd5e1;">Trade fatti</label>
@@ -1404,6 +1415,7 @@
                 else if (inp.classList.contains('netliq-cash')) accountNetLiq[acc].cash  = inp.value;
                 refreshAccountCommDisplay(acc, summary[acc] ? summary[acc].contracts : 0);
                 recalcCommissionsFromNetLiq();
+                updateApexTrail();
                 scheduleSave();
             });
         });
@@ -1412,6 +1424,7 @@
         accounts.forEach(acc => refreshAccountCommDisplay(acc, summary[acc].contracts));
         recalcCommissionsFromNetLiq();
         updateSessionFromTrades();
+        updateApexTrail();
     }
 
     function refreshAccountCommDisplay(acc, contracts) {
@@ -1481,6 +1494,135 @@
                 }
             }
         }
+    }
+
+    // =====================================================================
+    // APEX TRAIL MONITOR ($25k accounts)
+    // =====================================================================
+    const APEX_INITIAL    = 25000;
+    const APEX_TRAIL_AMT  = 1000;
+    const APEX_LOCK_LVL   = APEX_INITIAL + APEX_TRAIL_AMT;  // 26000
+    const APEX_FLOOR_BASE = APEX_INITIAL - APEX_TRAIL_AMT;  // 24000
+
+    function getApexFloor(acc) {
+        const v = localStorage.getItem('apexFloor_' + acc);
+        return v !== null ? parseFloat(v) : APEX_FLOOR_BASE;
+    }
+    function setApexFloor(acc, val) { localStorage.setItem('apexFloor_' + acc, val); }
+
+    function updateApexTrail() {
+        // Collect distinct accounts from trade cards
+        const accounts = [];
+        document.querySelectorAll('.trade-card').forEach(card => {
+            const el  = card.querySelector('.trade-account-input');
+            const acc = el ? el.value.trim() : '';
+            if (acc && !accounts.includes(acc)) accounts.push(acc);
+        });
+
+        const section   = document.getElementById('apexTrailSection');
+        const container = document.getElementById('apexTrailCards');
+        if (!section || !container) return;
+        if (accounts.length === 0) { section.style.display = 'none'; return; }
+        section.style.display = '';
+
+        // Bar visual range (fixed to show all key levels comfortably)
+        const BAR_MIN  = 22500;
+        const BAR_MAX  = 27500;
+        const BAR_SPAN = BAR_MAX - BAR_MIN;
+        const pct = v => Math.max(0, Math.min(100, (v - BAR_MIN) / BAR_SPAN * 100)).toFixed(2);
+
+        const html = accounts.map(acc => {
+            const nl = accountNetLiq[acc] || {};
+            let balance = (nl.end !== '' && nl.end != null) ? parseFloat(nl.end) : NaN;
+            let src = 'Net Liq';
+
+            if (isNaN(balance)) {
+                // Estimate from $25k + loaded trades P&L for this account
+                let pnl = 0;
+                document.querySelectorAll('.trade-card').forEach(card => {
+                    const el = card.querySelector('.trade-account-input');
+                    if (!el || el.value.trim() !== acc) return;
+                    const execEl = card.querySelector('[data-trade-field="result.executed"].fw-bold');
+                    if (execEl && execEl.dataset.value === 'skip') return;
+                    const pnlEl = card.querySelector('[data-trade-field="result.pnl"]');
+                    pnl += parseFloat(pnlEl?.value || 0) || 0;
+                });
+                balance = APEX_INITIAL + pnl;
+                src = 'Stimato';
+            }
+
+            const floor    = getApexFloor(acc);
+            const buffer   = balance - floor;
+            const isLocked = floor >= APEX_INITIAL;
+            const toLock   = APEX_LOCK_LVL - balance;
+
+            const bufColor  = buffer < 300 ? '#ef4444' : buffer < 700 ? '#f59e0b' : '#22c55e';
+            const statusBg  = isLocked ? '#22c55e' : '#f59e0b';
+            const statusTxt = isLocked ? 'LOCKED ✓' : 'TRAILING';
+
+            const floorPct = pct(floor);
+            const startPct = pct(APEX_INITIAL);
+            const lockPct  = pct(APEX_LOCK_LVL);
+            const balPct   = pct(balance);
+            const fillW    = Math.max(0, parseFloat(balPct) - parseFloat(floorPct)).toFixed(2);
+
+            const esc = acc.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+
+            return `<div style="background:rgba(20,30,48,0.7);border:1px solid rgba(65,90,119,0.5);border-radius:8px;padding:0.7rem 0.85rem 0.6rem;margin-bottom:0.5rem;">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <span style="color:#93c5fd;font-size:0.85rem;font-weight:600;">${esc}</span>
+    <div class="d-flex gap-3 align-items-center">
+      <span style="font-size:0.78rem;color:#94a3b8;">${src}: <b style="color:#e2e8f0;">$${balance.toFixed(2)}</b></span>
+      <span style="font-size:0.68rem;padding:0.1rem 0.4rem;border-radius:4px;font-weight:700;background:${statusBg}22;border:1px solid ${statusBg};color:${statusBg};">${statusTxt}</span>
+    </div>
+  </div>
+
+  <!-- Bar: padding-top leaves room for "NOW" label, padding-bottom for axis labels -->
+  <div style="position:relative;padding-top:20px;padding-bottom:20px;margin:0.25rem 0;">
+    <div style="position:absolute;top:4px;left:${balPct}%;transform:translateX(-50%);font-size:0.62rem;color:${bufColor};font-weight:700;white-space:nowrap;pointer-events:none;">NOW ▼</div>
+
+    <div style="height:18px;border-radius:5px;background:#1a2435;border:1px solid rgba(65,90,119,0.4);position:relative;overflow:hidden;">
+      <div style="position:absolute;inset:0 auto 0 0;width:${floorPct}%;background:linear-gradient(to right,rgba(239,68,68,0.45),rgba(239,68,68,0.2));"></div>
+      <div style="position:absolute;top:0;bottom:0;left:${floorPct}%;width:${fillW}%;background:rgba(34,197,94,0.18);"></div>
+      <div style="position:absolute;top:0;bottom:0;left:${floorPct}%;width:2px;background:#ef4444;transform:translateX(-50%);"></div>
+      <div style="position:absolute;top:0;bottom:0;left:${startPct}%;width:1px;background:rgba(148,163,184,0.35);"></div>
+      ${!isLocked ? `<div style="position:absolute;top:0;bottom:0;left:${lockPct}%;width:0;border-left:2px dashed rgba(250,204,21,0.65);"></div>` : ''}
+      <div style="position:absolute;top:1px;bottom:1px;left:${balPct}%;width:3px;transform:translateX(-50%);background:${bufColor};border-radius:2px;box-shadow:0 0 6px ${bufColor}80;"></div>
+    </div>
+
+    <div style="position:relative;height:16px;margin-top:2px;">
+      <span style="position:absolute;left:${floorPct}%;transform:translateX(-50%);font-size:0.6rem;color:#ef4444;white-space:nowrap;">Floor $${(floor/1000).toFixed(1)}k</span>
+      <span style="position:absolute;left:${startPct}%;transform:translateX(-50%);font-size:0.6rem;color:#94a3b8;white-space:nowrap;">Start $25k</span>
+      ${!isLocked ? `<span style="position:absolute;left:${lockPct}%;transform:translateX(-50%);font-size:0.6rem;color:#facc15;white-space:nowrap;">Lock $26.5k</span>` : ''}
+    </div>
+  </div>
+
+  <div class="d-flex gap-3 align-items-center flex-wrap" style="font-size:0.78rem;margin-bottom:0.4rem;">
+    <span>Buffer: <b style="color:${bufColor};">${buffer >= 0 ? '+' : ''}$${buffer.toFixed(0)}</b></span>
+    ${!isLocked
+      ? `<span style="color:#475569;">|</span><span style="color:#94a3b8;">A lock: <b style="color:#facc15;">$${toLock.toFixed(0)}</b></span>`
+      : `<span style="color:#22c55e;font-size:0.72rem;"><i class="bi bi-lock-fill me-1"></i>Floor bloccato a $25,000</span>`
+    }
+  </div>
+
+  <div style="font-size:0.73rem;color:#64748b;">
+    <i class="bi bi-sliders me-1"></i>Trail floor manuale:
+    <input type="number" class="inline-input apex-floor-inp" data-account="${esc}"
+      value="${floor.toFixed(2)}" step="0.01" min="0"
+      style="width:95px;font-size:0.73rem;padding:0.1rem 0.3rem;margin-left:0.25rem;"
+      title="Aggiorna se il conto ha già raggiunto nuovi massimi storici">
+  </div>
+</div>`;
+        }).join('');
+
+        container.innerHTML = html;
+
+        container.querySelectorAll('.apex-floor-inp').forEach(inp => {
+            inp.addEventListener('change', () => {
+                const v = parseFloat(inp.value);
+                if (!isNaN(v)) { setApexFloor(inp.dataset.account, v); updateApexTrail(); }
+            });
+        });
     }
 
     function updateSessionFromTrades() {
