@@ -1551,7 +1551,16 @@
                 src = 'Stimato';
             }
 
-            const floor    = getApexFloor(acc);
+            // Auto-ratchet: floor segue il balance in salita, non scende mai
+            const storedFloor = getApexFloor(acc);
+            let floor;
+            if (balance >= APEX_LOCK_LVL) {
+                floor = APEX_INITIAL;  // locked a break-even
+            } else {
+                floor = Math.max(storedFloor, balance - APEX_TRAIL_AMT);
+            }
+            if (floor > storedFloor) setApexFloor(acc, floor);
+
             const buffer   = balance - floor;
             const isLocked = floor >= APEX_INITIAL;
             const toLock   = APEX_LOCK_LVL - balance;
@@ -1593,7 +1602,7 @@
     <div style="position:relative;height:16px;margin-top:2px;">
       <span style="position:absolute;left:${floorPct}%;transform:translateX(-50%);font-size:0.6rem;color:#ef4444;white-space:nowrap;">Floor $${(floor/1000).toFixed(1)}k</span>
       <span style="position:absolute;left:${startPct}%;transform:translateX(-50%);font-size:0.6rem;color:#94a3b8;white-space:nowrap;">Start $25k</span>
-      ${!isLocked ? `<span style="position:absolute;left:${lockPct}%;transform:translateX(-50%);font-size:0.6rem;color:#facc15;white-space:nowrap;">Lock $26.5k</span>` : ''}
+      ${!isLocked ? `<span style="position:absolute;left:${lockPct}%;transform:translateX(-50%);font-size:0.6rem;color:#facc15;white-space:nowrap;">Lock $${(APEX_LOCK_LVL/1000).toFixed(0)}k</span>` : ''}
     </div>
   </div>
 
