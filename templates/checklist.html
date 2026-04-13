@@ -411,11 +411,11 @@
                             <div id="accountPnlTable" style="border:1px solid #415a77;border-radius:8px;overflow:hidden;"></div>
                         </div>
 
-                        <!-- Apex Trail Monitor ($25k accounts) -->
+                        <!-- Apex Trail Monitor (multi-tier) -->
                         <div id="apexTrailSection" class="mb-3" style="display:none;">
                             <div class="d-flex align-items-center mb-2">
                                 <label class="small mb-0" style="color:#f59e0b;">
-                                    <i class="bi bi-graph-up-arrow me-1"></i>APEX TRAIL — Conti $25k
+                                    <i class="bi bi-graph-up-arrow me-1"></i>APEX TRAIL
                                 </label>
                             </div>
                             <div id="apexTrailCards"></div>
@@ -1497,16 +1497,25 @@
     }
 
     // =====================================================================
-    // APEX TRAIL MONITOR ($25k accounts)
+    // APEX TRAIL MONITOR (multi-tier: 25K / 50K / 100K / 150K)
     // =====================================================================
-    const APEX_INITIAL    = 25000;
-    const APEX_TRAIL_AMT  = 1000;
-    const APEX_LOCK_LVL   = APEX_INITIAL + APEX_TRAIL_AMT;  // 26000
-    const APEX_FLOOR_BASE = APEX_INITIAL - APEX_TRAIL_AMT;  // 24000
+    const APEX_CONFIGS = {
+        25000:  { initial: 25000,  profitTarget: 1500, trailAmt: 1000 },
+        50000:  { initial: 50000,  profitTarget: 3000, trailAmt: 2000 },
+        100000: { initial: 100000, profitTarget: 6000, trailAmt: 3000 },
+        150000: { initial: 150000, profitTarget: 9000, trailAmt: 4000 },
+    };
+    const APEX_TIERS = [25000, 50000, 100000, 150000];
 
-    function getApexFloor(acc) {
+    function getApexTier(acc) {
+        const v = localStorage.getItem('apexTier_' + acc);
+        return v !== null ? parseInt(v) : 25000;
+    }
+    function setApexTier(acc, tier) { localStorage.setItem('apexTier_' + acc, tier); }
+
+    function getApexFloor(acc, floorBase) {
         const v = localStorage.getItem('apexFloor_' + acc);
-        return v !== null ? parseFloat(v) : APEX_FLOOR_BASE;
+        return v !== null ? parseFloat(v) : floorBase;
     }
     function setApexFloor(acc, val) { localStorage.setItem('apexFloor_' + acc, val); }
 
@@ -1525,19 +1534,24 @@
         if (accounts.length === 0) { section.style.display = 'none'; return; }
         section.style.display = '';
 
-        // Bar visual range (fixed to show all key levels comfortably)
-        const BAR_MIN  = 22500;
-        const BAR_MAX  = 27500;
-        const BAR_SPAN = BAR_MAX - BAR_MIN;
-        const pct = v => Math.max(0, Math.min(100, (v - BAR_MIN) / BAR_SPAN * 100)).toFixed(2);
-
         const html = accounts.map(acc => {
+            const tier      = getApexTier(acc);
+            const cfg       = APEX_CONFIGS[tier] || APEX_CONFIGS[25000];
+            const lockLvl   = cfg.initial + cfg.profitTarget;
+            const floorBase = cfg.initial - cfg.trailAmt;
+
+            // Bar visual range — scaled per tier to show all key levels
+            const BAR_MIN  = cfg.initial - cfg.trailAmt * 2;
+            const BAR_MAX  = lockLvl + cfg.trailAmt;
+            const BAR_SPAN = BAR_MAX - BAR_MIN;
+            const pct = v => Math.max(0, Math.min(100, (v - BAR_MIN) / BAR_SPAN * 100)).toFixed(2);
+
             const nl = accountNetLiq[acc] || {};
             let balance = (nl.end !== '' && nl.end != null) ? parseFloat(nl.end) : NaN;
             let src = 'Net Liq';
 
             if (isNaN(balance)) {
-                // Estimate from $25k + loaded trades P&L for this account
+                // Estimate from account initial + loaded trades P&L for this account
                 let pnl = 0;
                 document.querySelectorAll('.trade-card').forEach(card => {
                     const el = card.querySelector('.trade-account-input');
@@ -1547,39 +1561,52 @@
                     const pnlEl = card.querySelector('[data-trade-field="result.pnl"]');
                     pnl += parseFloat(pnlEl?.value || 0) || 0;
                 });
-                balance = APEX_INITIAL + pnl;
+                balance = cfg.initial + pnl;
                 src = 'Stimato';
             }
 
             // Auto-ratchet: floor segue il balance in salita, non scende mai
-            const storedFloor = getApexFloor(acc);
+            const storedFloor = getApexFloor(acc, floorBase);
             let floor;
-            if (balance >= APEX_LOCK_LVL) {
-                floor = APEX_INITIAL;  // locked a break-even
+            if (balance >= lockLvl) {
+                floor = cfg.initial;  // locked a break-even
             } else {
-                floor = Math.max(storedFloor, balance - APEX_TRAIL_AMT);
+                floor = Math.max(storedFloor, balance - cfg.trailAmt);
             }
             if (floor > storedFloor) setApexFloor(acc, floor);
 
             const buffer   = balance - floor;
-            const isLocked = floor >= APEX_INITIAL;
-            const toLock   = APEX_LOCK_LVL - balance;
+            const isLocked = floor >= cfg.initial;
+            const toLock   = lockLvl - balance;
 
-            const bufColor  = buffer < 300 ? '#ef4444' : buffer < 700 ? '#f59e0b' : '#22c55e';
+            const redThresh    = cfg.trailAmt * 0.3;
+            const yellowThresh = cfg.trailAmt * 0.7;
+            const bufColor  = buffer < redThresh ? '#ef4444' : buffer < yellowThresh ? '#f59e0b' : '#22c55e';
             const statusBg  = isLocked ? '#22c55e' : '#f59e0b';
             const statusTxt = isLocked ? 'LOCKED ✓' : 'TRAILING';
 
             const floorPct = pct(floor);
-            const startPct = pct(APEX_INITIAL);
-            const lockPct  = pct(APEX_LOCK_LVL);
+            const startPct = pct(cfg.initial);
+            const lockPct  = pct(lockLvl);
             const balPct   = pct(balance);
             const fillW    = Math.max(0, parseFloat(balPct) - parseFloat(floorPct)).toFixed(2);
 
             const esc = acc.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+            const tierOptions = APEX_TIERS.map(t =>
+                `<option value="${t}"${t === tier ? ' selected' : ''}>${(t/1000).toFixed(0)}K</option>`
+            ).join('');
+            const initK = (cfg.initial / 1000).toFixed(0);
+            const lockK = (lockLvl / 1000).toFixed(1);
 
             return `<div style="background:rgba(20,30,48,0.7);border:1px solid rgba(65,90,119,0.5);border-radius:8px;padding:0.7rem 0.85rem 0.6rem;margin-bottom:0.5rem;">
   <div class="d-flex justify-content-between align-items-center mb-2">
-    <span style="color:#93c5fd;font-size:0.85rem;font-weight:600;">${esc}</span>
+    <div class="d-flex align-items-center gap-2">
+      <span style="color:#93c5fd;font-size:0.85rem;font-weight:600;">${esc}</span>
+      <select class="apex-tier-sel" data-account="${esc}"
+        style="font-size:0.7rem;padding:0.1rem 0.25rem;background:#0f172a;border:1px solid rgba(65,90,119,0.6);color:#94a3b8;border-radius:4px;cursor:pointer;">
+        ${tierOptions}
+      </select>
+    </div>
     <div class="d-flex gap-3 align-items-center">
       <span style="font-size:0.78rem;color:#94a3b8;">${src}: <b style="color:#e2e8f0;">$${balance.toFixed(2)}</b></span>
       <span style="font-size:0.68rem;padding:0.1rem 0.4rem;border-radius:4px;font-weight:700;background:${statusBg}22;border:1px solid ${statusBg};color:${statusBg};">${statusTxt}</span>
@@ -1601,8 +1628,8 @@
 
     <div style="position:relative;height:16px;margin-top:2px;">
       <span style="position:absolute;left:${floorPct}%;transform:translateX(-50%);font-size:0.6rem;color:#ef4444;white-space:nowrap;">Floor $${(floor/1000).toFixed(1)}k</span>
-      <span style="position:absolute;left:${startPct}%;transform:translateX(-50%);font-size:0.6rem;color:#94a3b8;white-space:nowrap;">Start $25k</span>
-      ${!isLocked ? `<span style="position:absolute;left:${lockPct}%;transform:translateX(-50%);font-size:0.6rem;color:#facc15;white-space:nowrap;">Lock $${(APEX_LOCK_LVL/1000).toFixed(0)}k</span>` : ''}
+      <span style="position:absolute;left:${startPct}%;transform:translateX(-50%);font-size:0.6rem;color:#94a3b8;white-space:nowrap;">Start $${initK}k</span>
+      ${!isLocked ? `<span style="position:absolute;left:${lockPct}%;transform:translateX(-50%);font-size:0.6rem;color:#facc15;white-space:nowrap;">Lock $${lockK}k</span>` : ''}
     </div>
   </div>
 
@@ -1610,7 +1637,7 @@
     <span>Buffer: <b style="color:${bufColor};">${buffer >= 0 ? '+' : ''}$${buffer.toFixed(0)}</b></span>
     ${!isLocked
       ? `<span style="color:#475569;">|</span><span style="color:#94a3b8;">A lock: <b style="color:#facc15;">$${toLock.toFixed(0)}</b></span>`
-      : `<span style="color:#22c55e;font-size:0.72rem;"><i class="bi bi-lock-fill me-1"></i>Floor bloccato a $25,000</span>`
+      : `<span style="color:#22c55e;font-size:0.72rem;"><i class="bi bi-lock-fill me-1"></i>Floor bloccato a $${initK}k</span>`
     }
   </div>
 
@@ -1630,6 +1657,18 @@
             inp.addEventListener('change', () => {
                 const v = parseFloat(inp.value);
                 if (!isNaN(v)) { setApexFloor(inp.dataset.account, v); updateApexTrail(); }
+            });
+        });
+
+        container.querySelectorAll('.apex-tier-sel').forEach(sel => {
+            sel.addEventListener('change', () => {
+                const acc     = sel.dataset.account;
+                const newTier = parseInt(sel.value);
+                setApexTier(acc, newTier);
+                // Reset floor to the new tier's base when tier changes
+                const cfg = APEX_CONFIGS[newTier] || APEX_CONFIGS[25000];
+                setApexFloor(acc, cfg.initial - cfg.trailAmt);
+                updateApexTrail();
             });
         });
     }
