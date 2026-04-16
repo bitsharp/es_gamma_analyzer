@@ -1313,6 +1313,12 @@ _ES_SPX_OVERNIGHT_BASIS_CACHE = {
 }
 
 
+_COT_SP500_CACHE = {
+    "value": None,
+    "fetched_at": 0.0,
+}
+
+
 _NVDA_SNAPSHOT_CACHE = {
     "value": None,
     "fetched_at": 0.0,
@@ -1782,6 +1788,44 @@ def get_es_spx_overnight_basis_cached(max_age_seconds: int = 10 * 60) -> Optiona
     _ES_SPX_OVERNIGHT_BASIS_CACHE["value"] = payload
     _ES_SPX_OVERNIGHT_BASIS_CACHE["fetched_at"] = now
     return payload
+
+
+def get_cot_sp500_cached(max_age_seconds: int = 60 * 60) -> Optional[Dict[str, Any]]:
+    """Fetch COT (Commitment of Traders) data for S&P 500 with caching.
+
+    Source: CFTC Legacy Futures Only Report, exposed by an external service
+    at http://178.104.133.41:8080/cot/sp500. The report is published weekly,
+    so a 1h cache is generous.
+    """
+
+    now = time.time()
+    cached = _COT_SP500_CACHE.get("value")
+    fetched_at = float(_COT_SP500_CACHE.get("fetched_at") or 0.0)
+    if cached and (now - fetched_at) <= max_age_seconds:
+        return cached
+
+    url = "http://178.104.133.41:8080/cot/sp500"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; ESGammaAnalyzer/1.0)",
+        "Accept": "application/json",
+    }
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+        data = json.loads(raw)
+    except Exception as e:
+        # On failure, return last cached value if any (stale-while-error).
+        if cached:
+            return cached
+        return {"error": f"COT fetch error: {e}"}
+
+    if not isinstance(data, dict):
+        return {"error": "Invalid COT response"}
+
+    _COT_SP500_CACHE["value"] = data
+    _COT_SP500_CACHE["fetched_at"] = now
+    return data
 
 
 def _fetch_nasdaq_json(url: str, referer: str) -> Optional[Dict[str, Any]]:
@@ -4861,6 +4905,30 @@ def es_spx_overnight_basis():
 
     try:
         fetched_at = float(_ES_SPX_OVERNIGHT_BASIS_CACHE.get('fetched_at') or 0.0)
+        if fetched_at:
+            data = dict(data)
+            data['cache_age_seconds'] = int(max(0.0, time.time() - fetched_at))
+    except Exception:
+        pass
+
+    return jsonify(data)
+
+
+@app.route('/api/cot-sp500', methods=['GET'])
+def api_cot_sp500():
+    """Return weekly COT report for S&P 500 (non-commercial focus)."""
+
+    force = (request.args.get('force') or '').strip() == '1'
+    try:
+        data = get_cot_sp500_cached(max_age_seconds=0 if force else 60 * 60)
+    except Exception as e:
+        return jsonify({"error": f"Impossibile recuperare il COT S&P 500: {e}"})
+
+    if not data:
+        return jsonify({"error": "Impossibile recuperare il COT S&P 500 in questo momento"})
+
+    try:
+        fetched_at = float(_COT_SP500_CACHE.get('fetched_at') or 0.0)
         if fetched_at:
             data = dict(data)
             data['cache_age_seconds'] = int(max(0.0, time.time() - fetched_at))

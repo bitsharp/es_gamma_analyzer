@@ -986,6 +986,89 @@
                         </div>
                     </div>
 
+            <!-- COT Non-Commercial (S&P 500) -->
+            <div class="col-12 col-md-3">
+                <div class="card" id="cotSp500Card">
+                    <div class="card-header">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <i class="bi bi-people me-2"></i>COT S&amp;P 500 <span class="text-muted small" id="cotSp500ReportDate"></span>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-light" id="cotSp500RefreshBtn" aria-label="Refresh COT" title="Refresh">
+                                <i class="bi bi-arrow-clockwise"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-muted small mb-2" id="cotSp500Subtitle">Non-Commercial (Large Speculators) — CFTC Legacy</div>
+
+                        <div id="cotSp500Bias" class="alert mb-2 py-2 px-2" style="display:none; font-size: 0.85rem;"></div>
+
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <div class="price-box text-start" id="cotNcLongBox">
+                                    <div class="box-label">NC Long</div>
+                                    <div class="fw-bold text-success" id="cotNcLong">--</div>
+                                    <div class="box-sub" id="cotNcLongChange">--</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="price-box text-start" id="cotNcShortBox">
+                                    <div class="box-label">NC Short</div>
+                                    <div class="fw-bold text-danger" id="cotNcShort">--</div>
+                                    <div class="box-sub" id="cotNcShortChange">--</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-2 mb-2">
+                            <div class="col-12">
+                                <div class="price-box text-start" id="cotNcNetBox">
+                                    <div class="box-label">NC Net (Long − Short)</div>
+                                    <div class="fw-bold" id="cotNcNet">--</div>
+                                    <div class="box-sub" id="cotNcNetChange">--</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <div class="price-box text-start">
+                                    <div class="box-label">% OI Long</div>
+                                    <div class="fw-bold" id="cotNcPctLong">--</div>
+                                    <div class="box-sub" id="cotNcTradersLong">-- traders</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="price-box text-start">
+                                    <div class="box-label">% OI Short</div>
+                                    <div class="fw-bold" id="cotNcPctShort">--</div>
+                                    <div class="box-sub" id="cotNcTradersShort">-- traders</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="text-muted small mb-1">Net history (last weeks)</div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-dark table-borderless mb-0" style="font-size: 0.78rem;">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th class="text-end">Net</th>
+                                        <th class="text-end">Δ</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cotNcHistoryBody">
+                                    <tr><td colspan="3" class="text-center text-muted py-2">Loading…</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="text-muted small mt-2" id="cotSp500Footer">--</div>
+                    </div>
+                </div>
+            </div>
+
         </div><!-- /levelsRow -->
 
         <!-- Second row: NVDA + AAPL -->
@@ -3465,6 +3548,191 @@
             updateXspNearSignals();
         }
 
+        // ---- COT S&P 500 (Non-Commercial) ----
+        let cotSp500PollIntervalId = null;
+
+        function fmtCotInt(n) {
+            const v = Number(n);
+            if (!Number.isFinite(v)) return '--';
+            return v.toLocaleString('en-US');
+        }
+
+        function fmtCotSigned(n) {
+            const v = Number(n);
+            if (!Number.isFinite(v)) return '--';
+            const sign = v > 0 ? '+' : '';
+            return sign + v.toLocaleString('en-US');
+        }
+
+        function fmtCotChangeWithClass(n) {
+            const v = Number(n);
+            if (!Number.isFinite(v)) return { text: '--', cls: 'text-muted' };
+            const sign = v > 0 ? '+' : '';
+            const cls = v > 0 ? 'text-success' : (v < 0 ? 'text-danger' : 'text-muted');
+            return { text: 'Δ ' + sign + v.toLocaleString('en-US'), cls };
+        }
+
+        function renderCotSp500(data) {
+            const reportDateEl = document.getElementById('cotSp500ReportDate');
+            const biasEl = document.getElementById('cotSp500Bias');
+            const ncLong = document.getElementById('cotNcLong');
+            const ncShort = document.getElementById('cotNcShort');
+            const ncNet = document.getElementById('cotNcNet');
+            const ncLongChange = document.getElementById('cotNcLongChange');
+            const ncShortChange = document.getElementById('cotNcShortChange');
+            const ncNetChange = document.getElementById('cotNcNetChange');
+            const ncPctLong = document.getElementById('cotNcPctLong');
+            const ncPctShort = document.getElementById('cotNcPctShort');
+            const ncTradersLong = document.getElementById('cotNcTradersLong');
+            const ncTradersShort = document.getElementById('cotNcTradersShort');
+            const historyBody = document.getElementById('cotNcHistoryBody');
+            const footerEl = document.getElementById('cotSp500Footer');
+
+            if (!data || data.error) {
+                if (reportDateEl) reportDateEl.textContent = '';
+                if (biasEl) {
+                    biasEl.style.display = 'block';
+                    biasEl.className = 'alert alert-danger mb-2 py-2 px-2';
+                    biasEl.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + ((data && data.error) || 'COT non disponibile');
+                }
+                if (ncLong) ncLong.textContent = '--';
+                if (ncShort) ncShort.textContent = '--';
+                if (ncNet) ncNet.textContent = '--';
+                if (ncLongChange) ncLongChange.textContent = '--';
+                if (ncShortChange) ncShortChange.textContent = '--';
+                if (ncNetChange) ncNetChange.textContent = '--';
+                if (ncPctLong) ncPctLong.textContent = '--';
+                if (ncPctShort) ncPctShort.textContent = '--';
+                if (ncTradersLong) ncTradersLong.textContent = '-- traders';
+                if (ncTradersShort) ncTradersShort.textContent = '-- traders';
+                if (historyBody) historyBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-2">--</td></tr>';
+                if (footerEl) footerEl.textContent = '--';
+                return;
+            }
+
+            const latest = data.latest || {};
+            const nc = latest.non_commercial || {};
+            const reportDate = latest.report_date || '--';
+            const net = Number(latest.non_commercial_net);
+            const netChange = Number(latest.non_commercial_net_change);
+
+            if (reportDateEl) reportDateEl.textContent = '(' + reportDate + ')';
+
+            if (ncLong) ncLong.textContent = fmtCotInt(nc.long);
+            if (ncShort) ncShort.textContent = fmtCotInt(nc.short);
+            if (ncNet) {
+                ncNet.textContent = fmtCotSigned(net);
+                ncNet.classList.remove('text-success', 'text-danger', 'text-muted');
+                if (Number.isFinite(net)) {
+                    ncNet.classList.add(net > 0 ? 'text-success' : (net < 0 ? 'text-danger' : 'text-muted'));
+                }
+            }
+
+            const longCh = fmtCotChangeWithClass(nc.change_long);
+            const shortCh = fmtCotChangeWithClass(nc.change_short);
+            const netCh = fmtCotChangeWithClass(netChange);
+            if (ncLongChange) {
+                ncLongChange.textContent = longCh.text;
+                ncLongChange.className = 'box-sub ' + longCh.cls;
+            }
+            if (ncShortChange) {
+                ncShortChange.textContent = shortCh.text;
+                ncShortChange.className = 'box-sub ' + shortCh.cls;
+            }
+            if (ncNetChange) {
+                ncNetChange.textContent = netCh.text;
+                ncNetChange.className = 'box-sub ' + netCh.cls;
+            }
+
+            if (ncPctLong) ncPctLong.textContent = (nc.pct_oi_long != null ? Number(nc.pct_oi_long).toFixed(1) + '%' : '--');
+            if (ncPctShort) ncPctShort.textContent = (nc.pct_oi_short != null ? Number(nc.pct_oi_short).toFixed(1) + '%' : '--');
+            if (ncTradersLong) ncTradersLong.textContent = (nc.traders_long != null ? nc.traders_long + ' traders' : '-- traders');
+            if (ncTradersShort) ncTradersShort.textContent = (nc.traders_short != null ? nc.traders_short + ' traders' : '-- traders');
+
+            // Bias narrative
+            if (biasEl) {
+                biasEl.style.display = 'block';
+                let cls = 'alert-secondary';
+                let icon = 'bi-arrows-expand';
+                let label = 'Net flat';
+                let trend = '';
+                if (Number.isFinite(net)) {
+                    if (net > 0) {
+                        cls = 'alert-success';
+                        icon = 'bi-graph-up-arrow';
+                        label = 'Net LONG (Bullish bias)';
+                    } else if (net < 0) {
+                        cls = 'alert-danger';
+                        icon = 'bi-graph-down-arrow';
+                        label = 'Net SHORT (Bearish bias)';
+                    }
+                }
+                if (Number.isFinite(netChange)) {
+                    if (netChange > 0) trend = ' • increasing longs WoW';
+                    else if (netChange < 0) trend = ' • increasing shorts WoW';
+                }
+                biasEl.className = 'alert ' + cls + ' mb-2 py-2 px-2';
+                biasEl.innerHTML = '<i class="bi ' + icon + ' me-2"></i><strong>' + label + '</strong>' + trend;
+            }
+
+            // History (skip the latest row, since it is shown above)
+            if (historyBody) {
+                const history = Array.isArray(data.history) ? data.history.slice(0, 6) : [];
+                if (!history.length) {
+                    historyBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-2">No history</td></tr>';
+                } else {
+                    historyBody.innerHTML = history.map((row) => {
+                        const r = row || {};
+                        const rnc = r.non_commercial || {};
+                        const rnet = Number(rnc.long) - Number(rnc.short);
+                        const rdelta = Number(rnc.change_long) - Number(rnc.change_short);
+                        const netCls = Number.isFinite(rnet) ? (rnet > 0 ? 'text-success' : (rnet < 0 ? 'text-danger' : 'text-muted')) : 'text-muted';
+                        const dCls = Number.isFinite(rdelta) ? (rdelta > 0 ? 'text-success' : (rdelta < 0 ? 'text-danger' : 'text-muted')) : 'text-muted';
+                        const dStr = Number.isFinite(rdelta) ? ((rdelta > 0 ? '+' : '') + rdelta.toLocaleString('en-US')) : '--';
+                        const netStr = Number.isFinite(rnet) ? ((rnet > 0 ? '+' : '') + rnet.toLocaleString('en-US')) : '--';
+                        return `<tr>
+                            <td>${r.report_date || '--'}</td>
+                            <td class="text-end ${netCls}">${netStr}</td>
+                            <td class="text-end ${dCls}">${dStr}</td>
+                        </tr>`;
+                    }).join('');
+                }
+            }
+
+            // Footer with cache age + source
+            if (footerEl) {
+                const fetchedAt = data.fetched_at || '';
+                const ageSec = Number(data.cache_age_seconds);
+                let ageStr = '';
+                if (Number.isFinite(ageSec)) {
+                    if (ageSec < 60) ageStr = ageSec + 's ago';
+                    else if (ageSec < 3600) ageStr = Math.round(ageSec / 60) + 'm ago';
+                    else ageStr = Math.round(ageSec / 3600) + 'h ago';
+                }
+                const fetchedShort = fetchedAt ? fetchedAt.replace('T', ' ').slice(0, 16) : '';
+                footerEl.textContent = 'Source: CFTC Legacy Futures Only Report' + (fetchedShort ? ' • Fetched ' + fetchedShort : '') + (ageStr ? ' (' + ageStr + ')' : '');
+            }
+        }
+
+        async function loadCotSp500(opts) {
+            const force = !!(opts && opts.force);
+            try {
+                const url = '/api/cot-sp500' + (force ? '?force=1' : '');
+                const res = await fetch(url);
+                const data = await res.json();
+                renderCotSp500(data);
+            } catch (e) {
+                renderCotSp500({ error: 'Errore di rete: ' + (e && e.message ? e.message : e) });
+            }
+        }
+
+        function startCotSp500Polling() {
+            if (cotSp500PollIntervalId) return;
+            loadCotSp500();
+            // COT report is weekly. Poll every 30 min to catch new releases.
+            cotSp500PollIntervalId = setInterval(() => loadCotSp500(), 30 * 60 * 1000);
+        }
+
         async function loadEsPrice() {
             if (esLoadPromise) return esLoadPromise;
 
@@ -4639,6 +4907,7 @@
                 startGoogPolling();
                 startAmznPolling();
                 startEsSpxSpreadPolling();
+                startCotSp500Polling();
             }
         });
 
@@ -4702,6 +4971,13 @@
         startGoogPolling();
         startAmznPolling();
         startEsSpxSpreadPolling();
+        startCotSp500Polling();
+
+        // Refresh button for COT card
+        (function bindCotRefresh() {
+            const btn = document.getElementById('cotSp500RefreshBtn');
+            if (btn) btn.addEventListener('click', () => loadCotSp500({ force: true }));
+        })();
 
         let lastEsAnalysisData = null;
 
