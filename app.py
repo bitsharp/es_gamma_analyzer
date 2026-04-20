@@ -4736,11 +4736,22 @@ def admin_login_sessions():
     except Exception:
         limit = 500
     limit = max(1, min(limit, 2000))
+    # Aggregation: only the most recent 'login' event per user email.
+    # (Using Mongo's aggregation pipeline keeps memory bounded even at scale.)
     try:
-        docs = list(coll.find({}, sort=[('created_at', -1)], limit=limit))
-    except TypeError:
-        # Some pymongo versions don't accept sort/limit kwargs like this
-        docs = list(coll.find({}).sort('created_at', -1).limit(limit))
+        docs = list(coll.aggregate([
+            {'$match': {'event': 'login', 'user.email': {'$ne': None}}},
+            {'$sort': {'created_at': -1}},
+            {'$group': {
+                '_id': {'$toLower': '$user.email'},
+                'latest': {'$first': '$$ROOT'},
+            }},
+            {'$replaceRoot': {'newRoot': '$latest'}},
+            {'$sort': {'created_at': -1}},
+            {'$limit': limit},
+        ]))
+    except Exception:
+        docs = []
 
     sessions_out = []
     for d in docs:
