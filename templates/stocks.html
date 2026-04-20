@@ -67,11 +67,17 @@
         .bucket-new   { color: #4ade80; }
         .bucket-added { color: #fbbf24; }
 
+        .table-wrap {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            margin-bottom: 0.8rem;
+        }
         table.positions {
             width: 100%;
             font-size: 0.88rem;
             border-collapse: collapse;
-            margin-bottom: 0.8rem;
+            margin-bottom: 0;
         }
         table.positions thead th {
             color: #94a3b8;
@@ -177,6 +183,31 @@
 
         .loading-spinner {
             text-align: center; padding: 4rem 0; color: #778da9;
+        }
+
+        /* ---- Mobile adjustments ---- */
+        @media (max-width: 575px) {
+            .fund-card .card-header { padding: 0.6rem 0.7rem; }
+            .fund-card .card-body   { padding: 0.7rem; }
+            .fund-name { font-size: 0.95rem; }
+            .fund-meta { font-size: 0.72rem; }
+            .fund-meta .pill { margin-left: 0.25rem; padding: 0.1rem 0.4rem; }
+
+            table.positions { font-size: 0.78rem; }
+            table.positions thead th,
+            table.positions tbody td { padding: 0.3rem 0.35rem; }
+            table.positions thead th { font-size: 0.64rem; letter-spacing: 0.02em; }
+
+            /* Drop Prev-shares column on narrow screens: keep Issuer, Now, Δ, Value */
+            table.positions .col-prev { display: none; }
+
+            .issuer { font-size: 0.82rem; }
+            .class-sub { display: block; margin-left: 0; margin-top: 1px; font-size: 0.7rem; }
+
+            h4 { font-size: 1.1rem; }
+            .intro-note { font-size: 0.8rem; padding: 0.65rem 0.8rem; }
+            .filter-btn { padding: 0.3rem 0.55rem; font-size: 0.78rem; }
+            .filter-label { font-size: 0.72rem; margin-right: 0.35rem; }
         }
     </style>
 </head>
@@ -307,7 +338,7 @@
             if (!items || items.length === 0) {
                 return '<div class="empty-state">Nessuna nuova posizione in questo trimestre.</div>';
             }
-            let html = '<table class="positions"><thead><tr>'
+            let html = '<div class="table-wrap"><table class="positions"><thead><tr>'
                 + '<th>Issuer</th><th class="num">Shares</th><th class="num">Value</th>'
                 + '</tr></thead><tbody>';
             for (const p of items) {
@@ -317,7 +348,7 @@
                     <td class="num">${fmtUsdMillions(p.value_usd)}</td>
                 </tr>`;
             }
-            html += '</tbody></table>';
+            html += '</tbody></table></div>';
             return html;
         }
 
@@ -327,20 +358,20 @@
                 const lbl = currentFilterMin <= 0.20 ? '≥ 20%' : '> ' + Math.round(currentFilterMin * 100) + '%';
                 return `<div class="empty-state">Nessuna posizione incrementata ${lbl} in questo trimestre.</div>`;
             }
-            let html = '<table class="positions"><thead><tr>'
-                + '<th>Issuer</th><th class="num">Prev shares</th><th class="num">Now shares</th>'
+            let html = '<div class="table-wrap"><table class="positions"><thead><tr>'
+                + '<th>Issuer</th><th class="num col-prev">Prev</th><th class="num">Shares</th>'
                 + '<th class="num">Δ</th><th class="num">Value</th>'
                 + '</tr></thead><tbody>';
             for (const p of filtered) {
                 html += `<tr>
                     <td>${renderIssuer(p)}</td>
-                    <td class="num">${fmtNumber(p.prev_shares)}</td>
+                    <td class="num col-prev">${fmtNumber(p.prev_shares)}</td>
                     <td class="num">${fmtNumber(p.shares)}</td>
                     <td class="num delta-up">${fmtPct(p.delta_pct)}</td>
                     <td class="num">${fmtUsdMillions(p.value_usd)}</td>
                 </tr>`;
             }
-            html += '</tbody></table>';
+            html += '</tbody></table></div>';
             return html;
         }
 
