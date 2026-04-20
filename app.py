@@ -5959,6 +5959,7 @@ _SUPERINVESTORS_DEFAULT = [
 
 _STOCKS_ADDED_MIN_PCT = 0.20  # share-count increase threshold to flag "ADDED"
 _STOCKS_CACHE_TTL_SECONDS = 24 * 60 * 60  # 13F data updates quarterly; 24h cache is plenty
+_STOCKS_CACHE_SCHEMA = 2  # bump to invalidate stale cached entries after logic changes
 
 _MONGO_STOCKS_CACHE_COLLECTION = None
 
@@ -6116,21 +6117,43 @@ def _fetch_13f_info_table(cik: str, accession_no: str) -> list:
     return positions
 
 
+def _position_key(p: dict) -> tuple:
+    return (
+        (p.get("cusip") or "").strip().upper(),
+        (p.get("class") or "").strip().upper(),
+        (p.get("put_call") or "") or "SHARES",
+    )
+
+
+def _aggregate_13f_positions(positions: list) -> list:
+    """Merge duplicate rows for the same (cusip, class, put/call).
+
+    A single 13F can list the same security multiple times — once per
+    sub-advisor / otherManager (e.g. Berkshire reports APPLE under Buffett,
+    Combs, and Weschler separately, and Berkshire's Liberty Live holdings
+    are split across Buffett's and Weschler's buckets). The total fund
+    position is the sum of shares and value across those rows.
+    """
+    merged = {}
+    for p in positions or []:
+        k = _position_key(p)
+        if k not in merged:
+            merged[k] = dict(p)
+            continue
+        cur = merged[k]
+        cur["shares"] = (cur.get("shares") or 0) + (p.get("shares") or 0)
+        cur["value_usd"] = (cur.get("value_usd") or 0.0) + (p.get("value_usd") or 0.0)
+        # Preserve issuer/class from the first occurrence; they should match anyway.
+    return list(merged.values())
+
+
 def _diff_13f_positions(latest: list, previous: list, min_pct: float = _STOCKS_ADDED_MIN_PCT) -> dict:
-    def key(p):
-        return (
-            (p.get("cusip") or "").strip().upper(),
-            (p.get("class") or "").strip().upper(),
-            (p.get("put_call") or "") or "SHARES",
-        )
-    prev_map = {}
-    for p in previous or []:
-        k = key(p)
-        if k not in prev_map or (p.get("shares") or 0) > (prev_map[k].get("shares") or 0):
-            prev_map[k] = p
+    latest_agg = _aggregate_13f_positions(latest)
+    prev_agg = _aggregate_13f_positions(previous)
+    prev_map = {_position_key(p): p for p in prev_agg}
     new_positions, added_positions = [], []
-    for p in latest or []:
-        k = key(p)
+    for p in latest_agg:
+        k = _position_key(p)
         if k not in prev_map:
             new_positions.append(p)
             continue
@@ -6182,7 +6205,7 @@ def _stocks_cached_fund(cik: str, name: str, ttl_seconds: int = _STOCKS_CACHE_TT
             cached = coll.find_one({"cik": cik})
         except Exception:
             cached = None
-        if cached:
+        if cached and cached.get("schema") == _STOCKS_CACHE_SCHEMA:
             fetched_at = cached.get("fetched_at")
             if fetched_at and (now - fetched_at).total_seconds() < ttl_seconds:
                 data = dict(cached.get("data") or {})
@@ -6197,7 +6220,7 @@ def _stocks_cached_fund(cik: str, name: str, ttl_seconds: int = _STOCKS_CACHE_TT
         try:
             coll.update_one(
                 {"cik": cik},
-                {"$set": {"cik": cik, "data": data, "fetched_at": now}},
+                {"$set": {"cik": cik, "data": data, "fetched_at": now, "schema": _STOCKS_CACHE_SCHEMA}},
                 upsert=True,
             )
         except Exception:
