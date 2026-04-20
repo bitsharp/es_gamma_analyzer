@@ -23,6 +23,39 @@
             font-size: 1.8rem;
             font-weight: 700;
             color: #ffffff;
+            white-space: nowrap;
+        }
+
+        /* Nav links (shared style across pages) */
+        .nav-link-custom {
+            color: #adb5bd;
+            text-decoration: none;
+            padding: 0.3rem 0.7rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            transition: background 0.2s, color 0.2s;
+            white-space: nowrap;
+        }
+        .nav-link-custom:hover { background: rgba(255,255,255,0.08); color: #fff; }
+        .nav-link-custom.active { background: rgba(119,141,169,0.25); color: #e2e8f0; }
+
+        @media (max-width: 991px) {
+            .navbar-brand { font-size: 1.15rem; }
+            .nav-link-custom { padding: 0.3rem 0.5rem; font-size: 0.82rem; }
+        }
+        @media (max-width: 575px) {
+            .navbar-brand { font-size: 1rem; }
+            .nav-link-custom { padding: 0.3rem 0.4rem; }
+            .nav-link-custom .nav-label { display: none; }
+            .nav-link-custom i.bi { margin-right: 0 !important; font-size: 1rem; }
+            .navbar .dropdown > .btn {
+                font-size: 0.78rem;
+                padding: 0.2rem 0.45rem;
+                max-width: 120px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
         }
         
         .upload-card {
@@ -642,18 +675,14 @@
                 <span class="navbar-brand">ES Gamma Analyzer</span>
 
                 <div class="d-flex align-items-center gap-2">
-                    <a href="/" style="color:#e2e8f0; text-decoration:none; padding:0.3rem 0.7rem; border-radius:6px; font-size:0.9rem; background:rgba(119,141,169,0.25);">
-                        <i class="bi bi-graph-up me-1"></i>Gamma
+                    <a href="/" class="nav-link-custom active" style="white-space:nowrap;">
+                        <i class="bi bi-graph-up me-1"></i><span class="nav-label">Gamma</span>
                     </a>
-                    <a href="/checklist" style="color:#adb5bd; text-decoration:none; padding:0.3rem 0.7rem; border-radius:6px; font-size:0.9rem; transition:background 0.2s, color 0.2s;"
-                        onmouseover="this.style.background='rgba(255,255,255,0.08)';this.style.color='#fff';"
-                        onmouseout="this.style.background='';this.style.color='#adb5bd';">
-                        <i class="bi bi-check2-square me-1"></i>Checklist
+                    <a href="/checklist" class="nav-link-custom" style="white-space:nowrap;">
+                        <i class="bi bi-check2-square me-1"></i><span class="nav-label">Checklist</span>
                     </a>
-                    <a href="/stocks" style="color:#adb5bd; text-decoration:none; padding:0.3rem 0.7rem; border-radius:6px; font-size:0.9rem; transition:background 0.2s, color 0.2s;"
-                        onmouseover="this.style.background='rgba(255,255,255,0.08)';this.style.color='#fff';"
-                        onmouseout="this.style.background='';this.style.color='#adb5bd';">
-                        <i class="bi bi-bank me-1"></i>Stocks
+                    <a href="/stocks" class="nav-link-custom" style="white-space:nowrap;">
+                        <i class="bi bi-bank me-1"></i><span class="nav-label">Stocks</span>
                     </a>
 
                     {% set user = session.get('user') %}

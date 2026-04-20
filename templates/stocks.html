@@ -16,7 +16,7 @@
             background: linear-gradient(135deg, #1b263b 0%, #415a77 100%);
             border-bottom: 2px solid #778da9;
         }
-        .navbar-brand { font-size: 1.6rem; font-weight: 700; color: #fff; }
+        .navbar-brand { font-size: 1.6rem; font-weight: 700; color: #fff; white-space: nowrap; }
         .nav-link-custom {
             color: #adb5bd;
             text-decoration: none;
@@ -24,6 +24,7 @@
             border-radius: 6px;
             font-size: 0.9rem;
             transition: background 0.2s, color 0.2s;
+            white-space: nowrap;
         }
         .nav-link-custom:hover { background: rgba(255,255,255,0.08); color: #fff; }
         .nav-link-custom.active { background: rgba(119,141,169,0.25); color: #e2e8f0; }
@@ -275,8 +276,34 @@
             .chip { font-size: 0.72rem; padding: 0.15rem 0.45rem; }
         }
 
-        /* ---- Mobile adjustments ---- */
+        /* ---- Tablet / medium screens: shrink navbar + compact header ---- */
+        @media (max-width: 991px) {
+            .navbar-brand { font-size: 1.15rem; }
+            .nav-link-custom { padding: 0.3rem 0.5rem; font-size: 0.82rem; }
+        }
+
+        /* ---- Narrow screens (< 576px): full mobile adjustments ---- */
         @media (max-width: 575px) {
+            .navbar-brand { font-size: 1rem; }
+            /* Only show icons in the nav links — the active one keeps its label
+               via .nav-link-custom.active span, but the simple approach is to hide
+               the text and rely on icons + the active bg for context. */
+            .nav-link-custom {
+                padding: 0.3rem 0.4rem;
+                font-size: 0.82rem;
+            }
+            .nav-link-custom .nav-label { display: none; }
+            .nav-link-custom i.bi { margin-right: 0 !important; font-size: 1rem; }
+            /* User dropdown button: compact, truncate long names */
+            .navbar .dropdown > .btn {
+                font-size: 0.78rem;
+                padding: 0.2rem 0.45rem;
+                max-width: 120px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
             .fund-card .card-header { padding: 0.6rem 0.7rem; }
             .fund-card .card-body   { padding: 0.7rem; }
             .fund-name { font-size: 0.95rem; }
@@ -294,11 +321,20 @@
             .issuer { font-size: 0.82rem; }
             .class-sub { display: block; margin-left: 0; margin-top: 1px; font-size: 0.7rem; }
 
-            h4 { font-size: 1.1rem; }
-            .intro-note { font-size: 0.8rem; padding: 0.65rem 0.8rem; }
-            .filter-btn { padding: 0.3rem 0.55rem; font-size: 0.78rem; }
-            .filter-label { font-size: 0.72rem; margin-right: 0.35rem; }
+            h4 { font-size: 1.05rem; }
+            .intro-note { font-size: 0.78rem; padding: 0.6rem 0.75rem; line-height: 1.45; }
+            .filter-btn { padding: 0.3rem 0.5rem; font-size: 0.74rem; }
+            .filter-label { font-size: 0.68rem; margin-right: 0.3rem; }
+
+            .consensus-card .card-header { padding: 0.55rem 0.75rem; }
+            .consensus-card .card-header .title { font-size: 0.9rem; }
+            .consensus-card .card-header .subtitle { font-size: 0.72rem; line-height: 1.35; }
+            .consensus-card .card-body { padding: 0.6rem 0.7rem; }
         }
+
+        /* Header toolbar: keep title compact so filter+refresh stay inline */
+        .toolbar-title { flex: 1 1 auto; min-width: 0; }
+        .toolbar-actions { flex: 0 0 auto; }
     </style>
 </head>
 <body>
@@ -309,9 +345,9 @@
                 <a href="/" class="navbar-brand text-decoration-none">ES Gamma Analyzer</a>
 
                 <div class="d-flex align-items-center gap-2">
-                    <a href="/" class="nav-link-custom"><i class="bi bi-graph-up me-1"></i>Gamma</a>
-                    <a href="/checklist" class="nav-link-custom"><i class="bi bi-check2-square me-1"></i>Checklist</a>
-                    <a href="/stocks" class="nav-link-custom active"><i class="bi bi-bank me-1"></i>Stocks</a>
+                    <a href="/" class="nav-link-custom"><i class="bi bi-graph-up me-1"></i><span class="nav-label">Gamma</span></a>
+                    <a href="/checklist" class="nav-link-custom"><i class="bi bi-check2-square me-1"></i><span class="nav-label">Checklist</span></a>
+                    <a href="/stocks" class="nav-link-custom active"><i class="bi bi-bank me-1"></i><span class="nav-label">Stocks</span></a>
 
                     {% set user = session.get('user') %}
                     {% if user %}
@@ -338,13 +374,13 @@
     <div class="container-fluid px-2 px-lg-3">
 
         <div class="d-flex align-items-start justify-content-between mb-2 flex-wrap gap-2">
-            <div>
+            <div class="toolbar-title">
                 <h4 style="color:#fff; margin-bottom:0.15rem;">Superinvestor 13F — Latest Buys</h4>
                 <div style="color:#778da9; font-size:0.88rem;">
                     New positions + added positions (<span id="currentFilterLabel">≥&nbsp;20%</span> aumento share count) dall'ultimo deposito 13F-HR presso la SEC.
                 </div>
             </div>
-            <div class="d-flex align-items-center gap-2 flex-wrap">
+            <div class="toolbar-actions d-flex align-items-center gap-2 flex-wrap">
                 <span class="filter-label">Δ filter</span>
                 <div class="filter-group" id="filterGroup" role="group" aria-label="Delta filter">
                     <button type="button" class="filter-btn active" data-min="0.20">≥ 20%</button>
@@ -352,8 +388,8 @@
                     <button type="button" class="filter-btn" data-min="2.00">&gt; 200%</button>
                     <button type="button" class="filter-btn" data-min="3.00">&gt; 300%</button>
                 </div>
-                <button class="refresh-btn" id="refreshBtn" type="button">
-                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                <button class="refresh-btn" id="refreshBtn" type="button" title="Refresh">
+                    <i class="bi bi-arrow-clockwise"></i><span class="d-none d-sm-inline ms-1">Refresh</span>
                 </button>
             </div>
         </div>
