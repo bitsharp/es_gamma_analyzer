@@ -5945,21 +5945,23 @@ def api_import_apex():
 
 _SUPERINVESTORS_DEFAULT = [
     # (display name, CIK as 10-digit zero-padded string)
+    # CIKs verified 2026-04: each returns a recent 13F-HR via EDGAR submissions API.
     ("Berkshire Hathaway (Buffett)",     "0001067983"),
     ("Pershing Square (Ackman)",         "0001336528"),
-    ("Scion Asset Mgmt (Burry)",         "0001649339"),
+    ("Scion Asset Mgmt (Burry)",         "0001649339"),  # files inconsistently
     ("Baupost Group (Klarman)",          "0001061768"),
     ("Appaloosa LP (Tepper)",            "0001656456"),
-    ("Greenlight Capital (Einhorn)",     "0001079114"),
+    ("DME Capital Mgmt (Einhorn)",       "0001489933"),  # Greenlight's current 13F filer
     ("Third Point (Loeb)",               "0001040273"),
     ("Harris Associates (Oakmark)",      "0000807985"),
-    ("Dodge & Cox",                      "0000029440"),
+    ("Dodge & Cox",                      "0000200217"),
     ("Tiger Global Mgmt",                "0001167483"),
 ]
 
 _STOCKS_ADDED_MIN_PCT = 0.20  # share-count increase threshold to flag "ADDED"
 _STOCKS_CACHE_TTL_SECONDS = 24 * 60 * 60  # 13F data updates quarterly; 24h cache is plenty
-_STOCKS_CACHE_SCHEMA = 2  # bump to invalidate stale cached entries after logic changes
+_STOCKS_CACHE_SCHEMA = 3  # bump to invalidate stale cached entries after logic changes
+_STOCKS_STALE_DAYS = 120   # filing older than this is flagged "stale" in UI
 
 _MONGO_STOCKS_CACHE_COLLECTION = None
 
@@ -6184,6 +6186,13 @@ def _fetch_13f_fund_data(cik: str, name: str) -> dict:
     latest_pos = _fetch_13f_info_table(cik, latest_acc.get("accession_no"))
     prev_pos = _fetch_13f_info_table(cik, accs[1].get("accession_no")) if len(accs) >= 2 else []
     diff = _diff_13f_positions(latest_pos, prev_pos)
+    # Flag filings older than the freshness threshold so the UI can warn.
+    stale_days = None
+    try:
+        fd = _dt.date.fromisoformat(latest_acc.get("filing_date") or "")
+        stale_days = (_dt.date.today() - fd).days
+    except Exception:
+        pass
     return {
         "name": name,
         "cik": cik,
@@ -6192,6 +6201,8 @@ def _fetch_13f_fund_data(cik: str, name: str) -> dict:
         "accession": latest_acc.get("accession_no"),
         "has_previous": bool(prev_pos),
         "total_positions": len(latest_pos),
+        "stale_days": stale_days,
+        "stale": (stale_days is not None and stale_days > _STOCKS_STALE_DAYS),
         "new": diff["new"],
         "added": diff["added"],
     }
@@ -6260,6 +6271,7 @@ def api_stocks_top_buys():
 
     For each fund returns NEW positions and ADDED positions
     (share count +>= 20%) from the latest filing vs. the prior quarter.
+    Funds whose latest 13F-HR is older than _STOCKS_STALE_DAYS are dropped.
     """
     funds = _get_superinvestors()
     results = [None] * len(funds)
@@ -6276,9 +6288,14 @@ def api_stocks_top_buys():
         for i, data in ex.map(_work, range(len(funds))):
             results[i] = data
 
+    # Drop funds with a stale latest filing (fund may have stopped filing 13Fs).
+    fresh = [r for r in results if not r.get("stale")]
+    hidden = [r.get("name") for r in results if r.get("stale")]
+
     return jsonify({
-        "funds": results,
+        "funds": fresh,
         "min_added_pct": _STOCKS_ADDED_MIN_PCT,
+        "hidden_stale": hidden,
     })
 
 

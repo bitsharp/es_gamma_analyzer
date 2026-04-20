@@ -55,6 +55,11 @@
             border-radius: 6px;
             margin-left: 0.4rem;
         }
+        .fund-meta .pill.stale {
+            background: rgba(245,158,11,0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(245,158,11,0.4);
+        }
         .fund-card .card-body { padding: 1rem; }
 
         .bucket-title {
@@ -381,6 +386,9 @@
             const total = (typeof fund.total_positions === 'number')
                 ? `<span class="pill">${fund.total_positions} holdings</span>` : '';
             const cached = fund.cached ? '<span class="pill" title="Dal cache (24h)">cached</span>' : '';
+            const stale = fund.stale
+                ? `<span class="pill stale" title="Ultimo deposito > 120 giorni fa — fondo potrebbe non filare più regolarmente"><i class="bi bi-exclamation-triangle me-1"></i>stale ${fund.stale_days}d</span>`
+                : '';
 
             let body = '';
             if (fund.error) {
@@ -404,7 +412,7 @@
                             <div class="fund-name">${escapeHtml(fund.name || '—')}</div>
                             <div class="fund-meta">
                                 CIK ${escapeHtml(fund.cik || '—')} · ${filing}
-                                ${report}${total}${cached}
+                                ${report}${total}${stale}${cached}
                             </div>
                         </div>
                     </div>
