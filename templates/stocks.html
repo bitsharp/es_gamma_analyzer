@@ -142,6 +142,39 @@
         .refresh-btn:hover { background: rgba(65,90,119,0.4); border-color: #778da9; }
         .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+        .filter-group {
+            display: inline-flex;
+            border: 1px solid #415a77;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #0d1b2a;
+        }
+        .filter-btn {
+            background: transparent;
+            border: none;
+            color: #adb5bd;
+            padding: 0.35rem 0.75rem;
+            font-size: 0.82rem;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+            border-right: 1px solid #415a77;
+        }
+        .filter-btn:last-child { border-right: none; }
+        .filter-btn:hover { background: rgba(65,90,119,0.3); color: #e2e8f0; }
+        .filter-btn.active {
+            background: #415a77;
+            color: #fff;
+            font-weight: 600;
+        }
+        .filter-label {
+            color: #778da9;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-right: 0.5rem;
+            align-self: center;
+        }
+
         .loading-spinner {
             text-align: center; padding: 4rem 0; color: #778da9;
         }
@@ -187,12 +220,21 @@
             <div>
                 <h4 style="color:#fff; margin-bottom:0.15rem;">Superinvestor 13F — Latest Buys</h4>
                 <div style="color:#778da9; font-size:0.88rem;">
-                    New positions + added positions (≥&nbsp;<span id="minPct">20</span>% aumento di share count) dall'ultimo deposito 13F-HR presso la SEC.
+                    New positions + added positions (<span id="currentFilterLabel">≥&nbsp;20%</span> aumento share count) dall'ultimo deposito 13F-HR presso la SEC.
                 </div>
             </div>
-            <button class="refresh-btn" id="refreshBtn" type="button">
-                <i class="bi bi-arrow-clockwise me-1"></i>Refresh
-            </button>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span class="filter-label">Δ filter</span>
+                <div class="filter-group" id="filterGroup" role="group" aria-label="Delta filter">
+                    <button type="button" class="filter-btn active" data-min="0.20">≥ 20%</button>
+                    <button type="button" class="filter-btn" data-min="1.00">&gt; 100%</button>
+                    <button type="button" class="filter-btn" data-min="2.00">&gt; 200%</button>
+                    <button type="button" class="filter-btn" data-min="3.00">&gt; 300%</button>
+                </div>
+                <button class="refresh-btn" id="refreshBtn" type="button">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                </button>
+            </div>
         </div>
 
         <div class="intro-note">
@@ -215,7 +257,22 @@
         const fundsContainer = document.getElementById('fundsContainer');
         const loadingBox = document.getElementById('loadingBox');
         const refreshBtn = document.getElementById('refreshBtn');
-        const minPctSpan = document.getElementById('minPct');
+        const filterGroup = document.getElementById('filterGroup');
+        const currentFilterLabel = document.getElementById('currentFilterLabel');
+
+        let lastFundsData = [];       // cache of latest API response
+        let currentFilterMin = 0.20;  // default matches server cut
+
+        function passesDeltaFilter(delta) {
+            // Default 20% bucket uses >= (matches server cut).
+            // Stricter buckets use > (user spec: "> 100%", "> 200%", "> 300%").
+            if (currentFilterMin <= 0.20) return delta >= 0.20;
+            return delta > currentFilterMin;
+        }
+        function filterLabelHtml(min) {
+            if (min <= 0.20) return '≥&nbsp;20%';
+            return '&gt;&nbsp;' + Math.round(min * 100) + '%';
+        }
 
         function fmtNumber(n) {
             if (n === null || n === undefined || isNaN(n)) return '—';
@@ -265,14 +322,16 @@
         }
 
         function renderAddedTable(items) {
-            if (!items || items.length === 0) {
-                return '<div class="empty-state">Nessuna posizione incrementata ≥ 20% in questo trimestre.</div>';
+            const filtered = (items || []).filter(p => passesDeltaFilter(p.delta_pct));
+            if (filtered.length === 0) {
+                const lbl = currentFilterMin <= 0.20 ? '≥ 20%' : '> ' + Math.round(currentFilterMin * 100) + '%';
+                return `<div class="empty-state">Nessuna posizione incrementata ${lbl} in questo trimestre.</div>`;
             }
             let html = '<table class="positions"><thead><tr>'
                 + '<th>Issuer</th><th class="num">Prev shares</th><th class="num">Now shares</th>'
                 + '<th class="num">Δ</th><th class="num">Value</th>'
                 + '</tr></thead><tbody>';
-            for (const p of items) {
+            for (const p of filtered) {
                 html += `<tr>
                     <td>${renderIssuer(p)}</td>
                     <td class="num">${fmtNumber(p.prev_shares)}</td>
@@ -297,10 +356,11 @@
                 body = `<div class="error-banner"><i class="bi bi-exclamation-triangle me-2"></i>${escapeHtml(fund.error)}</div>`;
             } else {
                 const hasPrev = fund.has_previous !== false;
+                const addedLbl = currentFilterMin <= 0.20 ? '≥ 20%' : '> ' + Math.round(currentFilterMin * 100) + '%';
                 body = `
                     <div class="bucket-title bucket-new"><i class="bi bi-plus-circle me-1"></i>New positions</div>
                     ${renderNewTable(fund.new)}
-                    <div class="bucket-title bucket-added mt-3"><i class="bi bi-arrow-up-circle me-1"></i>Added ≥ 20%</div>
+                    <div class="bucket-title bucket-added mt-3"><i class="bi bi-arrow-up-circle me-1"></i>Added ${addedLbl}</div>
                     ${hasPrev ? renderAddedTable(fund.added)
                               : '<div class="empty-state">Nessun deposito precedente per il confronto.</div>'}
                 `;
@@ -322,6 +382,11 @@
             `;
         }
 
+        function renderAll() {
+            currentFilterLabel.innerHTML = filterLabelHtml(currentFilterMin);
+            fundsContainer.innerHTML = (lastFundsData || []).map(renderFundCard).join('');
+        }
+
         async function loadFunds() {
             loadingBox.style.display = '';
             fundsContainer.innerHTML = '';
@@ -330,11 +395,8 @@
                 const res = await fetch('/api/stocks/top-buys', { credentials: 'same-origin' });
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
-                if (typeof data.min_added_pct === 'number') {
-                    minPctSpan.textContent = Math.round(data.min_added_pct * 100);
-                }
-                const funds = data.funds || [];
-                fundsContainer.innerHTML = funds.map(renderFundCard).join('');
+                lastFundsData = data.funds || [];
+                renderAll();
             } catch (e) {
                 fundsContainer.innerHTML = `<div class="error-banner">Errore caricamento: ${escapeHtml(e.message || e)}</div>`;
             } finally {
@@ -343,6 +405,15 @@
             }
         }
 
+        filterGroup.addEventListener('click', (ev) => {
+            const btn = ev.target.closest('.filter-btn');
+            if (!btn) return;
+            const min = parseFloat(btn.dataset.min);
+            if (isNaN(min) || min === currentFilterMin) return;
+            currentFilterMin = min;
+            filterGroup.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b === btn));
+            renderAll();
+        });
         refreshBtn.addEventListener('click', loadFunds);
         loadFunds();
     </script>
