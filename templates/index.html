@@ -650,6 +650,11 @@
                         onmouseout="this.style.background='';this.style.color='#adb5bd';">
                         <i class="bi bi-check2-square me-1"></i>Checklist
                     </a>
+                    <a href="/stocks" style="color:#adb5bd; text-decoration:none; padding:0.3rem 0.7rem; border-radius:6px; font-size:0.9rem; transition:background 0.2s, color 0.2s;"
+                        onmouseover="this.style.background='rgba(255,255,255,0.08)';this.style.color='#fff';"
+                        onmouseout="this.style.background='';this.style.color='#adb5bd';">
+                        <i class="bi bi-bank me-1"></i>Stocks
+                    </a>
 
                     {% set user = session.get('user') %}
                     {% if user %}

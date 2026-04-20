@@ -5929,6 +5929,337 @@ def api_import_apex():
 
 
 # ============================================================================
+# STOCKS — SEC EDGAR 13F tracker for superinvestor funds
+# ============================================================================
+#
+# Tracks the latest 13F-HR filings for a curated list of "superinvestor"
+# funds (concentrated long-only / activist / value-oriented, explicitly NOT
+# passive index giants). For each fund, diffs the two most recent 13F-HR
+# filings and surfaces:
+#   - NEW positions (absent from the previous quarter)
+#   - ADDED positions where share count increased >= STOCKS_ADDED_MIN_PCT
+#
+# Data source: SEC EDGAR (https://www.sec.gov/edgar), the free primary source.
+# Results are cached per-fund in MongoDB so each quarterly filing is only
+# downloaded and parsed once.
+
+_SUPERINVESTORS_DEFAULT = [
+    # (display name, CIK as 10-digit zero-padded string)
+    ("Berkshire Hathaway (Buffett)",     "0001067983"),
+    ("Pershing Square (Ackman)",         "0001336528"),
+    ("Scion Asset Mgmt (Burry)",         "0001649339"),
+    ("Baupost Group (Klarman)",          "0001061768"),
+    ("Appaloosa LP (Tepper)",            "0001656456"),
+    ("Greenlight Capital (Einhorn)",     "0001079114"),
+    ("Third Point (Loeb)",               "0001040273"),
+    ("Harris Associates (Oakmark)",      "0000807985"),
+    ("Dodge & Cox",                      "0000029440"),
+    ("Tiger Global Mgmt",                "0001167483"),
+]
+
+_STOCKS_ADDED_MIN_PCT = 0.20  # share-count increase threshold to flag "ADDED"
+_STOCKS_CACHE_TTL_SECONDS = 24 * 60 * 60  # 13F data updates quarterly; 24h cache is plenty
+
+_MONGO_STOCKS_CACHE_COLLECTION = None
+
+
+def _edgar_user_agent() -> str:
+    # EDGAR requires a descriptive UA; override via env in production.
+    return (os.getenv("EDGAR_USER_AGENT") or "ES Gamma Analyzer contact@bitsharp.it").strip()
+
+
+def _edgar_get(url: str, timeout: int = 10) -> bytes:
+    headers = {
+        "User-Agent": _edgar_user_agent(),
+        "Accept-Encoding": "gzip, deflate",
+        "Host": urllib.parse.urlparse(url).netloc,
+    }
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = resp.read()
+        if resp.headers.get("Content-Encoding") == "gzip":
+            import gzip
+            data = gzip.decompress(data)
+    return data
+
+
+def _edgar_fetch_json(url: str) -> Optional[dict]:
+    try:
+        return json.loads(_edgar_get(url).decode("utf-8"))
+    except Exception:
+        return None
+
+
+def _edgar_fetch_text(url: str) -> Optional[str]:
+    try:
+        return _edgar_get(url).decode("utf-8", errors="replace")
+    except Exception:
+        return None
+
+
+def _get_mongo_stocks_cache_collection():
+    global _MONGO_CLIENT, _MONGO_STOCKS_CACHE_COLLECTION
+    if _MONGO_STOCKS_CACHE_COLLECTION is not None:
+        return _MONGO_STOCKS_CACHE_COLLECTION
+    if MongoClient is None:
+        return None
+    uri = (os.getenv("MONGODB_URI") or "").strip()
+    if not uri:
+        return None
+    db_name = (os.getenv("MONGODB_DB") or "es_gamma_analyzer").strip()
+    coll_name = (os.getenv("MONGODB_STOCKS_CACHE_COLLECTION") or "stocks_13f_cache").strip()
+    try:
+        if _MONGO_CLIENT is None:
+            _MONGO_CLIENT = MongoClient(uri, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+        db = _MONGO_CLIENT[db_name]
+        coll = db[coll_name]
+        try:
+            coll.create_index("cik", unique=True)
+        except Exception:
+            pass
+        _MONGO_STOCKS_CACHE_COLLECTION = coll
+        return coll
+    except Exception:
+        return None
+
+
+def _get_recent_13f_accessions(cik: str, limit: int = 2) -> list:
+    """Most recent 13F-HR filings for a CIK, from EDGAR submissions API."""
+    cik10 = str(cik).strip().lstrip("0").zfill(10)
+    data = _edgar_fetch_json(f"https://data.sec.gov/submissions/CIK{cik10}.json")
+    if not data:
+        return []
+    recent = (data.get("filings") or {}).get("recent") or {}
+    forms = recent.get("form") or []
+    accs = recent.get("accessionNumber") or []
+    fdates = recent.get("filingDate") or []
+    rdates = recent.get("reportDate") or []
+    out = []
+    for i, form in enumerate(forms):
+        if (form or "").upper() != "13F-HR":
+            continue
+        out.append({
+            "accession_no": accs[i] if i < len(accs) else "",
+            "filing_date": fdates[i] if i < len(fdates) else "",
+            "report_date": rdates[i] if i < len(rdates) else "",
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _fetch_13f_info_table(cik: str, accession_no: str) -> list:
+    """Parse the information table XML for a filing → list of position dicts."""
+    if not accession_no:
+        return []
+    cik_nolead = str(cik).strip().lstrip("0") or "0"
+    acc_nodashes = accession_no.replace("-", "")
+    idx = _edgar_fetch_json(
+        f"https://www.sec.gov/Archives/edgar/data/{cik_nolead}/{acc_nodashes}/index.json"
+    )
+    if not idx:
+        return []
+    items = ((idx.get("directory") or {}).get("item") or [])
+    xml_name = None
+    for it in items:
+        n = (it.get("name") or "").lower()
+        if n.endswith(".xml") and ("infotable" in n or "info_table" in n):
+            xml_name = it.get("name")
+            break
+    if not xml_name:
+        for it in items:
+            n = (it.get("name") or "").lower()
+            if n.endswith(".xml") and "primary_doc" not in n:
+                xml_name = it.get("name")
+                break
+    if not xml_name:
+        return []
+    xml_text = _edgar_fetch_text(
+        f"https://www.sec.gov/Archives/edgar/data/{cik_nolead}/{acc_nodashes}/{xml_name}"
+    )
+    if not xml_text:
+        return []
+    try:
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(xml_text)
+    except Exception:
+        return []
+    # Strip XML namespaces so findall() works regardless of filing vintage.
+    for el in root.iter():
+        if isinstance(el.tag, str) and "}" in el.tag:
+            el.tag = el.tag.split("}", 1)[1]
+
+    def _text(parent, path, default=""):
+        el = parent.find(path)
+        return (el.text or "").strip() if el is not None and el.text is not None else default
+
+    positions = []
+    for info in root.findall("infoTable"):
+        try:
+            value_raw = float(_text(info, "value", "0") or "0")
+        except Exception:
+            value_raw = 0.0
+        try:
+            shares = int(float(_text(info, "shrsOrPrnAmt/sshPrnamt", "0") or "0"))
+        except Exception:
+            shares = 0
+        positions.append({
+            "issuer": _text(info, "nameOfIssuer"),
+            "class": _text(info, "titleOfClass"),
+            "cusip": _text(info, "cusip"),
+            # Post-2022 SEC rule: value reported in full USD (pre-2022 was $thousands).
+            "value_usd": value_raw,
+            "shares": shares,
+            "share_type": _text(info, "shrsOrPrnAmt/sshPrnamtType", "SH"),
+            "put_call": _text(info, "putCall") or None,
+        })
+    return positions
+
+
+def _diff_13f_positions(latest: list, previous: list, min_pct: float = _STOCKS_ADDED_MIN_PCT) -> dict:
+    def key(p):
+        return (
+            (p.get("cusip") or "").strip().upper(),
+            (p.get("class") or "").strip().upper(),
+            (p.get("put_call") or "") or "SHARES",
+        )
+    prev_map = {}
+    for p in previous or []:
+        k = key(p)
+        if k not in prev_map or (p.get("shares") or 0) > (prev_map[k].get("shares") or 0):
+            prev_map[k] = p
+    new_positions, added_positions = [], []
+    for p in latest or []:
+        k = key(p)
+        if k not in prev_map:
+            new_positions.append(p)
+            continue
+        prev_shares = prev_map[k].get("shares") or 0
+        cur_shares = p.get("shares") or 0
+        if prev_shares <= 0 or cur_shares <= 0:
+            continue
+        delta_pct = (cur_shares - prev_shares) / float(prev_shares)
+        if delta_pct >= min_pct:
+            item = dict(p)
+            item["prev_shares"] = prev_shares
+            item["delta_pct"] = delta_pct
+            added_positions.append(item)
+    new_positions.sort(key=lambda x: x.get("value_usd") or 0, reverse=True)
+    added_positions.sort(key=lambda x: x.get("value_usd") or 0, reverse=True)
+    return {"new": new_positions, "added": added_positions}
+
+
+def _fetch_13f_fund_data(cik: str, name: str) -> dict:
+    accs = _get_recent_13f_accessions(cik, limit=2)
+    if not accs:
+        return {
+            "name": name, "cik": cik,
+            "error": "Nessun 13F-HR trovato per questo CIK.",
+            "new": [], "added": [],
+        }
+    latest_acc = accs[0]
+    latest_pos = _fetch_13f_info_table(cik, latest_acc.get("accession_no"))
+    prev_pos = _fetch_13f_info_table(cik, accs[1].get("accession_no")) if len(accs) >= 2 else []
+    diff = _diff_13f_positions(latest_pos, prev_pos)
+    return {
+        "name": name,
+        "cik": cik,
+        "filing_date": latest_acc.get("filing_date"),
+        "report_date": latest_acc.get("report_date"),
+        "accession": latest_acc.get("accession_no"),
+        "has_previous": bool(prev_pos),
+        "total_positions": len(latest_pos),
+        "new": diff["new"],
+        "added": diff["added"],
+    }
+
+
+def _stocks_cached_fund(cik: str, name: str, ttl_seconds: int = _STOCKS_CACHE_TTL_SECONDS) -> dict:
+    coll = _get_mongo_stocks_cache_collection()
+    now = _dt.datetime.utcnow()
+    if coll is not None:
+        try:
+            cached = coll.find_one({"cik": cik})
+        except Exception:
+            cached = None
+        if cached:
+            fetched_at = cached.get("fetched_at")
+            if fetched_at and (now - fetched_at).total_seconds() < ttl_seconds:
+                data = dict(cached.get("data") or {})
+                data["name"] = name
+                data["cached"] = True
+                return data
+    try:
+        data = _fetch_13f_fund_data(cik, name)
+    except Exception as e:
+        data = {"name": name, "cik": cik, "error": str(e), "new": [], "added": []}
+    if coll is not None:
+        try:
+            coll.update_one(
+                {"cik": cik},
+                {"$set": {"cik": cik, "data": data, "fetched_at": now}},
+                upsert=True,
+            )
+        except Exception:
+            pass
+    return data
+
+
+def _get_superinvestors() -> list:
+    """Active list of superinvestor funds.
+
+    Override via env: STOCKS_FUNDS_OVERRIDE="Name1:cik1,Name2:cik2,..."
+    """
+    override = (os.getenv("STOCKS_FUNDS_OVERRIDE") or "").strip()
+    if override:
+        out = []
+        for part in override.split(","):
+            part = part.strip()
+            if not part or ":" not in part:
+                continue
+            name, cik = part.split(":", 1)
+            out.append((name.strip(), cik.strip().zfill(10)))
+        if out:
+            return out
+    return list(_SUPERINVESTORS_DEFAULT)
+
+
+@app.route('/stocks')
+@login_required
+def stocks_page():
+    return render_template('stocks.html')
+
+
+@app.route('/api/stocks/top-buys', methods=['GET'])
+@login_required
+def api_stocks_top_buys():
+    """Latest 13F-HR buys for the curated superinvestor list.
+
+    For each fund returns NEW positions and ADDED positions
+    (share count +>= 20%) from the latest filing vs. the prior quarter.
+    """
+    funds = _get_superinvestors()
+    results = [None] * len(funds)
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _work(i):
+        name, cik = funds[i]
+        try:
+            return i, _stocks_cached_fund(cik, name)
+        except Exception as e:
+            return i, {"name": name, "cik": cik, "error": str(e), "new": [], "added": []}
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        for i, data in ex.map(_work, range(len(funds))):
+            results[i] = data
+
+    return jsonify({
+        "funds": results,
+        "min_added_pct": _STOCKS_ADDED_MIN_PCT,
+    })
+
+
+# ============================================================================
 # APPLICATION ENTRY POINT
 # ============================================================================
 
