@@ -32,17 +32,15 @@
 
   <div class="container-fluid px-2 px-lg-3">
     <div class="card">
-      <div class="card-header d-flex align-items-center justify-content-between">
-        <div><i class="bi bi-shield-lock me-2"></i>Login/Logout Events</div>
+      <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div><i class="bi bi-shield-lock me-2"></i>Latest login per user</div>
         <div class="text-muted small">
-          {% if shown_limit %}
-            Showing last {{ shown_limit }} events
-            <span class="text-muted">(use ?limit=...)</span>
-            <span class="text-muted">|</span>
-          {% endif %}
+          {{ sessions|length }} utenti
           {% if admin_emails %}
+            <span class="text-muted">|</span>
             Admin allowlist: {{ admin_emails }}
           {% else %}
+            <span class="text-muted">|</span>
             Admin allowlist: (not set)
           {% endif %}
         </div>
@@ -53,12 +51,27 @@
             MongoDB non configurato: impossibile mostrare i log.
           </div>
         {% else %}
+          <div class="mb-3" style="max-width:420px;">
+            <div class="input-group input-group-sm">
+              <span class="input-group-text" style="background:#415a77; border-color:#778da9; color:#e0e1dd;">
+                <i class="bi bi-search"></i>
+              </span>
+              <input id="userFilter" type="search" class="form-control form-control-sm"
+                     placeholder="Filtra per email o nome…"
+                     style="background:#0d1b2a; border-color:#415a77; color:#f8f9fa;"
+                     autocomplete="off">
+              <button id="clearFilter" type="button" class="btn btn-sm btn-outline-light" title="Pulisci">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </div>
+            <div class="text-muted small mt-1" id="filterCount"></div>
+          </div>
+
           <div class="table-responsive">
-            <table class="table table-sm align-middle">
+            <table class="table table-sm align-middle" id="usersTable">
               <thead>
                 <tr>
-                  <th>Time (UTC)</th>
-                  <th>Event</th>
+                  <th>Last login (UTC)</th>
                   <th>User</th>
                   <th>IP</th>
                   <th class="text-nowrap">Session ID</th>
@@ -67,12 +80,11 @@
               </thead>
               <tbody>
                 {% for s in sessions %}
-                  <tr>
+                  <tr data-search="{{ (s.email or '')|lower }} {{ (s.name or '')|lower }}">
                     <td class="text-nowrap">{{ s.created_at or '' }}</td>
-                    <td class="text-nowrap">{{ s.event or '' }}{% if s.provider %} <span class="text-muted">({{ s.provider }})</span>{% endif %}</td>
                     <td class="text-nowrap">
                       <div class="fw-semibold">{{ s.name or '' }}</div>
-                      <div class="text-muted small">{{ s.email or '' }}</div>
+                      <div class="text-muted small">{{ s.email or '' }}{% if s.provider %} <span class="text-muted">({{ s.provider }})</span>{% endif %}</div>
                     </td>
                     <td class="text-nowrap">{{ s.ip or '' }}</td>
                     <td class="text-nowrap"><code style="color:#e0e1dd;">{{ s.login_session_id or '' }}</code></td>
@@ -82,7 +94,7 @@
 
                 {% if sessions|length == 0 %}
                   <tr>
-                    <td colspan="6" class="text-muted">Nessun evento trovato.</td>
+                    <td colspan="5" class="text-muted">Nessun utente trovato.</td>
                   </tr>
                 {% endif %}
               </tbody>
@@ -94,5 +106,29 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    (function () {
+      const input = document.getElementById('userFilter');
+      const clearBtn = document.getElementById('clearFilter');
+      const countEl = document.getElementById('filterCount');
+      const rows = Array.from(document.querySelectorAll('#usersTable tbody tr[data-search]'));
+      const total = rows.length;
+
+      function apply() {
+        const q = (input.value || '').trim().toLowerCase();
+        let visible = 0;
+        for (const tr of rows) {
+          const match = !q || (tr.dataset.search || '').includes(q);
+          tr.style.display = match ? '' : 'none';
+          if (match) visible++;
+        }
+        countEl.textContent = q
+          ? `Filtrati: ${visible} / ${total}`
+          : '';
+      }
+      input && input.addEventListener('input', apply);
+      clearBtn && clearBtn.addEventListener('click', () => { input.value = ''; apply(); input.focus(); });
+    })();
+  </script>
 </body>
 </html>

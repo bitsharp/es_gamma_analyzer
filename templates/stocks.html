@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stocks — ES Gamma Analyzer</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body {
+            background: #0d1b2a;
+            color: #f8f9fa;
+            min-height: 100vh;
+        }
+        .navbar {
+            background: linear-gradient(135deg, #1b263b 0%, #415a77 100%);
+            border-bottom: 2px solid #778da9;
+        }
+        .navbar-brand { font-size: 1.6rem; font-weight: 700; color: #fff; white-space: nowrap; }
+        .nav-link-custom {
+            color: #adb5bd;
+            text-decoration: none;
+            padding: 0.3rem 0.7rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            transition: background 0.2s, color 0.2s;
+            white-space: nowrap;
+        }
+        .nav-link-custom:hover { background: rgba(255,255,255,0.08); color: #fff; }
+        .nav-link-custom.active { background: rgba(119,141,169,0.25); color: #e2e8f0; }
+
+        .fund-card {
+            background: #1b263b;
+            border: 1px solid #415a77;
+            border-radius: 12px;
+            margin-bottom: 1.25rem;
+            overflow: hidden;
+        }
+        .fund-card .card-header {
+            background: rgba(65,90,119,0.35);
+            border-bottom: 1px solid #415a77;
+            padding: 0.75rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .fund-name { font-weight: 700; font-size: 1.05rem; color: #fff; }
+        .fund-meta { font-size: 0.8rem; color: #adb5bd; }
+        .fund-meta .pill {
+            display: inline-block;
+            background: rgba(119,141,169,0.25);
+            color: #e2e8f0;
+            padding: 0.15rem 0.5rem;
+            border-radius: 6px;
+            margin-left: 0.4rem;
+        }
+        .fund-meta .pill.stale {
+            background: rgba(245,158,11,0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(245,158,11,0.4);
+        }
+        .fund-card .card-body { padding: 1rem; }
+
+        .bucket-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            margin-bottom: 0.4rem;
+        }
+        .bucket-new   { color: #4ade80; }
+        .bucket-added { color: #fbbf24; }
+
+        .table-wrap {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            margin-bottom: 0.8rem;
+        }
+        table.positions {
+            width: 100%;
+            font-size: 0.88rem;
+            border-collapse: collapse;
+            margin-bottom: 0;
+        }
+        table.positions thead th {
+            color: #94a3b8;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            padding: 0.4rem 0.5rem;
+            border-bottom: 1px solid rgba(119,141,169,0.3);
+        }
+        table.positions tbody td {
+            padding: 0.35rem 0.5rem;
+            border-bottom: 1px solid rgba(65,90,119,0.25);
+        }
+        table.positions tbody tr:last-child td { border-bottom: none; }
+        table.positions tbody tr:hover { background: rgba(65,90,119,0.15); }
+        .num { font-variant-numeric: tabular-nums; text-align: right; }
+        .delta-up { color: #4ade80; font-weight: 600; }
+
+        .issuer { font-weight: 600; color: #e2e8f0; }
+        .class-sub { color: #778da9; font-size: 0.78rem; margin-left: 0.35rem; }
+        .put-badge, .call-badge {
+            font-size: 0.65rem; padding: 0.1em 0.4em; border-radius: 4px;
+            margin-left: 0.35rem; font-weight: 700;
+        }
+        .put-badge  { background: rgba(239,68,68,0.25); color: #f87171; }
+        .call-badge { background: rgba(74,222,128,0.25); color: #4ade80; }
+
+        .empty-state {
+            color: #778da9; font-style: italic; font-size: 0.85rem;
+            padding: 0.5rem 0;
+        }
+        .error-banner {
+            background: rgba(239,68,68,0.1);
+            border: 1px solid rgba(239,68,68,0.3);
+            color: #f87171;
+            border-radius: 8px;
+            padding: 0.6rem 0.9rem;
+            font-size: 0.88rem;
+        }
+        .intro-note {
+            background: rgba(119,141,169,0.1);
+            border: 1px solid rgba(119,141,169,0.3);
+            color: #cbd5e1;
+            border-radius: 10px;
+            padding: 0.8rem 1rem;
+            font-size: 0.88rem;
+            line-height: 1.5;
+            margin-bottom: 1.25rem;
+        }
+        .intro-note strong { color: #e2e8f0; }
+        .intro-note code {
+            background: #0d1b2a;
+            padding: 0.05em 0.35em;
+            border-radius: 4px;
+            color: #fbbf24;
+            font-size: 0.82rem;
+        }
+        .refresh-btn {
+            background: #0d1b2a;
+            border: 1px solid #415a77;
+            color: #e2e8f0;
+            border-radius: 6px;
+            padding: 0.35rem 0.85rem;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+        .refresh-btn:hover { background: rgba(65,90,119,0.4); border-color: #778da9; }
+        .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .filter-group {
+            display: inline-flex;
+            border: 1px solid #415a77;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #0d1b2a;
+        }
+        .filter-btn {
+            background: transparent;
+            border: none;
+            color: #adb5bd;
+            padding: 0.35rem 0.75rem;
+            font-size: 0.82rem;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+            border-right: 1px solid #415a77;
+        }
+        .filter-btn:last-child { border-right: none; }
+        .filter-btn:hover { background: rgba(65,90,119,0.3); color: #e2e8f0; }
+        .filter-btn.active {
+            background: #415a77;
+            color: #fff;
+            font-weight: 600;
+        }
+        .filter-label {
+            color: #778da9;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-right: 0.5rem;
+            align-self: center;
+        }
+
+        .loading-spinner {
+            text-align: center; padding: 4rem 0; color: #778da9;
+        }
+
+        /* ---- Consensus section ---- */
+        .consensus-card {
+            background: linear-gradient(135deg, rgba(45,212,191,0.08) 0%, rgba(119,141,169,0.06) 100%);
+            border: 1px solid rgba(45,212,191,0.35);
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+        .consensus-card .card-header {
+            background: rgba(45,212,191,0.10);
+            border-bottom: 1px solid rgba(45,212,191,0.25);
+            padding: 0.7rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .consensus-card .card-header .title {
+            font-weight: 700;
+            color: #2dd4bf;
+            font-size: 1rem;
+        }
+        .consensus-card .card-header .subtitle {
+            color: #94a3b8;
+            font-size: 0.8rem;
+        }
+        .consensus-card .card-body { padding: 0.85rem 1rem; }
+
+        table.consensus {
+            width: 100%;
+            font-size: 0.88rem;
+            border-collapse: collapse;
+        }
+        table.consensus thead th {
+            color: #94a3b8;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            padding: 0.35rem 0.5rem;
+            border-bottom: 1px solid rgba(45,212,191,0.2);
+            text-align: left;
+        }
+        table.consensus tbody td {
+            padding: 0.5rem 0.5rem;
+            border-bottom: 1px solid rgba(65,90,119,0.25);
+            vertical-align: top;
+        }
+        table.consensus tbody tr:last-child td { border-bottom: none; }
+        .fund-count {
+            display: inline-block;
+            min-width: 1.6rem;
+            padding: 0.1rem 0.45rem;
+            border-radius: 10px;
+            background: rgba(45,212,191,0.18);
+            color: #2dd4bf;
+            font-weight: 700;
+            text-align: center;
+        }
+        .chip {
+            display: inline-block;
+            padding: 0.2rem 0.55rem;
+            border-radius: 6px;
+            font-size: 0.77rem;
+            margin: 0.15rem 0.25rem 0.15rem 0;
+            background: rgba(65,90,119,0.3);
+            color: #cbd5e1;
+            line-height: 1.3;
+            white-space: nowrap;
+        }
+        .chip .chip-fund { color: #e2e8f0; font-weight: 600; margin-right: 0.3rem; }
+        .chip.chip-new   { background: rgba(74,222,128,0.18);  border: 1px solid rgba(74,222,128,0.35); }
+        .chip.chip-new .chip-fund { color: #4ade80; }
+        .chip.chip-add   { background: rgba(251,191,36,0.15); border: 1px solid rgba(251,191,36,0.35); }
+        .chip.chip-add .chip-fund { color: #fbbf24; }
+
+        @media (max-width: 575px) {
+            .consensus-card .card-body { padding: 0.65rem 0.7rem; }
+            table.consensus { font-size: 0.8rem; }
+            table.consensus thead th,
+            table.consensus tbody td { padding: 0.35rem 0.4rem; }
+            .chip { font-size: 0.72rem; padding: 0.15rem 0.45rem; }
+        }
+
+        /* ---- Tablet / medium screens: shrink navbar + compact header ---- */
+        @media (max-width: 991px) {
+            .navbar-brand { font-size: 1.15rem; }
+            .nav-link-custom { padding: 0.3rem 0.5rem; font-size: 0.82rem; }
+        }
+
+        /* ---- Narrow screens (< 576px): full mobile adjustments ---- */
+        @media (max-width: 575px) {
+            .navbar-brand { font-size: 1rem; }
+            /* Only show icons in the nav links — the active one keeps its label
+               via .nav-link-custom.active span, but the simple approach is to hide
+               the text and rely on icons + the active bg for context. */
+            .nav-link-custom {
+                padding: 0.3rem 0.4rem;
+                font-size: 0.82rem;
+            }
+            .nav-link-custom .nav-label { display: none; }
+            .nav-link-custom i.bi { margin-right: 0 !important; font-size: 1rem; }
+            /* User dropdown button: compact, truncate long names */
+            .navbar .dropdown > .btn {
+                font-size: 0.78rem;
+                padding: 0.2rem 0.45rem;
+                max-width: 120px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .fund-card .card-header { padding: 0.6rem 0.7rem; }
+            .fund-card .card-body   { padding: 0.7rem; }
+            .fund-name { font-size: 0.95rem; }
+            .fund-meta { font-size: 0.72rem; }
+            .fund-meta .pill { margin-left: 0.25rem; padding: 0.1rem 0.4rem; }
+
+            table.positions { font-size: 0.78rem; }
+            table.positions thead th,
+            table.positions tbody td { padding: 0.3rem 0.35rem; }
+            table.positions thead th { font-size: 0.64rem; letter-spacing: 0.02em; }
+
+            /* Drop Prev-shares column on narrow screens: keep Issuer, Now, Δ, Value */
+            table.positions .col-prev { display: none; }
+
+            .issuer { font-size: 0.82rem; }
+            .class-sub { display: block; margin-left: 0; margin-top: 1px; font-size: 0.7rem; }
+
+            h4 { font-size: 1.05rem; }
+            .intro-note { font-size: 0.78rem; padding: 0.6rem 0.75rem; line-height: 1.45; }
+            .filter-btn { padding: 0.3rem 0.5rem; font-size: 0.74rem; }
+            .filter-label { font-size: 0.68rem; margin-right: 0.3rem; }
+
+            .consensus-card .card-header { padding: 0.55rem 0.75rem; }
+            .consensus-card .card-header .title { font-size: 0.9rem; }
+            .consensus-card .card-header .subtitle { font-size: 0.72rem; line-height: 1.35; }
+            .consensus-card .card-body { padding: 0.6rem 0.7rem; }
+        }
+
+        /* Header toolbar: keep title compact so filter+refresh stay inline */
+        .toolbar-title { flex: 1 1 auto; min-width: 0; }
+        .toolbar-actions { flex: 0 0 auto; }
+    </style>
+</head>
+<body>
+    <!-- NAVBAR -->
+    <nav class="navbar mb-4">
+        <div class="container-fluid px-2 px-lg-3">
+            <div class="d-flex align-items-center justify-content-between w-100">
+                <a href="/" class="navbar-brand text-decoration-none">ES Gamma Analyzer</a>
+
+                <div class="d-flex align-items-center gap-2">
+                    <a href="/" class="nav-link-custom"><i class="bi bi-graph-up me-1"></i><span class="nav-label">Gamma</span></a>
+                    <a href="/checklist" class="nav-link-custom"><i class="bi bi-check2-square me-1"></i><span class="nav-label">Checklist</span></a>
+                    <a href="/stocks" class="nav-link-custom active"><i class="bi bi-bank me-1"></i><span class="nav-label">Stocks</span></a>
+
+                    {% set user = session.get('user') %}
+                    {% if user %}
+                        <div class="dropdown ms-2">
+                            <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                {{ user.get('name') or user.get('email') or 'Account' }}
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" style="background:#1b263b;border:2px solid #415a77;">
+                                {% if user.get('email') %}
+                                    <li><span class="dropdown-item-text" style="color:#adb5bd;">{{ user.get('email') }}</span></li>
+                                    <li><hr class="dropdown-divider" style="border-color:#415a77;"></li>
+                                {% endif %}
+                                <li><a class="dropdown-item" href="/admin" style="color:#f8f9fa;">Admin</a></li>
+                                <li><hr class="dropdown-divider" style="border-color:#415a77;"></li>
+                                <li><a class="dropdown-item" href="/logout" style="color:#f8f9fa;">Logout</a></li>
+                            </ul>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-2 px-lg-3">
+
+        <div class="d-flex align-items-start justify-content-between mb-2 flex-wrap gap-2">
+            <div class="toolbar-title">
+                <h4 style="color:#fff; margin-bottom:0.15rem;">Superinvestor 13F — Latest Buys</h4>
+                <div style="color:#778da9; font-size:0.88rem;">
+                    New positions + added positions (<span id="currentFilterLabel">≥&nbsp;20%</span> aumento share count) dall'ultimo deposito 13F-HR presso la SEC.
+                </div>
+            </div>
+            <div class="toolbar-actions d-flex align-items-center gap-2 flex-wrap">
+                <span class="filter-label">Δ filter</span>
+                <div class="filter-group" id="filterGroup" role="group" aria-label="Delta filter">
+                    <button type="button" class="filter-btn active" data-min="0.20">≥ 20%</button>
+                    <button type="button" class="filter-btn" data-min="1.00">&gt; 100%</button>
+                    <button type="button" class="filter-btn" data-min="2.00">&gt; 200%</button>
+                    <button type="button" class="filter-btn" data-min="3.00">&gt; 300%</button>
+                </div>
+                <button class="refresh-btn" id="refreshBtn" type="button" title="Refresh">
+                    <i class="bi bi-arrow-clockwise"></i><span class="d-none d-sm-inline ms-1">Refresh</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="intro-note">
+            <strong>Come leggere</strong> — I 13F-HR sono depositati trimestralmente entro 45 giorni dalla fine del trimestre. I dati sono <strong>lagged</strong>: quando vedi una posizione qui, potrebbe essere già stata ridotta o chiusa. Mostrano solo posizioni long in equity USA (no short, no bond, opzioni solo come notional). Il flag <code>PUT</code> indica posizioni di copertura ribassiste; <code>CALL</code> indica esposizione long tramite opzioni.
+            <br><br>
+            <strong>Fonte</strong> — SEC EDGAR (primaria). Ogni filing è cachato per 24h.
+        </div>
+
+        <div id="loadingBox" class="loading-spinner">
+            <div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>
+            <p class="mt-3 small">Scarico gli ultimi 13F da SEC EDGAR... (può richiedere fino a 30s al primo caricamento)</p>
+        </div>
+
+        <div id="consensusContainer"></div>
+        <div id="fundsContainer"></div>
+
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const fundsContainer = document.getElementById('fundsContainer');
+        const consensusContainer = document.getElementById('consensusContainer');
+        const loadingBox = document.getElementById('loadingBox');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const filterGroup = document.getElementById('filterGroup');
+        const currentFilterLabel = document.getElementById('currentFilterLabel');
+
+        let lastFundsData = [];       // cache of latest API response
+        let currentFilterMin = 0.20;  // default matches server cut
+
+        function passesDeltaFilter(delta) {
+            // Default 20% bucket uses >= (matches server cut).
+            // Stricter buckets use > (user spec: "> 100%", "> 200%", "> 300%").
+            if (currentFilterMin <= 0.20) return delta >= 0.20;
+            return delta > currentFilterMin;
+        }
+        function filterLabelHtml(min) {
+            if (min <= 0.20) return '≥&nbsp;20%';
+            return '&gt;&nbsp;' + Math.round(min * 100) + '%';
+        }
+
+        function fmtNumber(n) {
+            if (n === null || n === undefined || isNaN(n)) return '—';
+            return Number(n).toLocaleString('en-US');
+        }
+        function fmtUsdMillions(v) {
+            if (v === null || v === undefined || isNaN(v)) return '—';
+            const m = v / 1e6;
+            if (m >= 1000) return '$' + (m / 1000).toFixed(2) + 'B';
+            if (m >= 1)    return '$' + m.toFixed(2) + 'M';
+            if (m >= 0.01) return '$' + (m * 1000).toFixed(0) + 'K';
+            return '$' + v.toFixed(0);
+        }
+        function fmtPct(p) {
+            if (p === null || p === undefined || isNaN(p)) return '—';
+            return '+' + (p * 100).toFixed(0) + '%';
+        }
+        function escapeHtml(s) {
+            return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
+        function renderIssuer(pos) {
+            const name = escapeHtml(pos.issuer || '—');
+            const cls = pos.class ? `<span class="class-sub">${escapeHtml(pos.class)}</span>` : '';
+            let badge = '';
+            if (pos.put_call === 'Put')  badge = '<span class="put-badge">PUT</span>';
+            if (pos.put_call === 'Call') badge = '<span class="call-badge">CALL</span>';
+            return `<span class="issuer">${name}</span>${cls}${badge}`;
+        }
+
+        function renderNewTable(items) {
+            if (!items || items.length === 0) {
+                return '<div class="empty-state">Nessuna nuova posizione in questo trimestre.</div>';
+            }
+            let html = '<div class="table-wrap"><table class="positions"><thead><tr>'
+                + '<th>Issuer</th><th class="num">Shares</th><th class="num">Value</th>'
+                + '</tr></thead><tbody>';
+            for (const p of items) {
+                html += `<tr>
+                    <td>${renderIssuer(p)}</td>
+                    <td class="num">${fmtNumber(p.shares)}</td>
+                    <td class="num">${fmtUsdMillions(p.value_usd)}</td>
+                </tr>`;
+            }
+            html += '</tbody></table></div>';
+            return html;
+        }
+
+        function renderAddedTable(items) {
+            const filtered = (items || []).filter(p => passesDeltaFilter(p.delta_pct));
+            if (filtered.length === 0) {
+                const lbl = currentFilterMin <= 0.20 ? '≥ 20%' : '> ' + Math.round(currentFilterMin * 100) + '%';
+                return `<div class="empty-state">Nessuna posizione incrementata ${lbl} in questo trimestre.</div>`;
+            }
+            let html = '<div class="table-wrap"><table class="positions"><thead><tr>'
+                + '<th>Issuer</th><th class="num col-prev">Prev</th><th class="num">Shares</th>'
+                + '<th class="num">Δ</th><th class="num">Value</th>'
+                + '</tr></thead><tbody>';
+            for (const p of filtered) {
+                html += `<tr>
+                    <td>${renderIssuer(p)}</td>
+                    <td class="num col-prev">${fmtNumber(p.prev_shares)}</td>
+                    <td class="num">${fmtNumber(p.shares)}</td>
+                    <td class="num delta-up">${fmtPct(p.delta_pct)}</td>
+                    <td class="num">${fmtUsdMillions(p.value_usd)}</td>
+                </tr>`;
+            }
+            html += '</tbody></table></div>';
+            return html;
+        }
+
+        function renderFundCard(fund) {
+            const filing = fund.filing_date ? `filed ${escapeHtml(fund.filing_date)}` : '';
+            const report = fund.report_date ? `<span class="pill">Q end ${escapeHtml(fund.report_date)}</span>` : '';
+            const total = (typeof fund.total_positions === 'number')
+                ? `<span class="pill">${fund.total_positions} holdings</span>` : '';
+            const cached = fund.cached ? '<span class="pill" title="Dal cache (24h)">cached</span>' : '';
+            const stale = fund.stale
+                ? `<span class="pill stale" title="Ultimo deposito > 120 giorni fa — fondo potrebbe non filare più regolarmente"><i class="bi bi-exclamation-triangle me-1"></i>stale ${fund.stale_days}d</span>`
+                : '';
+
+            let body = '';
+            if (fund.error) {
+                body = `<div class="error-banner"><i class="bi bi-exclamation-triangle me-2"></i>${escapeHtml(fund.error)}</div>`;
+            } else {
+                const hasPrev = fund.has_previous !== false;
+                const addedLbl = currentFilterMin <= 0.20 ? '≥ 20%' : '> ' + Math.round(currentFilterMin * 100) + '%';
+                body = `
+                    <div class="bucket-title bucket-new"><i class="bi bi-plus-circle me-1"></i>New positions</div>
+                    ${renderNewTable(fund.new)}
+                    <div class="bucket-title bucket-added mt-3"><i class="bi bi-arrow-up-circle me-1"></i>Added ${addedLbl}</div>
+                    ${hasPrev ? renderAddedTable(fund.added)
+                              : '<div class="empty-state">Nessun deposito precedente per il confronto.</div>'}
+                `;
+            }
+
+            return `
+                <div class="fund-card">
+                    <div class="card-header">
+                        <div>
+                            <div class="fund-name">${escapeHtml(fund.name || '—')}</div>
+                            <div class="fund-meta">
+                                CIK ${escapeHtml(fund.cik || '—')} · ${filing}
+                                ${report}${total}${stale}${cached}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">${body}</div>
+                </div>
+            `;
+        }
+
+        function buildConsensus(funds) {
+            // Group stocks held by 2+ funds. Key by (cusip, put_call) so PUTs
+            // stay separated from long shares (opposite sentiment).
+            // NEW positions always count. ADDED positions count only if delta
+            // passes the active filter — keeps the consensus consistent with
+            // what the user is currently scanning for.
+            const map = new Map();
+            for (const fund of funds || []) {
+                if (fund.error) continue;
+                const entries = [];
+                for (const p of fund.new || [])   entries.push({p, action: 'new'});
+                for (const p of fund.added || []) {
+                    if (passesDeltaFilter(p.delta_pct)) entries.push({p, action: 'added'});
+                }
+                for (const {p, action} of entries) {
+                    const cusip = (p.cusip || '').toUpperCase();
+                    const putCall = p.put_call || '';
+                    const key = cusip + '|' + putCall;
+                    if (!cusip) continue;
+                    if (!map.has(key)) {
+                        map.set(key, {
+                            cusip,
+                            issuer: p.issuer || '—',
+                            klass: p.class || '',
+                            put_call: p.put_call || null,
+                            funds: [],
+                            total_value: 0,
+                        });
+                    }
+                    const entry = map.get(key);
+                    entry.funds.push({
+                        name: fund.name,
+                        action,
+                        shares: p.shares,
+                        value: p.value_usd,
+                        delta_pct: p.delta_pct,
+                    });
+                    entry.total_value += (p.value_usd || 0);
+                }
+            }
+            const picks = [];
+            for (const entry of map.values()) {
+                if (entry.funds.length >= 2) picks.push(entry);
+            }
+            picks.sort((a, b) =>
+                (b.funds.length - a.funds.length) ||
+                (b.total_value - a.total_value)
+            );
+            return picks;
+        }
+
+        function shortFundName(n) {
+            // "Pershing Square (Ackman)" → "Ackman" when parenthetical exists,
+            // else the first word of the fund name. Keeps chips readable.
+            if (!n) return '';
+            const m = n.match(/\(([^)]+)\)/);
+            if (m) return m[1];
+            return n.split(/[\s(]/)[0];
+        }
+
+        function renderConsensus(picks) {
+            if (!picks || picks.length === 0) {
+                consensusContainer.innerHTML = '';
+                return;
+            }
+            let rows = '';
+            for (const pick of picks) {
+                const badge = pick.put_call === 'Put'  ? '<span class="put-badge">PUT</span>'
+                            : pick.put_call === 'Call' ? '<span class="call-badge">CALL</span>'
+                            : '';
+                const chips = pick.funds.map(f => {
+                    const label = escapeHtml(shortFundName(f.name));
+                    const cls = f.action === 'new' ? 'chip-new' : 'chip-add';
+                    const extra = f.action === 'new'
+                        ? 'NEW'
+                        : ('+' + Math.round((f.delta_pct || 0) * 100) + '%');
+                    return `<span class="chip ${cls}"><span class="chip-fund">${label}</span>${extra}</span>`;
+                }).join('');
+                const klass = pick.klass ? `<span class="class-sub">${escapeHtml(pick.klass)}</span>` : '';
+                rows += `<tr>
+                    <td><span class="issuer">${escapeHtml(pick.issuer)}</span>${klass}${badge}</td>
+                    <td><span class="fund-count">${pick.funds.length}</span></td>
+                    <td>${chips}</td>
+                </tr>`;
+            }
+            consensusContainer.innerHTML = `
+                <div class="consensus-card">
+                    <div class="card-header">
+                        <div>
+                            <div class="title"><i class="bi bi-bullseye me-1"></i>Consensus picks</div>
+                            <div class="subtitle">Stock presenti in 2+ portafogli (NEW o ADDED che passa il filtro Δ corrente)</div>
+                        </div>
+                        <span class="pill" style="background:rgba(45,212,191,0.15); color:#2dd4bf;">${picks.length} picks</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-wrap">
+                            <table class="consensus">
+                                <thead><tr>
+                                    <th>Issuer</th>
+                                    <th># funds</th>
+                                    <th>Action per fondo</th>
+                                </tr></thead>
+                                <tbody>${rows}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAll() {
+            currentFilterLabel.innerHTML = filterLabelHtml(currentFilterMin);
+            renderConsensus(buildConsensus(lastFundsData));
+            fundsContainer.innerHTML = (lastFundsData || []).map(renderFundCard).join('');
+        }
+
+        async function loadFunds() {
+            loadingBox.style.display = '';
+            fundsContainer.innerHTML = '';
+            refreshBtn.disabled = true;
+            try {
+                const res = await fetch('/api/stocks/top-buys', { credentials: 'same-origin' });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                lastFundsData = data.funds || [];
+                renderAll();
+            } catch (e) {
+                fundsContainer.innerHTML = `<div class="error-banner">Errore caricamento: ${escapeHtml(e.message || e)}</div>`;
+            } finally {
+                loadingBox.style.display = 'none';
+                refreshBtn.disabled = false;
+            }
+        }
+
+        filterGroup.addEventListener('click', (ev) => {
+            const btn = ev.target.closest('.filter-btn');
+            if (!btn) return;
+            const min = parseFloat(btn.dataset.min);
+            if (isNaN(min) || min === currentFilterMin) return;
+            currentFilterMin = min;
+            filterGroup.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b === btn));
+            renderAll();
+        });
+        refreshBtn.addEventListener('click', loadFunds);
+        loadFunds();
+    </script>
+</body>
+</html>
