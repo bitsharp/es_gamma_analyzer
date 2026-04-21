@@ -1809,16 +1809,31 @@ def get_cot_sp500_cached(max_age_seconds: int = 60 * 60) -> Optional[Dict[str, A
         "User-Agent": "Mozilla/5.0 (compatible; ESGammaAnalyzer/1.0)",
         "Accept": "application/json",
     }
+    # Keep well under Vercel's serverless function timeout (10s on hobby tier)
+    # so the urllib exception surfaces as JSON instead of Vercel returning its
+    # HTML 504 page, which would break res.json() on the client.
     try:
         req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with urllib.request.urlopen(req, timeout=6) as response:
+            ctype = (response.headers.get("Content-Type") or "").lower()
             raw = response.read().decode("utf-8", errors="replace")
-        data = json.loads(raw)
     except Exception as e:
         # On failure, return last cached value if any (stale-while-error).
         if cached:
             return cached
         return {"error": f"COT fetch error: {e}"}
+
+    if "json" not in ctype and not raw.lstrip().startswith(("{", "[")):
+        if cached:
+            return cached
+        return {"error": "COT upstream returned non-JSON response"}
+
+    try:
+        data = json.loads(raw)
+    except Exception as e:
+        if cached:
+            return cached
+        return {"error": f"COT parse error: {e}"}
 
     if not isinstance(data, dict):
         return {"error": "Invalid COT response"}
