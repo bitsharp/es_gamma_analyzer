@@ -464,9 +464,17 @@
                             (LTG analisti). Fallback: crescita next year (+1y) o
                             <code>(forward − trailing) / trailing</code> se assente.</dd>
 
+                        <dt>P/E attuale</dt>
+                        <dd>Il multiplo che il mercato sta pagando ora:
+                            <code>prezzo / EPS forward</code>. <span style="color:#4ade80;">Verde</span>
+                            quando è inferiore al P/E teorico (basso multiplo = setup di acquisto
+                            preferito da Serafini), <span style="color:#f87171;">rosso</span>
+                            quando è superiore.</dd>
+
                         <dt>P/E teorico</dt>
                         <dd>Multiplo che il modello considera "giusto" data la crescita
-                            attesa, lo sconto geografico e lo sconto settoriale.</dd>
+                            attesa, lo sconto geografico e lo sconto settoriale.
+                            Differenza con P/E attuale = spazio di espansione del multiplo.</dd>
 
                         <dt>Target</dt>
                         <dd>Prezzo obiettivo a fine prossimo anno = P/E teorico × EPS forward.</dd>
@@ -640,7 +648,24 @@
                         <div class="metric"><div class="label">Prezzo</div><div class="value">${fmtMoney(r.current_price)}</div></div>
                         <div class="metric"><div class="label">EPS Forward</div><div class="value">${fmtMoney(r.forward_eps)}</div></div>
                         <div class="metric"><div class="label">Growth 5y</div><div class="value">${fmtPct(r.growth_5y)}</div></div>
-                        <div class="metric"><div class="label">P/E teorico</div><div class="value">${fmtNum(r.pe_theoretical, 1)}</div></div>
+                        ${(() => {
+                            const peNow = (r.current_price && r.forward_eps && r.forward_eps > 0)
+                                ? r.current_price / r.forward_eps : null;
+                            const peTheo = r.pe_theoretical;
+                            const lowMultiple = (peNow != null && peTheo != null && peNow < peTheo);
+                            return `
+                            <div class="metric"><div class="label">P/E attuale</div>
+                                <div class="value ${peNow == null ? '' : (lowMultiple ? 'discount-pos' : 'discount-neg')}"
+                                     title="prezzo / EPS forward — il multiplo che il mercato sta pagando ora">
+                                    ${fmtNum(peNow, 1)}
+                                </div>
+                            </div>
+                            <div class="metric"><div class="label">P/E teorico</div>
+                                <div class="value" title="multiplo Damodaran: 13.1 + 1.2×growth + sconti">
+                                    ${fmtNum(peTheo, 1)}
+                                </div>
+                            </div>`;
+                        })()}
                         <div class="metric"><div class="label">Target</div><div class="value">${fmtMoney(r.target_y1)}</div></div>
                         <div class="metric"><div class="label">Discount</div>
                             <div class="value ${r.discount_pct > 0 ? 'discount-pos' : 'discount-neg'}">${fmtPct(r.discount_pct)}</div></div>
