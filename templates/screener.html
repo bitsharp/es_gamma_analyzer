@@ -403,7 +403,7 @@
     <div class="container-fluid px-2 px-lg-3" style="max-width: 980px;">
         <div class="toolbar-title mb-3">
             <h4 style="color:#fff; margin-bottom:0.15rem;">
-                Top 5 <span id="marketLabel">USA</span> — Strategia Damodaran
+                Top 10 <span id="marketLabel">USA</span> — Strategia Damodaran
             </h4>
             <div class="subtitle">
                 Sottocuotate, growth &gt; 5%, market cap &gt; 2B. Ranked by Discount/Volatility ratio.
@@ -633,7 +633,7 @@
 
         async function loadTop() {
             try {
-                const res = await fetch(`/api/screener/top?market=${activeMarket}&limit=5`);
+                const res = await fetch(`/api/screener/top?market=${activeMarket}&limit=10`);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 renderStatus(data);
