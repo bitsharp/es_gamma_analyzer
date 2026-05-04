@@ -223,6 +223,34 @@
             line-height: 1;
         }
 
+        .lookup-result-wrap {
+            position: relative;
+        }
+        .btn-close-lookup {
+            position: absolute;
+            top: 0.45rem;
+            right: 0.55rem;
+            z-index: 5;
+            background: rgba(13,27,42,0.85);
+            border: 1px solid #415a77;
+            color: #adb5bd;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-size: 0.85rem;
+            padding: 0;
+        }
+        .btn-close-lookup:hover {
+            background: rgba(248,113,113,0.85);
+            color: #fff;
+            border-color: #f87171;
+        }
+
         .strategy-reasons {
             margin-top: 0.5rem;
             background: rgba(248,113,113,0.08);
@@ -646,38 +674,70 @@
             '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
         }[ch]));
 
+        function closeLookupResult() {
+            document.getElementById('lookupResult').innerHTML = '';
+            lookupInput.value = '';
+            lookupInput.focus();
+        }
+
+        function wrapLookupResult(innerHtml, dismissible) {
+            const closeBtn = dismissible
+                ? `<button type="button" class="btn-close-lookup" id="closeLookupBtn"
+                           aria-label="Chiudi" title="Chiudi (Esc)">
+                       <i class="bi bi-x-lg"></i>
+                   </button>`
+                : '';
+            return `<div class="lookup-result-wrap mt-2">${closeBtn}${innerHtml}</div>`;
+        }
+
         async function lookupTicker(ticker) {
             const result = document.getElementById('lookupResult');
             const safe = escapeHtml(ticker);
-            result.innerHTML = `
-                <div class="empty-state mt-2" style="padding:1.2rem;">
+            result.innerHTML = wrapLookupResult(`
+                <div class="empty-state" style="padding:1.2rem;">
                     <div class="spinner-border spinner-border-sm" role="status"></div>
                     <span class="ms-2">Analizzo ${safe}…</span>
-                </div>`;
+                </div>`, true);
+            attachCloseHandler();
             try {
                 const res = await fetch('/api/screener/lookup/' + encodeURIComponent(ticker));
                 const data = await res.json().catch(() => ({}));
                 if (res.status === 404) {
-                    result.innerHTML = `
-                        <div class="empty-state mt-2" style="padding:1.2rem;color:#f87171;">
+                    result.innerHTML = wrapLookupResult(`
+                        <div class="empty-state" style="padding:1.2rem;color:#f87171;">
                             <i class="bi bi-exclamation-triangle me-1"></i>
                             ${safe}: ${escapeHtml(data.error || 'non trovato')}
-                        </div>`;
+                        </div>`, true);
+                    attachCloseHandler();
                     return;
                 }
                 if (!res.ok) {
                     throw new Error(data.error || ('HTTP ' + res.status));
                 }
-                result.innerHTML = '<div class="mt-2">' +
-                    renderPickCardHtml(data, { showStrategyBadge: true }) +
-                    '</div>';
+                result.innerHTML = wrapLookupResult(
+                    renderPickCardHtml(data, { showStrategyBadge: true }), true);
+                attachCloseHandler();
             } catch (err) {
-                result.innerHTML = `
-                    <div class="empty-state mt-2" style="padding:1.2rem;color:#f87171;">
+                result.innerHTML = wrapLookupResult(`
+                    <div class="empty-state" style="padding:1.2rem;color:#f87171;">
                         Errore: ${escapeHtml(err.message)}
-                    </div>`;
+                    </div>`, true);
+                attachCloseHandler();
             }
         }
+
+        function attachCloseHandler() {
+            const btn = document.getElementById('closeLookupBtn');
+            if (btn) btn.addEventListener('click', closeLookupResult);
+        }
+
+        // Esc closes the lookup result anywhere in the page
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !dropdown.classList.contains('open')) {
+                const lr = document.getElementById('lookupResult');
+                if (lr && lr.innerHTML.trim()) closeLookupResult();
+            }
+        });
 
         // ---- Typeahead state ----
         const lookupInput = document.getElementById('lookupInput');
