@@ -6394,6 +6394,486 @@ def api_stocks_top_buys():
 
 
 # ============================================================================
+# DAMODARAN STOCK SCREENER (Serafini strategy)
+# ============================================================================
+
+# Discounts applied to the base P/E theoretical (intercept 13.1).
+# Formula: P/E_theo = 13.1 + 1.2 * growth_5y * 100 + country_disc + sector_disc
+_SCREENER_COUNTRY_DISCOUNTS = {
+    "US": 0, "EU": -5, "IT": -5,
+    "CN": -10, "EM": -10, "JP": -3,
+}
+
+_SCREENER_SECTOR_DISCOUNTS = {
+    "Tech": 0,
+    "Industrial": 0,
+    "Financial": -5,
+    "Energy": -5,
+    "Healthcare": -5,
+    "RealEstate": -2,
+    "Utilities": -2,
+    "Comms": -1.5,
+    "Lusso": 5,
+    "Discretionary": 0,
+    "Staples": 0,
+    "Materials": 0,
+}
+
+# Mapping from yfinance GICS sector strings to our internal bucket.
+_SCREENER_GICS_TO_BUCKET = {
+    "Technology": "Tech",
+    "Communication Services": "Comms",
+    "Consumer Cyclical": "Discretionary",
+    "Consumer Defensive": "Staples",
+    "Financial Services": "Financial",
+    "Healthcare": "Healthcare",
+    "Industrials": "Industrial",
+    "Energy": "Energy",
+    "Basic Materials": "Materials",
+    "Real Estate": "RealEstate",
+    "Utilities": "Utilities",
+}
+
+# Top 30 US mega caps by market cap. Used on Vercel where serverless 60s
+# timeout requires a tighter universe + parallel fetching.
+_SCREENER_US_TOP30_UNIVERSE = [
+    "NVDA", "MSFT", "AAPL", "GOOGL", "AMZN", "META", "AVGO", "TSLA",
+    "BRK-B", "LLY", "WMT", "JPM", "V", "ORCL", "MA", "UNH",
+    "XOM", "JNJ", "PG", "HD", "NFLX", "COST", "ABBV", "BAC",
+    "KO", "CVX", "AMD", "CRM", "TMUS", "ADBE",
+]
+
+# Curated US universe (full): large/mega caps with high analyst coverage,
+# plus the tickers explicitly mentioned in the Serafini strategy talks.
+# Used in local dev (no timeout, background thread).
+_SCREENER_US_UNIVERSE = [
+    # Mega/large caps S&P 100
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AVGO", "JPM",
+    "V", "WMT", "UNH", "XOM", "LLY", "JNJ", "MA", "PG", "ORCL", "HD",
+    "BAC", "COST", "ABBV", "CVX", "KO", "PEP", "MRK", "NFLX", "CRM", "TMO",
+    "AMD", "ADBE", "CSCO", "WFC", "ACN", "DIS", "ABT", "LIN", "DHR", "MCD",
+    "INTC", "TXN", "VZ", "CMCSA", "QCOM", "NEE", "NKE", "RTX", "NOW", "HON",
+    "PM", "UNP", "T", "UPS", "SBUX", "COP", "BMY", "C", "SCHW", "ELV",
+    "MS", "SPGI", "CAT", "DE", "GS", "INTU", "BLK", "MDT", "PFE", "BA",
+    "AMAT", "BX", "ISRG", "LMT", "PLD", "SYK", "TJX", "REGN", "GILD", "ADI",
+    # Strategy picks from the transcripts
+    "ARM", "PLTR", "MU", "STX", "WDC", "MOH", "CNC", "KLAC", "LRCX", "MPWR",
+    "GEV", "DELL", "ANET", "CRWD", "MRVL", "KGS",
+]
+
+_SCREENER_IS_VERCEL = bool(os.getenv("VERCEL"))
+
+
+def _screener_active_universe() -> list:
+    """Return the universe to use for the current runtime (Vercel = top 30)."""
+    return _SCREENER_US_TOP30_UNIVERSE if _SCREENER_IS_VERCEL else _SCREENER_US_UNIVERSE
+
+# In-memory cache shared across requests in the same process.
+_SCREENER_CACHE = {
+    "results": [],          # list of computed result dicts
+    "computed_at": 0.0,     # epoch seconds when batch finished
+    "errors": [],           # tickers that failed during last batch
+    "in_progress": False,   # batch currently running
+    "loaded_from_mongo": False,
+}
+_SCREENER_CACHE_TTL_SECONDS = int((os.getenv("SCREENER_CACHE_TTL") or "43200").strip() or 43200)  # 12h
+_SCREENER_REFRESH_LOCK = threading.Lock()
+_MONGO_SCREENER_COLLECTION = None
+
+
+def _get_mongo_screener_collection():
+    """Lazy getter for the screener results collection (per-ticker upsert)."""
+    global _MONGO_CLIENT, _MONGO_SCREENER_COLLECTION
+    if _MONGO_SCREENER_COLLECTION is not None:
+        return _MONGO_SCREENER_COLLECTION
+    if MongoClient is None:
+        return None
+    uri = (os.getenv("MONGODB_URI") or "").strip()
+    if not uri:
+        return None
+    db_name = (os.getenv("MONGODB_DB") or "es_gamma_analyzer").strip()
+    coll_name = (os.getenv("MONGODB_SCREENER_COLLECTION") or "screener_results").strip()
+    try:
+        if _MONGO_CLIENT is None:
+            _MONGO_CLIENT = MongoClient(uri, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+        db = _MONGO_CLIENT[db_name]
+        coll = db[coll_name]
+        try:
+            coll.create_index("ticker", unique=True)
+            coll.create_index([("market", 1), ("ratio_discount_vola", -1)])
+        except Exception:
+            pass
+        _MONGO_SCREENER_COLLECTION = coll
+        return coll
+    except Exception:
+        return None
+
+
+def _calculate_damodaran_target(
+    avg_growth: float,
+    forward_eps: float,
+    current_price: float,
+    country: str = "US",
+    bucket: str = "Tech",
+    dev_st_pct: Optional[float] = None,
+) -> dict:
+    """Pure Damodaran/Serafini calculation (matches the Excel formula).
+
+    avg_growth: decimal (0.20 = 20%); typically the 5y analyst CAGR.
+    forward_eps: EPS estimate for next fiscal year.
+    """
+    country_disc = _SCREENER_COUNTRY_DISCOUNTS.get(country, 0)
+    sector_disc = _SCREENER_SECTOR_DISCOUNTS.get(bucket, 0)
+    pe_theo = 13.1 + 1.2 * avg_growth * 100 + country_disc + sector_disc
+    target = pe_theo * forward_eps
+    discount = (target - current_price) / current_price if current_price else 0.0
+    ratio = (discount / (dev_st_pct / 100.0)) if dev_st_pct else None
+    return {
+        "country_disc": country_disc,
+        "sector_disc": sector_disc,
+        "pe_theoretical": pe_theo,
+        "target_y1": target,
+        "discount_pct": discount,
+        "ratio_discount_vola": ratio,
+        "verdict": "UNDERVALUED" if discount > 0 else "OVERVALUED",
+    }
+
+
+def _fetch_ticker_fundamentals(ticker: str) -> Optional[dict]:
+    """Fetch fundamentals for a single ticker via yfinance.
+
+    Returns None when required fields (forward EPS, price, growth) are missing.
+    """
+    if yf is None:
+        return None
+    try:
+        t = yf.Ticker(ticker)
+        try:
+            info = t.info or {}
+        except Exception:
+            info = {}
+
+        forward_eps = info.get("forwardEps")
+        current_price = info.get("currentPrice") or info.get("regularMarketPrice")
+        yf_sector = info.get("sector") or ""
+        country_iso = info.get("country") or ""
+        market_cap = info.get("marketCap")
+        beta = info.get("beta")
+        long_name = info.get("shortName") or info.get("longName") or ticker
+
+        if not forward_eps or forward_eps <= 0:
+            return None
+        if not current_price or current_price <= 0:
+            return None
+
+        # Forward EPS growth estimate. Source priority (analyst consensus, all forward):
+        #   1. LTG (Long Term Growth, ~5y CAGR) from growth_estimates
+        #   2. +1y (next fiscal year) from growth_estimates
+        #   3. computed (forwardEps - trailingEps) / trailingEps
+        # We deliberately avoid info["earningsGrowth"] because it is TRAILING.
+        growth = None
+
+        def _read_growth_row(ge_df, row_label):
+            """Read the per-stock growth value for a row of growth_estimates.
+            Only stockTrend / stock_trend / growth columns are valid:
+            indexTrend would return the market index growth (e.g. 12% for S&P).
+            """
+            try:
+                if ge_df is None or ge_df.empty or row_label not in ge_df.index:
+                    return None
+                row = ge_df.loc[row_label]
+                for col in ("stockTrend", "stock_trend", "growth"):
+                    try:
+                        v = row[col]
+                        if v is not None and v == v:  # NaN check
+                            return float(v)
+                    except (KeyError, TypeError):
+                        continue
+            except Exception:
+                pass
+            return None
+
+        try:
+            ge = t.growth_estimates
+            for label in ("LTG", "+5y", "5y", "longTerm", "+1y", "1y"):
+                growth = _read_growth_row(ge, label)
+                if growth is not None:
+                    break
+        except Exception:
+            growth = None
+
+        if growth is None:
+            trailing_eps = info.get("trailingEps")
+            if trailing_eps and trailing_eps > 0 and forward_eps > 0:
+                growth = (forward_eps - trailing_eps) / trailing_eps
+
+        if growth is None:
+            return None
+
+        # Annualized stdev of daily returns over the last year (volatility for ratio).
+        dev_st_pct = None
+        try:
+            hist = t.history(period="1y", auto_adjust=True)
+            if hist is not None and not hist.empty and "Close" in hist.columns:
+                returns = hist["Close"].pct_change().dropna()
+                if len(returns) > 20:
+                    import math
+                    dev_st_pct = float(returns.std() * math.sqrt(252) * 100)
+        except Exception:
+            dev_st_pct = None
+
+        bucket = _SCREENER_GICS_TO_BUCKET.get(yf_sector, "Tech")
+
+        return {
+            "ticker": ticker,
+            "name": long_name,
+            "yf_sector": yf_sector,
+            "bucket": bucket,
+            "country_iso": country_iso,
+            "country": "US",
+            "market_cap": float(market_cap) if market_cap else None,
+            "beta": float(beta) if beta is not None else None,
+            "current_price": float(current_price),
+            "forward_eps": float(forward_eps),
+            "growth_5y": float(growth),
+            "dev_st_pct": dev_st_pct,
+        }
+    except Exception:
+        return None
+
+
+def _stock_passes_strategy(r: dict) -> bool:
+    """Strategy filters from the Serafini course, plus sanity guards
+    against yfinance data quality issues (stale split-adjusted prices,
+    earnings recovering from negatives blowing up trailing-based growth, etc.).
+
+    - forward EPS > 0 and < 60 (above suggests stale/unsplit data)
+    - 5% < growth < 60% (matches the realistic range from the Excel sheet:
+      max NVDA ~42%, MOH ~52%; >60% means trailing-recovery artifact)
+    - market cap >= 2B (US screener minimum)
+    - 0 < discount < 3 (300% upside is the practical ceiling; more = bad data)
+    - P/E theoretical < 100 (foglio max was ~75)
+    """
+    fwd_eps = r.get("forward_eps")
+    if not fwd_eps or fwd_eps <= 0 or fwd_eps > 60:
+        return False
+    g = r.get("growth_5y")
+    if g is None or g <= 0.05 or g >= 0.60:
+        return False
+    mc = r.get("market_cap")
+    if mc is None or mc < 2_000_000_000:
+        return False
+    d = r.get("discount_pct")
+    if d is None or d <= 0 or d >= 3.0:
+        return False
+    pe = r.get("pe_theoretical")
+    if pe is None or pe >= 100:
+        return False
+    return True
+
+
+def _refresh_screener_results(
+    universe: Optional[list] = None,
+    market: str = "US",
+    max_workers: int = 1,
+) -> dict:
+    """Run the screener over a universe. Persists per-ticker rows to Mongo.
+
+    Single-instance: if a refresh is already running, exits immediately.
+    max_workers > 1 enables ThreadPoolExecutor parallelism (~4-8x speedup
+    on yfinance which is mostly I/O bound). Used on Vercel for 30 ticker
+    in ~10-15s instead of 45s sequential.
+    """
+    if not _SCREENER_REFRESH_LOCK.acquire(blocking=False):
+        return {"status": "already_running"}
+    try:
+        _SCREENER_CACHE["in_progress"] = True
+        if universe is None:
+            universe = _screener_active_universe()
+        coll = _get_mongo_screener_collection()
+
+        def _process(ticker: str) -> Optional[dict]:
+            try:
+                fund = _fetch_ticker_fundamentals(ticker)
+                if not fund:
+                    return None
+                calc = _calculate_damodaran_target(
+                    avg_growth=fund["growth_5y"],
+                    forward_eps=fund["forward_eps"],
+                    current_price=fund["current_price"],
+                    country=fund["country"],
+                    bucket=fund["bucket"],
+                    dev_st_pct=fund["dev_st_pct"],
+                )
+                row = {**fund, **calc, "market": market, "computed_at": time.time()}
+                if coll is not None:
+                    try:
+                        coll.update_one({"ticker": ticker}, {"$set": row}, upsert=True)
+                    except Exception:
+                        pass
+                return row
+            except Exception:
+                return None
+
+        results = []
+        errors = []
+        if max_workers > 1:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=max_workers) as ex:
+                for ticker, row in zip(universe, ex.map(_process, universe)):
+                    if row is None:
+                        errors.append(ticker)
+                    else:
+                        results.append(row)
+        else:
+            for ticker in universe:
+                row = _process(ticker)
+                if row is None:
+                    errors.append(ticker)
+                else:
+                    results.append(row)
+
+        _SCREENER_CACHE["results"] = results
+        _SCREENER_CACHE["computed_at"] = time.time()
+        _SCREENER_CACHE["errors"] = errors
+        return {"status": "ok", "count": len(results), "errors_count": len(errors)}
+    finally:
+        _SCREENER_CACHE["in_progress"] = False
+        try:
+            _SCREENER_REFRESH_LOCK.release()
+        except Exception:
+            pass
+
+
+def _ensure_screener_cache_fresh(max_age_seconds: Optional[int] = None) -> bool:
+    """Returns True if cache is fresh.
+
+    On Vercel (no persistent threads): runs the batch SYNCHRONOUSLY in-request
+    with the top-30 universe + 8 parallel workers. Fits within the 60s
+    function timeout (~10-15s typical).
+
+    On local: spawns a background thread with the full universe (~95 ticker, ~2 min).
+
+    Both modes seed the cache from Mongo first if available.
+    """
+    max_age = max_age_seconds if max_age_seconds is not None else _SCREENER_CACHE_TTL_SECONDS
+    if _SCREENER_CACHE.get("in_progress"):
+        return False
+    age = time.time() - (_SCREENER_CACHE.get("computed_at") or 0)
+    has_results = bool(_SCREENER_CACHE.get("results"))
+
+    # Seed from Mongo on cold start (process restart, Vercel warm container, etc.)
+    if not has_results and not _SCREENER_CACHE.get("loaded_from_mongo"):
+        try:
+            coll = _get_mongo_screener_collection()
+            if coll is not None:
+                docs = list(coll.find({"market": "US"}))
+                if docs:
+                    _SCREENER_CACHE["results"] = [
+                        {k: v for k, v in d.items() if k != "_id"} for d in docs
+                    ]
+                    _SCREENER_CACHE["computed_at"] = min(
+                        (d.get("computed_at") or 0) for d in docs
+                    )
+                    age = time.time() - _SCREENER_CACHE["computed_at"]
+                    has_results = True
+        except Exception:
+            pass
+        _SCREENER_CACHE["loaded_from_mongo"] = True
+
+    if has_results and age <= max_age:
+        return True
+
+    # Stale or empty: refresh now.
+    if _SCREENER_IS_VERCEL:
+        # Synchronous in-request: top-30 universe, parallel fetch.
+        try:
+            _refresh_screener_results(
+                universe=_SCREENER_US_TOP30_UNIVERSE,
+                max_workers=8,
+            )
+            return True
+        except Exception:
+            return False
+    else:
+        # Background thread, full universe.
+        try:
+            t = threading.Thread(
+                target=_refresh_screener_results,
+                name="screener-refresh",
+                daemon=True,
+            )
+            t.start()
+        except Exception:
+            pass
+        return False
+
+
+@app.route('/screener')
+@login_required
+def screener_page():
+    return render_template('screener.html')
+
+
+@app.route('/api/screener/top', methods=['GET'])
+@login_required
+def api_screener_top():
+    """Return the top N US stocks that pass the Serafini strategy filters,
+    ranked by ratio_discount_vola (or discount_pct as fallback)."""
+    try:
+        limit = int(request.args.get('limit') or 5)
+    except (TypeError, ValueError):
+        limit = 5
+    limit = max(1, min(50, limit))
+
+    fresh = _ensure_screener_cache_fresh()
+    results = list(_SCREENER_CACHE.get("results") or [])
+    qualified = [r for r in results if _stock_passes_strategy(r)]
+
+    def _sort_key(r):
+        ratio = r.get("ratio_discount_vola")
+        if ratio is None:
+            return r.get("discount_pct") or -999
+        return ratio
+
+    qualified.sort(key=_sort_key, reverse=True)
+    top = qualified[:limit]
+
+    return jsonify({
+        "computed_at": _SCREENER_CACHE.get("computed_at"),
+        "in_progress": _SCREENER_CACHE.get("in_progress", False),
+        "is_fresh": fresh,
+        "ttl_seconds": _SCREENER_CACHE_TTL_SECONDS,
+        "universe_size": len(_screener_active_universe()),
+        "runtime": "vercel" if _SCREENER_IS_VERCEL else "local",
+        "evaluated_count": len(results),
+        "qualified_count": len(qualified),
+        "errors_count": len(_SCREENER_CACHE.get("errors") or []),
+        "top": top,
+    })
+
+
+@app.route('/api/screener/refresh', methods=['POST'])
+@login_required
+def api_screener_refresh():
+    """Manual refresh trigger (admin only). Runs in background."""
+    if not _is_admin():
+        return jsonify({"error": "admin only"}), 403
+    if _SCREENER_CACHE.get("in_progress"):
+        return jsonify({"status": "already_running"})
+    try:
+        t = threading.Thread(
+            target=_refresh_screener_results,
+            name="screener-refresh-manual",
+            daemon=True,
+        )
+        t.start()
+        return jsonify({"status": "started"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ============================================================================
 # APPLICATION ENTRY POINT
 # ============================================================================
 

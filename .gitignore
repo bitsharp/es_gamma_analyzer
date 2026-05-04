@@ -6,3 +6,4 @@ uploads/
 .env
 .vercel
 .env*.local
+.claude/
