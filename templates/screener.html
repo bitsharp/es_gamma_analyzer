@@ -689,55 +689,49 @@
         }
 
         // ---- Zone classification (Cara/Equa/Sconto/Affare) ----
-        // Based on the ratio peNow/peTheo: how much of the theoretical multiple
-        // the market is currently paying. Lower = more room for multiple expansion
-        // (Serafini's preferred buy setup).
+        // The numeric classification (rank 0..4) is computed server-side
+        // (_compute_zone_rank in app.py) — single source of truth for the
+        // ratio peNow/peTheo thresholds. This function only maps that rank
+        // to the visual presentation (label, color, explanation prose).
+        const ZONE_PRESENTATION = [
+            { rank: 0, label: '🟢🟢 Affare', cls: 'zone-steal', icon: '🟢🟢',
+              headline: 'Affare storico',
+              prose: (ratioPct, peNowFmt, peTheoFmt, expansionPts) =>
+                `Il mercato sta pagando solo il ${ratioPct}% del multiplo che il modello considera giusto (${peNowFmt}× vs ${peTheoFmt}×). Spazio di espansione del multiplo: +${expansionPts} punti. È il setup che Serafini cerca esplicitamente: comprare basso multiplo permette di guadagnare sia dall'espansione del multiplo che dalla crescita degli utili.` },
+            { rank: 1, label: '🟢 Sconto', cls: 'zone-discount', icon: '🟢',
+              headline: 'Zona di acquisto',
+              prose: (ratioPct, peNowFmt, peTheoFmt, expansionPts) =>
+                `Il multiplo attuale è il ${ratioPct}% del teorico (${peNowFmt}× vs ${peTheoFmt}×). C'è ancora spazio di espansione del multiplo (+${expansionPts} punti). Buon setup di acquisto se il pattern volumi conferma e i flussi di cassa sono in crescita.` },
+            { rank: 2, label: '🟡 Equa', cls: 'zone-fair', icon: '🟡',
+              headline: 'Valutazione equa',
+              prose: (ratioPct, peNowFmt, peTheoFmt) =>
+                `Il mercato sta pagando il ${ratioPct}% del multiplo teorico (${peNowFmt}× vs ${peTheoFmt}×). Margine ridotto: il guadagno potenziale dipenderà soprattutto dalla crescita degli utili nel tempo, non dall'espansione del multiplo. Si può tenere ma non è il momento ottimale per entrare.` },
+            { rank: 3, label: '🔴 Cara', cls: 'zone-expensive', icon: '🔴',
+              headline: 'Multiplo già pieno',
+              prose: (ratioPct, peNowFmt, peTheoFmt) =>
+                `Il multiplo attuale è il ${ratioPct}% del teorico (${peNowFmt}× vs ${peTheoFmt}×) — il mercato ha già prezzato il fair value, o oltre. Niente spazio di espansione del multiplo. Per Serafini è un titolo da evitare in acquisto: rischio di compressione del multiplo se la narrativa cambia.` },
+            { rank: 4, label: 'N/D', cls: 'zone-na', icon: '⚪',
+              headline: 'Dati insufficienti',
+              prose: () => 'P/E attuale o teorico non calcolabili.' },
+        ];
+
         function computeZone(r) {
+            const rank = (typeof r.zone_rank === 'number') ? r.zone_rank : 4;
+            const z = ZONE_PRESENTATION[rank] || ZONE_PRESENTATION[4];
             const peNow = (r.current_price && r.forward_eps && r.forward_eps > 0)
                 ? r.current_price / r.forward_eps : null;
             const peTheo = r.pe_theoretical;
-            if (peNow == null || peTheo == null || peTheo <= 0) {
-                return {
-                    label: 'N/D', cls: 'zone-na', icon: '⚪',
-                    headline: 'Dati insufficienti',
-                    explanation: 'P/E attuale o teorico non calcolabili.',
-                    peNow, peTheo, ratio: null,
-                };
-            }
-            const ratio = peNow / peTheo;
-            const peNowFmt = peNow.toFixed(1);
-            const peTheoFmt = peTheo.toFixed(1);
-            const ratioPct = (ratio * 100).toFixed(0);
-            const expansionPts = (peTheo - peNow).toFixed(1);
-
-            if (ratio <= 0.35) {
-                return {
-                    label: '🟢🟢 Affare', cls: 'zone-steal', icon: '🟢🟢',
-                    headline: 'Affare storico',
-                    explanation: `Il mercato sta pagando solo il ${ratioPct}% del multiplo che il modello considera giusto (${peNowFmt}× vs ${peTheoFmt}×). Spazio di espansione del multiplo: +${expansionPts} punti. È il setup che Serafini cerca esplicitamente: comprare basso multiplo permette di guadagnare sia dall'espansione del multiplo che dalla crescita degli utili.`,
-                    peNow, peTheo, ratio,
-                };
-            }
-            if (ratio <= 0.55) {
-                return {
-                    label: '🟢 Sconto', cls: 'zone-discount', icon: '🟢',
-                    headline: 'Zona di acquisto',
-                    explanation: `Il multiplo attuale è il ${ratioPct}% del teorico (${peNowFmt}× vs ${peTheoFmt}×). C'è ancora spazio di espansione del multiplo (+${expansionPts} punti). Buon setup di acquisto se il pattern volumi conferma e i flussi di cassa sono in crescita.`,
-                    peNow, peTheo, ratio,
-                };
-            }
-            if (ratio <= 0.85) {
-                return {
-                    label: '🟡 Equa', cls: 'zone-fair', icon: '🟡',
-                    headline: 'Valutazione equa',
-                    explanation: `Il mercato sta pagando il ${ratioPct}% del multiplo teorico (${peNowFmt}× vs ${peTheoFmt}×). Margine ridotto: il guadagno potenziale dipenderà soprattutto dalla crescita degli utili nel tempo, non dall'espansione del multiplo. Si può tenere ma non è il momento ottimale per entrare.`,
-                    peNow, peTheo, ratio,
-                };
-            }
+            const ratio = (peNow != null && peTheo != null && peTheo > 0) ? peNow / peTheo : null;
+            const peNowFmt = peNow != null ? peNow.toFixed(1) : '—';
+            const peTheoFmt = peTheo != null ? peTheo.toFixed(1) : '—';
+            const ratioPct = ratio != null ? (ratio * 100).toFixed(0) : '—';
+            const expansionPts = (peNow != null && peTheo != null) ? (peTheo - peNow).toFixed(1) : '—';
             return {
-                label: '🔴 Cara', cls: 'zone-expensive', icon: '🔴',
-                headline: 'Multiplo già pieno',
-                explanation: `Il multiplo attuale è il ${ratioPct}% del teorico (${peNowFmt}× vs ${peTheoFmt}×) — il mercato ha già prezzato il fair value, o oltre. Niente spazio di espansione del multiplo. Per Serafini è un titolo da evitare in acquisto: rischio di compressione del multiplo se la narrativa cambia.`,
+                label: z.label,
+                cls: z.cls,
+                icon: z.icon,
+                headline: z.headline,
+                explanation: z.prose(ratioPct, peNowFmt, peTheoFmt, expansionPts),
                 peNow, peTheo, ratio,
             };
         }

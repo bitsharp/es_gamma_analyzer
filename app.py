@@ -6630,6 +6630,35 @@ def _get_mongo_portfolio_collection():
         return None
 
 
+# Zone classification — single source of truth for the
+# Affare/Sconto/Equa/Cara buckets used by the screener.
+# Compares peNow (price / forward_eps) against pe_theoretical: lower ratio
+# means the market is paying less of what the model considers fair, leaving
+# more room for multiple expansion (Serafini's preferred buy setup).
+_ZONE_THRESHOLDS = (0.35, 0.55, 0.85)  # ratio peNow/peTheo
+_ZONE_RANK_NA = 4  # used when inputs missing — ranked last
+
+
+def _compute_zone_rank(forward_eps, current_price, pe_theoretical) -> int:
+    """0=Affare, 1=Sconto, 2=Equa, 3=Cara, 4=N/D. Lower = more attractive
+    for purchase per the Serafini methodology."""
+    if not forward_eps or forward_eps <= 0:
+        return _ZONE_RANK_NA
+    if not current_price or current_price <= 0:
+        return _ZONE_RANK_NA
+    if not pe_theoretical or pe_theoretical <= 0:
+        return _ZONE_RANK_NA
+    ratio = (current_price / forward_eps) / pe_theoretical
+    t1, t2, t3 = _ZONE_THRESHOLDS
+    if ratio <= t1:
+        return 0
+    if ratio <= t2:
+        return 1
+    if ratio <= t3:
+        return 2
+    return 3
+
+
 def _calculate_damodaran_target(
     avg_growth: float,
     forward_eps: float,
@@ -6657,6 +6686,7 @@ def _calculate_damodaran_target(
         "discount_pct": discount,
         "ratio_discount_vola": ratio,
         "verdict": "UNDERVALUED" if discount > 0 else "OVERVALUED",
+        "zone_rank": _compute_zone_rank(forward_eps, current_price, pe_theo),
     }
 
 
@@ -7048,6 +7078,14 @@ def _ensure_screener_cache_fresh(
                         # Pre-FMP rows lack `_source`. They were all computed
                         # via yfinance — backfill so the UI pill renders correctly.
                         row.setdefault("_source", "yf")
+                        # Pre-zone-rank rows lack `zone_rank` — compute on read
+                        # so sorting and the UI badge work uniformly.
+                        if "zone_rank" not in row:
+                            row["zone_rank"] = _compute_zone_rank(
+                                row.get("forward_eps"),
+                                row.get("current_price"),
+                                row.get("pe_theoretical"),
+                            )
                         rows.append(row)
                     cache["results"] = rows
                     cache["computed_at"] = min(
@@ -7114,29 +7152,11 @@ def api_screener_top():
     results = list(cache.get("results") or [])
     qualified = [r for r in results if _stock_passes_strategy(r)]
 
-    def _zone_rank(r):
-        """0=Affare, 1=Sconto, 2=Equa, 3=Cara, 4=N/D. Mirrors computeZone()
-        in templates/screener.html — keep thresholds in sync."""
-        fwd = r.get("forward_eps")
-        price = r.get("current_price")
-        pe_theo = r.get("pe_theoretical")
-        if not fwd or fwd <= 0 or not price or not pe_theo or pe_theo <= 0:
-            return 4
-        ratio = (price / fwd) / pe_theo
-        if ratio <= 0.35:
-            return 0
-        if ratio <= 0.55:
-            return 1
-        if ratio <= 0.85:
-            return 2
-        return 3
-
-    def _sort_key(r):
-        # Primary: zone bucket ascending (Affare first).
-        # Secondary: discount_pct descending (higher discount first).
-        return (_zone_rank(r), -(r.get("discount_pct") or -999))
-
-    qualified.sort(key=_sort_key)
+    # Sort: zone bucket ascending (Affare first), then discount_pct descending.
+    qualified.sort(key=lambda r: (
+        r.get("zone_rank", _ZONE_RANK_NA),
+        -(r.get("discount_pct") or -999),
+    ))
     top = qualified[:limit]
 
     return jsonify({
