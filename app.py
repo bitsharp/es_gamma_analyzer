@@ -7219,8 +7219,11 @@ def api_screener_lookup(ticker):
 @app.route('/api/screener/refresh', methods=['POST'])
 @login_required
 def api_screener_refresh():
-    """Manual refresh trigger (admin only). Runs in background.
-    Optional ?market=US|IT|DE (default US).
+    """Manual refresh trigger (admin only).
+    On Vercel: runs SYNCHRONOUSLY in-request with parallel workers (background
+    threads die with the serverless function, leaving in_progress stuck True).
+    On local: spawns a background thread.
+    Optional ?market=US|IT|DE|IN (default US).
     """
     if not _is_admin():
         return jsonify({"error": "admin only"}), 403
@@ -7228,8 +7231,23 @@ def api_screener_refresh():
     if market not in _SCREENER_VALID_MARKETS:
         return jsonify({"error": f"invalid market '{market}'"}), 400
     cache = _get_market_cache(market)
-    if cache.get("in_progress"):
+    # Allow forcing a refresh even if a previous (likely orphaned) thread
+    # left in_progress=True — the lock inside _refresh_screener_results is
+    # the real guard against concurrent refreshes.
+    force = (request.args.get('force') or '').lower() in ('1', 'true', 'yes')
+    if cache.get("in_progress") and not force:
         return jsonify({"status": "already_running", "market": market})
+    if _SCREENER_IS_VERCEL:
+        try:
+            res = _refresh_screener_results(
+                universe=_screener_universe_for(market),
+                market=market,
+                max_workers=8,
+            )
+            return jsonify({"status": "completed", "market": market, **res})
+        except Exception as e:
+            cache["in_progress"] = False
+            return jsonify({"error": str(e)}), 500
     try:
         t = threading.Thread(
             target=_refresh_screener_results,
