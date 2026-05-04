@@ -674,8 +674,12 @@
             '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
         }[ch]));
 
-        function closeLookupResult() {
+        function clearLookupResult() {
             document.getElementById('lookupResult').innerHTML = '';
+        }
+
+        function closeLookupResult() {
+            clearLookupResult();
             lookupInput.value = '';
             lookupInput.focus();
         }
@@ -803,6 +807,11 @@
         lookupInput.addEventListener('input', (e) => {
             const q = e.target.value.trim();
             clearTimeout(taDebounceTimer);
+            if (q.length === 0) {
+                closeDropdown();
+                clearLookupResult();
+                return;
+            }
             if (q.length < taMinTrigger) {
                 closeDropdown();
                 return;
