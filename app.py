@@ -6463,6 +6463,33 @@ _SCREENER_US_UNIVERSE = [
 
 _SCREENER_IS_VERCEL = bool(os.getenv("VERCEL"))
 
+# FTSE MIB top names — large/mid cap with reliable yfinance coverage.
+_SCREENER_IT_UNIVERSE = [
+    "ISP.MI", "UCG.MI", "ENEL.MI", "ENI.MI", "STLAM.MI", "G.MI", "RACE.MI",
+    "LDO.MI", "PRY.MI", "MB.MI", "MONC.MI", "BAMI.MI", "TIT.MI", "TRN.MI",
+    "SRG.MI", "CPR.MI", "MAIRE.MI", "DIA.MI", "REC.MI", "AMP.MI", "TEN.MI",
+    "NEXI.MI", "FBK.MI", "AZM.MI", "POST.MI", "SPM.MI", "BPE.MI", "INW.MI",
+]
+
+# DAX 40 top names.
+_SCREENER_DE_UNIVERSE = [
+    "SAP.DE", "SIE.DE", "ALV.DE", "DTE.DE", "MUV2.DE", "BAS.DE", "BMW.DE",
+    "MBG.DE", "VOW3.DE", "DBK.DE", "ADS.DE", "DB1.DE", "DHL.DE", "HEN3.DE",
+    "IFX.DE", "MRK.DE", "RHM.DE", "AIR.DE", "CON.DE", "HEI.DE", "DTG.DE",
+    "BEI.DE", "QIA.DE", "VNA.DE", "BAYN.DE", "EOAN.DE", "FRE.DE", "HNR1.DE",
+    "PUM.DE", "SY1.DE",
+]
+
+# Maps a screener market code to the country bucket used by the Damodaran
+# discount table (controls country_disc).
+_SCREENER_MARKET_TO_COUNTRY = {
+    "US": "US",
+    "IT": "IT",
+    "DE": "EU",
+}
+
+_SCREENER_VALID_MARKETS = ("US", "IT", "DE")
+
 # Map yfinance info["country"] (full country names) to our bucket codes.
 # Used by the on-demand lookup endpoint where the user can enter any ticker.
 _SCREENER_COUNTRY_TO_BUCKET = {
@@ -6483,21 +6510,46 @@ def _map_country_to_bucket(country_name: Optional[str]) -> str:
     return _SCREENER_COUNTRY_TO_BUCKET.get((country_name or "").strip(), "US")
 
 
-def _screener_active_universe() -> list:
-    """Return the universe to use for the current runtime (Vercel = top 30)."""
-    return _SCREENER_US_TOP30_UNIVERSE if _SCREENER_IS_VERCEL else _SCREENER_US_UNIVERSE
+def _screener_universe_for(market: str) -> list:
+    """Universe for a given market code. US uses the top-30 on Vercel
+    (60s timeout) and the full ~95 tickers locally."""
+    if market == "US":
+        return _SCREENER_US_TOP30_UNIVERSE if _SCREENER_IS_VERCEL else _SCREENER_US_UNIVERSE
+    if market == "IT":
+        return _SCREENER_IT_UNIVERSE
+    if market == "DE":
+        return _SCREENER_DE_UNIVERSE
+    return []
 
-# In-memory cache shared across requests in the same process.
-_SCREENER_CACHE = {
-    "results": [],          # list of computed result dicts
-    "computed_at": 0.0,     # epoch seconds when batch finished
-    "errors": [],           # tickers that failed during last batch
-    "in_progress": False,   # batch currently running
-    "loaded_from_mongo": False,
-}
+
+def _screener_active_universe() -> list:
+    """Backward-compatible wrapper (US-only callers)."""
+    return _screener_universe_for("US")
+
+
+# Per-market in-memory cache. Each market gets its own slot.
+_SCREENER_CACHE: Dict[str, dict] = {}
 _SCREENER_CACHE_TTL_SECONDS = int((os.getenv("SCREENER_CACHE_TTL") or "43200").strip() or 43200)  # 12h
-_SCREENER_REFRESH_LOCK = threading.Lock()
+_SCREENER_REFRESH_LOCKS: Dict[str, "threading.Lock"] = {}
 _MONGO_SCREENER_COLLECTION = None
+
+
+def _get_market_cache(market: str) -> dict:
+    if market not in _SCREENER_CACHE:
+        _SCREENER_CACHE[market] = {
+            "results": [],
+            "computed_at": 0.0,
+            "errors": [],
+            "in_progress": False,
+            "loaded_from_mongo": False,
+        }
+    return _SCREENER_CACHE[market]
+
+
+def _get_market_lock(market: str) -> "threading.Lock":
+    if market not in _SCREENER_REFRESH_LOCKS:
+        _SCREENER_REFRESH_LOCKS[market] = threading.Lock()
+    return _SCREENER_REFRESH_LOCKS[market]
 
 
 def _get_mongo_screener_collection():
@@ -6661,34 +6713,52 @@ def _fetch_ticker_fundamentals(ticker: str) -> Optional[dict]:
         return None
 
 
-def _stock_passes_strategy(r: dict) -> bool:
-    """Strategy filters from the Serafini course, plus sanity guards
-    against yfinance data quality issues (stale split-adjusted prices,
-    earnings recovering from negatives blowing up trailing-based growth, etc.).
-
-    - forward EPS > 0 and < 60 (above suggests stale/unsplit data)
-    - 5% < growth < 60% (matches the realistic range from the Excel sheet:
-      max NVDA ~42%, MOH ~52%; >60% means trailing-recovery artifact)
-    - market cap >= 2B (US screener minimum)
-    - 0 < discount < 3 (300% upside is the practical ceiling; more = bad data)
-    - P/E theoretical < 100 (foglio max was ~75)
+def _stock_strategy_check(r: dict) -> dict:
+    """Strategy filters from the Serafini course + sanity guards on yfinance
+    data quality. Returns {passes: bool, reasons: [str]} so the UI can show
+    the user WHY a ticker is excluded.
     """
+    reasons = []
+
     fwd_eps = r.get("forward_eps")
-    if not fwd_eps or fwd_eps <= 0 or fwd_eps > 60:
-        return False
+    if not fwd_eps or fwd_eps <= 0:
+        reasons.append("EPS forward non positivo")
+    elif fwd_eps > 60:
+        reasons.append(f"EPS forward {fwd_eps:.2f} > 60 (probabile dato stale o split non gestito)")
+
     g = r.get("growth_5y")
-    if g is None or g <= 0.05 or g >= 0.60:
-        return False
+    if g is None:
+        reasons.append("Growth attesa non disponibile")
+    elif g <= 0.05:
+        reasons.append(f"Growth {g*100:+.1f}% ≤ 5% (insufficiente per il modello)")
+    elif g >= 0.60:
+        reasons.append(f"Growth {g*100:.1f}% ≥ 60% (irrealistica, di solito artefatto da trailing-recovery)")
+
     mc = r.get("market_cap")
-    if mc is None or mc < 2_000_000_000:
-        return False
+    if mc is None:
+        reasons.append("Market cap non disponibile")
+    elif mc < 2_000_000_000:
+        reasons.append(f"Market cap {mc/1e9:.2f}B < 2B (troppo piccola per la strategia)")
+
     d = r.get("discount_pct")
-    if d is None or d <= 0 or d >= 3.0:
-        return False
+    if d is None:
+        reasons.append("Discount non calcolabile")
+    elif d <= 0:
+        reasons.append(f"Sovracuotata vs target ({d*100:+.1f}%)")
+    elif d >= 3.0:
+        reasons.append(f"Discount {d*100:.0f}% ≥ 300% (probabile dato corrotto)")
+
     pe = r.get("pe_theoretical")
-    if pe is None or pe >= 100:
-        return False
-    return True
+    if pe is None:
+        reasons.append("P/E teorico non calcolabile")
+    elif pe >= 100:
+        reasons.append(f"P/E teorico {pe:.0f} ≥ 100 (combinazione growth+sconti irrealistica)")
+
+    return {"passes": len(reasons) == 0, "reasons": reasons}
+
+
+def _stock_passes_strategy(r: dict) -> bool:
+    return _stock_strategy_check(r)["passes"]
 
 
 def _refresh_screener_results(
@@ -6696,19 +6766,19 @@ def _refresh_screener_results(
     market: str = "US",
     max_workers: int = 1,
 ) -> dict:
-    """Run the screener over a universe. Persists per-ticker rows to Mongo.
-
-    Single-instance: if a refresh is already running, exits immediately.
-    max_workers > 1 enables ThreadPoolExecutor parallelism (~4-8x speedup
-    on yfinance which is mostly I/O bound). Used on Vercel for 30 ticker
-    in ~10-15s instead of 45s sequential.
+    """Run the screener over a market's universe. Per-market cache + lock.
+    Applies the correct country bucket (US/IT/EU) to override yfinance's
+    raw country detection. Persists per-ticker rows to Mongo (with market tag).
     """
-    if not _SCREENER_REFRESH_LOCK.acquire(blocking=False):
+    cache = _get_market_cache(market)
+    lock = _get_market_lock(market)
+    if not lock.acquire(blocking=False):
         return {"status": "already_running"}
     try:
-        _SCREENER_CACHE["in_progress"] = True
+        cache["in_progress"] = True
         if universe is None:
-            universe = _screener_active_universe()
+            universe = _screener_universe_for(market)
+        country_for_market = _SCREENER_MARKET_TO_COUNTRY.get(market, "US")
         coll = _get_mongo_screener_collection()
 
         def _process(ticker: str) -> Optional[dict]:
@@ -6716,6 +6786,9 @@ def _refresh_screener_results(
                 fund = _fetch_ticker_fundamentals(ticker)
                 if not fund:
                     return None
+                # Apply the screener-context country (overrides default "US"
+                # in the fetcher). Damodaran sconto_paese depends on this.
+                fund["country"] = country_for_market
                 calc = _calculate_damodaran_target(
                     avg_growth=fund["growth_5y"],
                     forward_eps=fund["forward_eps"],
@@ -6727,7 +6800,11 @@ def _refresh_screener_results(
                 row = {**fund, **calc, "market": market, "computed_at": time.time()}
                 if coll is not None:
                     try:
-                        coll.update_one({"ticker": ticker}, {"$set": row}, upsert=True)
+                        coll.update_one(
+                            {"ticker": ticker, "market": market},
+                            {"$set": row},
+                            upsert=True,
+                        )
                     except Exception:
                         pass
                 return row
@@ -6752,74 +6829,76 @@ def _refresh_screener_results(
                 else:
                     results.append(row)
 
-        _SCREENER_CACHE["results"] = results
-        _SCREENER_CACHE["computed_at"] = time.time()
-        _SCREENER_CACHE["errors"] = errors
-        return {"status": "ok", "count": len(results), "errors_count": len(errors)}
+        cache["results"] = results
+        cache["computed_at"] = time.time()
+        cache["errors"] = errors
+        return {"status": "ok", "market": market, "count": len(results), "errors_count": len(errors)}
     finally:
-        _SCREENER_CACHE["in_progress"] = False
+        cache["in_progress"] = False
         try:
-            _SCREENER_REFRESH_LOCK.release()
+            lock.release()
         except Exception:
             pass
 
 
-def _ensure_screener_cache_fresh(max_age_seconds: Optional[int] = None) -> bool:
-    """Returns True if cache is fresh.
+def _ensure_screener_cache_fresh(
+    market: str = "US",
+    max_age_seconds: Optional[int] = None,
+) -> bool:
+    """Returns True if the cache for `market` is fresh.
 
-    On Vercel (no persistent threads): runs the batch SYNCHRONOUSLY in-request
-    with the top-30 universe + 8 parallel workers. Fits within the 60s
-    function timeout (~10-15s typical).
+    On Vercel (no persistent threads): SYNCHRONOUSLY refreshes in-request
+    with the curated universe + 8 parallel workers (fits in 60s timeout).
+    On local: spawns a background thread.
 
-    On local: spawns a background thread with the full universe (~95 ticker, ~2 min).
-
-    Both modes seed the cache from Mongo first if available.
+    Both modes seed the cache from Mongo (filtered by market) on cold start.
     """
     max_age = max_age_seconds if max_age_seconds is not None else _SCREENER_CACHE_TTL_SECONDS
-    if _SCREENER_CACHE.get("in_progress"):
+    cache = _get_market_cache(market)
+    if cache.get("in_progress"):
         return False
-    age = time.time() - (_SCREENER_CACHE.get("computed_at") or 0)
-    has_results = bool(_SCREENER_CACHE.get("results"))
+    age = time.time() - (cache.get("computed_at") or 0)
+    has_results = bool(cache.get("results"))
 
-    # Seed from Mongo on cold start (process restart, Vercel warm container, etc.)
-    if not has_results and not _SCREENER_CACHE.get("loaded_from_mongo"):
+    # Seed from Mongo on cold start
+    if not has_results and not cache.get("loaded_from_mongo"):
         try:
             coll = _get_mongo_screener_collection()
             if coll is not None:
-                docs = list(coll.find({"market": "US"}))
+                docs = list(coll.find({"market": market}))
                 if docs:
-                    _SCREENER_CACHE["results"] = [
+                    cache["results"] = [
                         {k: v for k, v in d.items() if k != "_id"} for d in docs
                     ]
-                    _SCREENER_CACHE["computed_at"] = min(
+                    cache["computed_at"] = min(
                         (d.get("computed_at") or 0) for d in docs
                     )
-                    age = time.time() - _SCREENER_CACHE["computed_at"]
+                    age = time.time() - cache["computed_at"]
                     has_results = True
         except Exception:
             pass
-        _SCREENER_CACHE["loaded_from_mongo"] = True
+        cache["loaded_from_mongo"] = True
 
     if has_results and age <= max_age:
         return True
 
     # Stale or empty: refresh now.
     if _SCREENER_IS_VERCEL:
-        # Synchronous in-request: top-30 universe, parallel fetch.
         try:
             _refresh_screener_results(
-                universe=_SCREENER_US_TOP30_UNIVERSE,
+                universe=_screener_universe_for(market),
+                market=market,
                 max_workers=8,
             )
             return True
         except Exception:
             return False
     else:
-        # Background thread, full universe.
         try:
             t = threading.Thread(
                 target=_refresh_screener_results,
-                name="screener-refresh",
+                kwargs={"market": market},
+                name=f"screener-refresh-{market}",
                 daemon=True,
             )
             t.start()
@@ -6837,16 +6916,22 @@ def screener_page():
 @app.route('/api/screener/top', methods=['GET'])
 @login_required
 def api_screener_top():
-    """Return the top N US stocks that pass the Serafini strategy filters,
-    ranked by ratio_discount_vola (or discount_pct as fallback)."""
+    """Return the top N stocks for a market (US|IT|DE) that pass the Serafini
+    strategy filters, ranked by ratio_discount_vola (fallback discount_pct).
+    """
     try:
         limit = int(request.args.get('limit') or 5)
     except (TypeError, ValueError):
         limit = 5
     limit = max(1, min(50, limit))
 
-    fresh = _ensure_screener_cache_fresh()
-    results = list(_SCREENER_CACHE.get("results") or [])
+    market = (request.args.get('market') or 'US').strip().upper()
+    if market not in _SCREENER_VALID_MARKETS:
+        return jsonify({"error": f"invalid market '{market}'", "valid": list(_SCREENER_VALID_MARKETS)}), 400
+
+    fresh = _ensure_screener_cache_fresh(market=market)
+    cache = _get_market_cache(market)
+    results = list(cache.get("results") or [])
     qualified = [r for r in results if _stock_passes_strategy(r)]
 
     def _sort_key(r):
@@ -6859,15 +6944,16 @@ def api_screener_top():
     top = qualified[:limit]
 
     return jsonify({
-        "computed_at": _SCREENER_CACHE.get("computed_at"),
-        "in_progress": _SCREENER_CACHE.get("in_progress", False),
+        "market": market,
+        "computed_at": cache.get("computed_at"),
+        "in_progress": cache.get("in_progress", False),
         "is_fresh": fresh,
         "ttl_seconds": _SCREENER_CACHE_TTL_SECONDS,
-        "universe_size": len(_screener_active_universe()),
+        "universe_size": len(_screener_universe_for(market)),
         "runtime": "vercel" if _SCREENER_IS_VERCEL else "local",
         "evaluated_count": len(results),
         "qualified_count": len(qualified),
-        "errors_count": len(_SCREENER_CACHE.get("errors") or []),
+        "errors_count": len(cache.get("errors") or []),
         "top": top,
     })
 
@@ -6945,26 +7031,35 @@ def api_screener_lookup(ticker):
         dev_st_pct=fund["dev_st_pct"],
     )
     row = {**fund, **calc, "market": detected_country}
-    row["passes_strategy"] = _stock_passes_strategy(row)
+    check = _stock_strategy_check(row)
+    row["passes_strategy"] = check["passes"]
+    row["strategy_reasons"] = check["reasons"]
     return jsonify(row)
 
 
 @app.route('/api/screener/refresh', methods=['POST'])
 @login_required
 def api_screener_refresh():
-    """Manual refresh trigger (admin only). Runs in background."""
+    """Manual refresh trigger (admin only). Runs in background.
+    Optional ?market=US|IT|DE (default US).
+    """
     if not _is_admin():
         return jsonify({"error": "admin only"}), 403
-    if _SCREENER_CACHE.get("in_progress"):
-        return jsonify({"status": "already_running"})
+    market = (request.args.get('market') or 'US').strip().upper()
+    if market not in _SCREENER_VALID_MARKETS:
+        return jsonify({"error": f"invalid market '{market}'"}), 400
+    cache = _get_market_cache(market)
+    if cache.get("in_progress"):
+        return jsonify({"status": "already_running", "market": market})
     try:
         t = threading.Thread(
             target=_refresh_screener_results,
-            name="screener-refresh-manual",
+            kwargs={"market": market},
+            name=f"screener-refresh-manual-{market}",
             daemon=True,
         )
         t.start()
-        return jsonify({"status": "started"})
+        return jsonify({"status": "started", "market": market})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
