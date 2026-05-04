@@ -131,6 +131,112 @@
         }
         .empty-state .spinner-border { color: #60a5fa; }
 
+        .search-section { position: relative; }
+        .search-section .input-group input::placeholder { color: #6b7e92; }
+        .search-section .input-group input:focus {
+            background: #1b263b !important;
+            color: #fff !important;
+            border-color: #60a5fa !important;
+            box-shadow: 0 0 0 0.2rem rgba(96,165,250,0.2);
+        }
+        .typeahead-dropdown {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            right: 0;
+            background: #1b263b;
+            border: 1px solid #415a77;
+            border-radius: 10px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            z-index: 50;
+            max-height: 320px;
+            overflow-y: auto;
+            display: none;
+        }
+        .typeahead-dropdown.open { display: block; }
+        .typeahead-item {
+            padding: 0.55rem 0.85rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            border-bottom: 1px solid rgba(65,90,119,0.3);
+        }
+        .typeahead-item:last-child { border-bottom: none; }
+        .typeahead-item:hover, .typeahead-item.active {
+            background: rgba(96,165,250,0.15);
+        }
+        .typeahead-item .ta-symbol {
+            font-weight: 700;
+            color: #fff;
+            font-size: 0.95rem;
+            min-width: 90px;
+        }
+        .typeahead-item .ta-name {
+            color: #adb5bd;
+            font-size: 0.85rem;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .typeahead-item .ta-meta {
+            color: #6b7e92;
+            font-size: 0.72rem;
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        .legend-card {
+            background: #1b263b;
+            border: 1px solid #415a77;
+            border-radius: 12px;
+            margin-top: 1.5rem;
+            font-size: 0.85rem;
+        }
+        .legend-card details { padding: 0.65rem 1rem; }
+        .legend-card summary {
+            cursor: pointer;
+            color: #e2e8f0;
+            font-weight: 600;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .legend-card summary::-webkit-details-marker { display: none; }
+        .legend-card summary .chevron { transition: transform 0.2s; }
+        .legend-card details[open] summary .chevron { transform: rotate(90deg); }
+        .legend-card .legend-body { color: #adb5bd; padding-top: 0.7rem; }
+        .legend-card .legend-body h6 {
+            color: #e2e8f0;
+            font-size: 0.82rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 0.9rem;
+            margin-bottom: 0.4rem;
+        }
+        .legend-card .legend-body h6:first-child { margin-top: 0; }
+        .legend-card dl { margin-bottom: 0; }
+        .legend-card dt {
+            color: #fff;
+            font-weight: 600;
+            margin-top: 0.4rem;
+        }
+        .legend-card dd {
+            margin-left: 0.8rem;
+            margin-bottom: 0.2rem;
+            color: #adb5bd;
+        }
+        .legend-card code {
+            background: rgba(96,165,250,0.15);
+            color: #93c5fd;
+            padding: 0.05rem 0.3rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+
         @media (max-width: 768px) {
             .nav-link-custom { padding: 0.3rem 0.5rem; font-size: 0.82rem; }
             .pick-card { padding: 0.9rem; }
@@ -192,13 +298,12 @@
                     <i class="bi bi-search"></i>
                 </span>
                 <input type="text" id="lookupInput" class="form-control"
-                       placeholder="Cerca un ticker per analisi live (es. NVDA, AVGO, RACE.MI, BABA)"
-                       maxlength="12" autocomplete="off"
+                       placeholder="Cerca per nome o ticker (es. apple, nvidia, ferrari)"
+                       maxlength="50" autocomplete="off" autocorrect="off" spellcheck="false"
                        style="background:#1b263b;border:1px solid #415a77;color:#fff;">
-                <button class="btn btn-primary" id="lookupBtn" type="button">
-                    Analizza
-                </button>
+                <button class="btn btn-primary" id="lookupBtn" type="button">Analizza</button>
             </div>
+            <div id="typeaheadDropdown" class="typeahead-dropdown" role="listbox"></div>
             <div id="lookupResult"></div>
         </div>
 
@@ -223,6 +328,95 @@
                 <div class="spinner-border" role="status"></div>
                 <div class="mt-3">Carico i top picks…</div>
             </div>
+        </div>
+
+        <div class="legend-card">
+            <details>
+                <summary>
+                    <i class="bi bi-chevron-right chevron"></i>
+                    <i class="bi bi-info-circle"></i>
+                    Legenda — fonte dati e significato delle metriche
+                </summary>
+                <div class="legend-body">
+                    <h6>Fonte dati</h6>
+                    <p class="mb-2">
+                        Fondamentali (prezzo, EPS forward, growth, beta, settore, paese)
+                        forniti da <strong>Yahoo Finance</strong> via la libreria
+                        <code>yfinance</code>. La ricerca tipo-ahead usa l'API pubblica
+                        <code>query2.finance.yahoo.com/v1/finance/search</code>.
+                        Tutti i dati sono live al momento del calcolo (cache 12h per il
+                        top 5, nessuna cache per la ricerca singolo ticker).
+                    </p>
+
+                    <h6>Modello di valutazione</h6>
+                    <p class="mb-2">
+                        Formula Damodaran modificata (corso Serafini):
+                        <code>P/E teorico = 13.1 + 1.2 × growth × 100 − sconto_paese − sconto_settore</code>.
+                        <code>Target = P/E teorico × EPS forward</code>.
+                    </p>
+
+                    <h6>Significato dei campi</h6>
+                    <dl>
+                        <dt>Prezzo</dt>
+                        <dd>Quotazione corrente di mercato (Yahoo).</dd>
+
+                        <dt>EPS Forward</dt>
+                        <dd>Stima utile per azione del prossimo anno fiscale (consensus analisti).</dd>
+
+                        <dt>Growth 5y</dt>
+                        <dd>Crescita annua composta degli utili attesa nei prossimi anni
+                            (LTG analisti). Fallback: crescita next year (+1y) o
+                            <code>(forward − trailing) / trailing</code> se assente.</dd>
+
+                        <dt>P/E teorico</dt>
+                        <dd>Multiplo che il modello considera "giusto" data la crescita
+                            attesa, lo sconto geografico e lo sconto settoriale.</dd>
+
+                        <dt>Target</dt>
+                        <dd>Prezzo obiettivo a fine prossimo anno = P/E teorico × EPS forward.</dd>
+
+                        <dt>Discount</dt>
+                        <dd><span style="color:#4ade80;">Verde positivo</span> = sottocuotata
+                            (target &gt; prezzo). <span style="color:#f87171;">Rosso negativo</span>
+                            = sovracuotata. Calcolato come <code>(Target − Prezzo) / Prezzo</code>.</dd>
+
+                        <dt>Ratio D/Vol</dt>
+                        <dd>Discount diviso volatilità annua. Normalizza l'upside per il
+                            rischio: il top 5 è ordinato per questo ratio.</dd>
+
+                        <dt>Volatilità</dt>
+                        <dd>Deviazione standard dei rendimenti giornalieri ultimo anno,
+                            annualizzata (× √252).</dd>
+
+                        <dt>β (Beta)</dt>
+                        <dd>Sensibilità del titolo al mercato di riferimento.
+                            &gt; 1 = aggressivo (Tech, Comms, Financial),
+                            &lt; 1 = difensivo (Healthcare, Staples, Utilities).</dd>
+
+                        <dt>Mcap</dt>
+                        <dd>Capitalizzazione di mercato totale (B = miliardi, T = trilioni).</dd>
+                    </dl>
+
+                    <h6>Filtri della strategia</h6>
+                    <p class="mb-1">
+                        <strong style="color:#f87171;">✗ Non passa filtri</strong> — il titolo
+                        non rispetta uno o più di questi criteri della strategia Serafini:
+                    </p>
+                    <ul class="mb-2">
+                        <li><strong>Growth</strong> compresa tra 5% e 60% (fuori da questo range
+                            spesso significa dato yfinance non affidabile o crescita non sostenibile)</li>
+                        <li><strong>Market cap</strong> ≥ 2 miliardi $ (esclude micro/small cap illiquide)</li>
+                        <li><strong>Discount</strong> &gt; 0 e &lt; 300% (deve essere sottocuotata
+                            ma non in modo assurdo, che indicherebbe dati corrotti)</li>
+                        <li><strong>EPS forward</strong> &gt; 0 e &lt; 60 (positivo, niente split stale)</li>
+                        <li><strong>P/E teorico</strong> &lt; 100 (oltre = combinazione growth/sconti irrealistica)</li>
+                    </ul>
+                    <p class="mb-0" style="font-size:0.82rem;">
+                        Anche se non passa i filtri, l'analisi viene mostrata: serve solo come
+                        guida sulla qualità del dato e sull'aderenza al metodo.
+                    </p>
+                </div>
+            </details>
         </div>
     </div>
 
@@ -382,15 +576,115 @@
             }
         }
 
-        document.getElementById('lookupBtn').addEventListener('click', () => {
-            const t = document.getElementById('lookupInput').value.trim().toUpperCase();
-            if (t) lookupTicker(t);
+        // ---- Typeahead state ----
+        const lookupInput = document.getElementById('lookupInput');
+        const dropdown = document.getElementById('typeaheadDropdown');
+        let taResults = [];
+        let taActiveIdx = -1;
+        let taDebounceTimer = null;
+        let taAbortCtrl = null;
+        let taMinTrigger = 2;  // start search from 2 chars
+
+        function closeDropdown() {
+            dropdown.classList.remove('open');
+            dropdown.innerHTML = '';
+            taResults = [];
+            taActiveIdx = -1;
+        }
+
+        function renderDropdown() {
+            if (!taResults.length) { closeDropdown(); return; }
+            dropdown.innerHTML = taResults.map((r, i) => `
+                <div class="typeahead-item ${i === taActiveIdx ? 'active' : ''}" data-idx="${i}" role="option">
+                    <div class="ta-symbol">${escapeHtml(r.symbol)}</div>
+                    <div class="ta-name">${escapeHtml(r.name) || '—'}</div>
+                    <div class="ta-meta">${escapeHtml(r.exchange)}<br><span style="opacity:0.6;">${escapeHtml(r.type)}</span></div>
+                </div>
+            `).join('');
+            dropdown.classList.add('open');
+            dropdown.querySelectorAll('.typeahead-item').forEach(el => {
+                el.addEventListener('mousedown', (e) => {  // mousedown beats blur
+                    e.preventDefault();
+                    const idx = Number(el.dataset.idx);
+                    selectResult(idx);
+                });
+            });
+        }
+
+        function selectResult(idx) {
+            const r = taResults[idx];
+            if (!r) return;
+            lookupInput.value = r.symbol;
+            closeDropdown();
+            lookupTicker(r.symbol);
+        }
+
+        async function fetchTypeahead(q) {
+            if (taAbortCtrl) taAbortCtrl.abort();
+            taAbortCtrl = new AbortController();
+            try {
+                const res = await fetch('/api/screener/search?q=' + encodeURIComponent(q),
+                    { signal: taAbortCtrl.signal });
+                if (!res.ok) return;
+                const data = await res.json();
+                taResults = data.results || [];
+                taActiveIdx = -1;
+                renderDropdown();
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    closeDropdown();
+                }
+            }
+        }
+
+        lookupInput.addEventListener('input', (e) => {
+            const q = e.target.value.trim();
+            clearTimeout(taDebounceTimer);
+            if (q.length < taMinTrigger) {
+                closeDropdown();
+                return;
+            }
+            taDebounceTimer = setTimeout(() => fetchTypeahead(q), 250);
         });
-        document.getElementById('lookupInput').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
+
+        lookupInput.addEventListener('keydown', (e) => {
+            const isOpen = dropdown.classList.contains('open');
+            if (e.key === 'ArrowDown') {
+                if (!isOpen) return;
                 e.preventDefault();
-                const t = e.target.value.trim().toUpperCase();
-                if (t) lookupTicker(t);
+                taActiveIdx = Math.min(taResults.length - 1, taActiveIdx + 1);
+                renderDropdown();
+            } else if (e.key === 'ArrowUp') {
+                if (!isOpen) return;
+                e.preventDefault();
+                taActiveIdx = Math.max(0, taActiveIdx - 1);
+                renderDropdown();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (isOpen && taActiveIdx >= 0) {
+                    selectResult(taActiveIdx);
+                } else {
+                    const t = lookupInput.value.trim().toUpperCase();
+                    if (t) {
+                        closeDropdown();
+                        lookupTicker(t);
+                    }
+                }
+            } else if (e.key === 'Escape') {
+                closeDropdown();
+            }
+        });
+
+        lookupInput.addEventListener('blur', () => {
+            // Delay so click on dropdown still registers
+            setTimeout(closeDropdown, 150);
+        });
+
+        document.getElementById('lookupBtn').addEventListener('click', () => {
+            const t = lookupInput.value.trim().toUpperCase();
+            if (t) {
+                closeDropdown();
+                lookupTicker(t);
             }
         });
 

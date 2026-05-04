@@ -6872,6 +6872,46 @@ def api_screener_top():
     })
 
 
+@app.route('/api/screener/search', methods=['GET'])
+@login_required
+def api_screener_search():
+    """Typeahead search proxy to Yahoo Finance.
+    Returns up to 10 matches: [{symbol, name, exchange, type}, ...].
+    Always 200 even on upstream failure so the typeahead doesn't break the UI.
+    """
+    q = (request.args.get('q') or '').strip()
+    if not q or len(q) > 50:
+        return jsonify({"results": []})
+    try:
+        url = (
+            "https://query2.finance.yahoo.com/v1/finance/search?"
+            + urllib.parse.urlencode({"q": q, "quotesCount": 10, "newsCount": 0})
+        )
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=3) as response:
+            if response.status != 200:
+                return jsonify({"results": []})
+            data = json.loads(response.read().decode("utf-8")) or {}
+        out = []
+        for quote in (data.get("quotes") or []):
+            sym = quote.get("symbol")
+            if not sym:
+                continue
+            qtype = (quote.get("quoteType") or "").lower()
+            # Only equities/ETFs are relevant for this screener
+            if qtype not in ("equity", "etf", ""):
+                continue
+            out.append({
+                "symbol": sym,
+                "name": quote.get("longname") or quote.get("shortname") or "",
+                "exchange": quote.get("exchDisp") or quote.get("exchange") or "",
+                "type": quote.get("typeDisp") or quote.get("quoteType") or "",
+            })
+        return jsonify({"results": out})
+    except Exception:
+        return jsonify({"results": []})
+
+
 @app.route('/api/screener/lookup/<ticker>', methods=['GET'])
 @login_required
 def api_screener_lookup(ticker):
