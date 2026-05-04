@@ -7114,13 +7114,29 @@ def api_screener_top():
     results = list(cache.get("results") or [])
     qualified = [r for r in results if _stock_passes_strategy(r)]
 
-    def _sort_key(r):
-        ratio = r.get("ratio_discount_vola")
-        if ratio is None:
-            return r.get("discount_pct") or -999
-        return ratio
+    def _zone_rank(r):
+        """0=Affare, 1=Sconto, 2=Equa, 3=Cara, 4=N/D. Mirrors computeZone()
+        in templates/screener.html — keep thresholds in sync."""
+        fwd = r.get("forward_eps")
+        price = r.get("current_price")
+        pe_theo = r.get("pe_theoretical")
+        if not fwd or fwd <= 0 or not price or not pe_theo or pe_theo <= 0:
+            return 4
+        ratio = (price / fwd) / pe_theo
+        if ratio <= 0.35:
+            return 0
+        if ratio <= 0.55:
+            return 1
+        if ratio <= 0.85:
+            return 2
+        return 3
 
-    qualified.sort(key=_sort_key, reverse=True)
+    def _sort_key(r):
+        # Primary: zone bucket ascending (Affare first).
+        # Secondary: discount_pct descending (higher discount first).
+        return (_zone_rank(r), -(r.get("discount_pct") or -999))
+
+    qualified.sort(key=_sort_key)
     top = qualified[:limit]
 
     return jsonify({
