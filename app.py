@@ -7041,9 +7041,14 @@ def _ensure_screener_cache_fresh(
             if coll is not None:
                 docs = list(coll.find({"market": market}))
                 if docs:
-                    cache["results"] = [
-                        {k: v for k, v in d.items() if k != "_id"} for d in docs
-                    ]
+                    rows = []
+                    for d in docs:
+                        row = {k: v for k, v in d.items() if k != "_id"}
+                        # Pre-FMP rows lack `_source`. They were all computed
+                        # via yfinance — backfill so the UI pill renders correctly.
+                        row.setdefault("_source", "yf")
+                        rows.append(row)
+                    cache["results"] = rows
                     cache["computed_at"] = min(
                         (d.get("computed_at") or 0) for d in docs
                     )
