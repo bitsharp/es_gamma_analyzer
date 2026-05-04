@@ -6480,15 +6480,30 @@ _SCREENER_DE_UNIVERSE = [
     "PUM.DE", "SY1.DE",
 ]
 
+# NIFTY 50 top names — NSE listings (`.NS` suffix for yfinance).
+_SCREENER_IN_UNIVERSE = [
+    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "BHARTIARTL.NS", "ICICIBANK.NS",
+    "INFY.NS", "SBIN.NS", "LT.NS", "HINDUNILVR.NS", "ITC.NS",
+    "BAJFINANCE.NS", "KOTAKBANK.NS", "AXISBANK.NS", "M&M.NS", "MARUTI.NS",
+    "SUNPHARMA.NS", "HCLTECH.NS", "NTPC.NS", "TITAN.NS", "ULTRACEMCO.NS",
+    "ADANIENT.NS", "ADANIPORTS.NS", "ASIANPAINT.NS", "BAJAJFINSV.NS", "BEL.NS",
+    "NESTLEIND.NS", "ONGC.NS", "POWERGRID.NS", "TATAMOTORS.NS", "TATASTEEL.NS",
+    "WIPRO.NS", "JSWSTEEL.NS", "COALINDIA.NS", "GRASIM.NS", "TECHM.NS",
+    "HDFCLIFE.NS", "SBILIFE.NS", "BAJAJ-AUTO.NS", "BRITANNIA.NS", "EICHERMOT.NS",
+    "INDUSINDBK.NS", "CIPLA.NS", "DRREDDY.NS", "APOLLOHOSP.NS", "HEROMOTOCO.NS",
+    "TRENT.NS", "SHRIRAMFIN.NS", "TATACONSUM.NS", "HINDALCO.NS",
+]
+
 # Maps a screener market code to the country bucket used by the Damodaran
 # discount table (controls country_disc).
 _SCREENER_MARKET_TO_COUNTRY = {
     "US": "US",
     "IT": "IT",
     "DE": "EU",
+    "IN": "EM",
 }
 
-_SCREENER_VALID_MARKETS = ("US", "IT", "DE")
+_SCREENER_VALID_MARKETS = ("US", "IT", "DE", "IN")
 
 # Map yfinance info["country"] (full country names) to our bucket codes.
 # Used by the on-demand lookup endpoint where the user can enter any ticker.
@@ -6519,6 +6534,8 @@ def _screener_universe_for(market: str) -> list:
         return _SCREENER_IT_UNIVERSE
     if market == "DE":
         return _SCREENER_DE_UNIVERSE
+    if market == "IN":
+        return _SCREENER_IN_UNIVERSE
     return []
 
 

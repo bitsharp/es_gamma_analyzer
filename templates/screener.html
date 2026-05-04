@@ -451,6 +451,9 @@
             <button class="market-tab" data-market="DE" type="button" role="tab">
                 <span class="flag">🇩🇪</span> Germania
             </button>
+            <button class="market-tab" data-market="IN" type="button" role="tab">
+                <span class="flag">🇮🇳</span> India
+            </button>
         </div>
 
         <div id="picksContainer">
@@ -611,7 +614,7 @@
 
         // ---- Market selector state ----
         let activeMarket = 'US';
-        const MARKET_LABEL = { US: 'USA', IT: 'Italia', DE: 'Germania' };
+        const MARKET_LABEL = { US: 'USA', IT: 'Italia', DE: 'Germania', IN: 'India' };
 
         function setActiveMarket(m) {
             activeMarket = m;
