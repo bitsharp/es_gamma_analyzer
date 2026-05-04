@@ -6463,6 +6463,25 @@ _SCREENER_US_UNIVERSE = [
 
 _SCREENER_IS_VERCEL = bool(os.getenv("VERCEL"))
 
+# Map yfinance info["country"] (full country names) to our bucket codes.
+# Used by the on-demand lookup endpoint where the user can enter any ticker.
+_SCREENER_COUNTRY_TO_BUCKET = {
+    "United States": "US",
+    "Italy": "IT",
+    "Germany": "EU", "France": "EU", "Spain": "EU", "Netherlands": "EU",
+    "Switzerland": "EU", "United Kingdom": "EU", "Ireland": "EU",
+    "Sweden": "EU", "Denmark": "EU", "Finland": "EU", "Belgium": "EU",
+    "Austria": "EU", "Norway": "EU", "Portugal": "EU", "Luxembourg": "EU",
+    "Japan": "JP",
+    "China": "CN", "Hong Kong": "CN", "Taiwan": "CN",
+    "India": "EM", "Brazil": "EM", "Mexico": "EM", "South Africa": "EM",
+    "Russia": "EM", "Turkey": "EM", "Indonesia": "EM",
+}
+
+
+def _map_country_to_bucket(country_name: Optional[str]) -> str:
+    return _SCREENER_COUNTRY_TO_BUCKET.get((country_name or "").strip(), "US")
+
 
 def _screener_active_universe() -> list:
     """Return the universe to use for the current runtime (Vercel = top 30)."""
@@ -6851,6 +6870,43 @@ def api_screener_top():
         "errors_count": len(_SCREENER_CACHE.get("errors") or []),
         "top": top,
     })
+
+
+@app.route('/api/screener/lookup/<ticker>', methods=['GET'])
+@login_required
+def api_screener_lookup(ticker):
+    """On-demand single-ticker analysis. Always recomputed (no cache),
+    so the user sees the live yfinance data for any symbol they search.
+
+    Country is auto-detected from yfinance metadata (US, IT, EU, JP, CN, EM).
+    Returns the same shape as a screener row plus 'passes_strategy'.
+    """
+    ticker_norm = (ticker or "").strip().upper()
+    if not ticker_norm or not all(c.isalnum() or c in ".-" for c in ticker_norm) or len(ticker_norm) > 12:
+        return jsonify({"error": "invalid ticker", "ticker": ticker_norm}), 400
+
+    fund = _fetch_ticker_fundamentals(ticker_norm)
+    if not fund:
+        return jsonify({
+            "error": "ticker not found or missing data (forward EPS / growth)",
+            "ticker": ticker_norm,
+        }), 404
+
+    # Override the hardcoded "US" with the auto-detected bucket from yfinance metadata.
+    detected_country = _map_country_to_bucket(fund.get("country_iso"))
+    fund["country"] = detected_country
+
+    calc = _calculate_damodaran_target(
+        avg_growth=fund["growth_5y"],
+        forward_eps=fund["forward_eps"],
+        current_price=fund["current_price"],
+        country=fund["country"],
+        bucket=fund["bucket"],
+        dev_st_pct=fund["dev_st_pct"],
+    )
+    row = {**fund, **calc, "market": detected_country}
+    row["passes_strategy"] = _stock_passes_strategy(row)
+    return jsonify(row)
 
 
 @app.route('/api/screener/refresh', methods=['POST'])

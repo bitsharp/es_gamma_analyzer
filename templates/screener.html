@@ -186,6 +186,22 @@
             </div>
         </div>
 
+        <div class="search-section mb-3">
+            <div class="input-group">
+                <span class="input-group-text" style="background:#1b263b;border:1px solid #415a77;color:#778da9;">
+                    <i class="bi bi-search"></i>
+                </span>
+                <input type="text" id="lookupInput" class="form-control"
+                       placeholder="Cerca un ticker per analisi live (es. NVDA, AVGO, RACE.MI, BABA)"
+                       maxlength="12" autocomplete="off"
+                       style="background:#1b263b;border:1px solid #415a77;color:#fff;">
+                <button class="btn btn-primary" id="lookupBtn" type="button">
+                    Analizza
+                </button>
+            </div>
+            <div id="lookupResult"></div>
+        </div>
+
         <div class="status-bar" id="statusBar">
             <div class="stat">
                 <span id="statusIndicator" class="status-loading">●</span>
@@ -263,6 +279,53 @@
             }
         }
 
+        function renderPickCardHtml(r, opts) {
+            opts = opts || {};
+            const rank = opts.rank;          // number for top picks, null for lookup
+            const showStrategyBadge = !!opts.showStrategyBadge;
+            const passes = !!r.passes_strategy;
+            const rankBadge = rank ? `<div class="rank-badge">${rank}</div>` : '';
+            const strategyBadge = showStrategyBadge
+                ? `<span class="sector-pill" style="background:${passes ? 'rgba(74,222,128,0.18)' : 'rgba(248,113,113,0.18)'};color:${passes ? '#4ade80' : '#f87171'};">
+                       ${passes ? '✓ Passa filtri strategia' : '✗ Non passa filtri'}
+                   </span>`
+                : '';
+            return `
+                <div class="pick-card">
+                    ${rankBadge}
+                    <div class="d-flex justify-content-between align-items-start" style="${rank ? 'margin-left:30px;' : ''}">
+                        <div>
+                            <div class="ticker">${r.ticker}</div>
+                            <div class="name">${r.name || ''}</div>
+                            <div>
+                                <span class="sector-pill">${r.bucket || r.yf_sector || '—'}</span>
+                                <span class="sector-pill">${r.country || '—'}</span>
+                                <span class="sector-pill">Mcap ${fmtMcap(r.market_cap)}</span>
+                                <span class="sector-pill">β ${fmtNum(r.beta, 2)}</span>
+                                ${strategyBadge}
+                            </div>
+                        </div>
+                        <div class="text-end">
+                            <div style="font-size:0.75rem; color:#778da9;">VERDETTO</div>
+                            <div style="font-size:1rem; font-weight:700; color:${r.discount_pct > 0 ? '#4ade80' : '#f87171'};">
+                                ${r.verdict || '—'}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="metric-grid">
+                        <div class="metric"><div class="label">Prezzo</div><div class="value">${fmtMoney(r.current_price)}</div></div>
+                        <div class="metric"><div class="label">EPS Forward</div><div class="value">${fmtMoney(r.forward_eps)}</div></div>
+                        <div class="metric"><div class="label">Growth 5y</div><div class="value">${fmtPct(r.growth_5y)}</div></div>
+                        <div class="metric"><div class="label">P/E teorico</div><div class="value">${fmtNum(r.pe_theoretical, 1)}</div></div>
+                        <div class="metric"><div class="label">Target</div><div class="value">${fmtMoney(r.target_y1)}</div></div>
+                        <div class="metric"><div class="label">Discount</div>
+                            <div class="value ${r.discount_pct > 0 ? 'discount-pos' : 'discount-neg'}">${fmtPct(r.discount_pct)}</div></div>
+                        <div class="metric"><div class="label">Ratio D/Vol</div><div class="value">${fmtNum(r.ratio_discount_vola, 2)}</div></div>
+                        <div class="metric"><div class="label">Volatilità</div><div class="value">${fmtNum(r.dev_st_pct, 1)}%</div></div>
+                    </div>
+                </div>`;
+        }
+
         function renderPicks(top) {
             const container = document.getElementById('picksContainer');
             if (!top || top.length === 0) {
@@ -277,65 +340,59 @@
                     </div>`;
                 return;
             }
-            container.innerHTML = top.map((r, idx) => `
-                <div class="pick-card">
-                    <div class="rank-badge">${idx + 1}</div>
-                    <div class="d-flex justify-content-between align-items-start" style="margin-left: 30px;">
-                        <div>
-                            <div class="ticker">${r.ticker}</div>
-                            <div class="name">${r.name || ''}</div>
-                            <div>
-                                <span class="sector-pill">${r.bucket || r.yf_sector || '—'}</span>
-                                <span class="sector-pill">Mcap ${fmtMcap(r.market_cap)}</span>
-                                <span class="sector-pill">β ${fmtNum(r.beta, 2)}</span>
-                            </div>
-                        </div>
-                        <div class="text-end">
-                            <div style="font-size:0.75rem; color:#778da9;">VERDETTO</div>
-                            <div style="font-size:1rem; font-weight:700; color:${r.discount_pct > 0 ? '#4ade80' : '#f87171'};">
-                                ${r.verdict || '—'}
-                            </div>
-                        </div>
-                    </div>
-                    <div class="metric-grid">
-                        <div class="metric">
-                            <div class="label">Prezzo</div>
-                            <div class="value">${fmtMoney(r.current_price)}</div>
-                        </div>
-                        <div class="metric">
-                            <div class="label">EPS Forward</div>
-                            <div class="value">${fmtMoney(r.forward_eps)}</div>
-                        </div>
-                        <div class="metric">
-                            <div class="label">Growth 5y</div>
-                            <div class="value">${fmtPct(r.growth_5y)}</div>
-                        </div>
-                        <div class="metric">
-                            <div class="label">P/E teorico</div>
-                            <div class="value">${fmtNum(r.pe_theoretical, 1)}</div>
-                        </div>
-                        <div class="metric">
-                            <div class="label">Target</div>
-                            <div class="value">${fmtMoney(r.target_y1)}</div>
-                        </div>
-                        <div class="metric">
-                            <div class="label">Discount</div>
-                            <div class="value ${r.discount_pct > 0 ? 'discount-pos' : 'discount-neg'}">
-                                ${fmtPct(r.discount_pct)}
-                            </div>
-                        </div>
-                        <div class="metric">
-                            <div class="label">Ratio D/Vol</div>
-                            <div class="value">${fmtNum(r.ratio_discount_vola, 2)}</div>
-                        </div>
-                        <div class="metric">
-                            <div class="label">Volatilità</div>
-                            <div class="value">${fmtNum(r.dev_st_pct, 1)}%</div>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
+            container.innerHTML = top.map((r, idx) =>
+                renderPickCardHtml(r, { rank: idx + 1 })
+            ).join('');
         }
+
+        const escapeHtml = s => String(s || '').replace(/[&<>"']/g, ch => ({
+            '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+        }[ch]));
+
+        async function lookupTicker(ticker) {
+            const result = document.getElementById('lookupResult');
+            const safe = escapeHtml(ticker);
+            result.innerHTML = `
+                <div class="empty-state mt-2" style="padding:1.2rem;">
+                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                    <span class="ms-2">Analizzo ${safe}…</span>
+                </div>`;
+            try {
+                const res = await fetch('/api/screener/lookup/' + encodeURIComponent(ticker));
+                const data = await res.json().catch(() => ({}));
+                if (res.status === 404) {
+                    result.innerHTML = `
+                        <div class="empty-state mt-2" style="padding:1.2rem;color:#f87171;">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            ${safe}: ${escapeHtml(data.error || 'non trovato')}
+                        </div>`;
+                    return;
+                }
+                if (!res.ok) {
+                    throw new Error(data.error || ('HTTP ' + res.status));
+                }
+                result.innerHTML = '<div class="mt-2">' +
+                    renderPickCardHtml(data, { showStrategyBadge: true }) +
+                    '</div>';
+            } catch (err) {
+                result.innerHTML = `
+                    <div class="empty-state mt-2" style="padding:1.2rem;color:#f87171;">
+                        Errore: ${escapeHtml(err.message)}
+                    </div>`;
+            }
+        }
+
+        document.getElementById('lookupBtn').addEventListener('click', () => {
+            const t = document.getElementById('lookupInput').value.trim().toUpperCase();
+            if (t) lookupTicker(t);
+        });
+        document.getElementById('lookupInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const t = e.target.value.trim().toUpperCase();
+                if (t) lookupTicker(t);
+            }
+        });
 
         document.getElementById('refreshBtn').addEventListener('click', async () => {
             const btn = document.getElementById('refreshBtn');
