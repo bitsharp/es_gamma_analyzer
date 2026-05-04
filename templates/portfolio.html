@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portafoglio — ES Gamma Analyzer</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        body { background: #0d1b2a; color: #f8f9fa; min-height: 100vh; }
+        .navbar {
+            background: linear-gradient(135deg, #1b263b 0%, #415a77 100%);
+            border-bottom: 2px solid #778da9;
+        }
+        .navbar-brand { font-size: 1.6rem; font-weight: 700; color: #fff; white-space: nowrap; }
+        .nav-link-custom {
+            color: #adb5bd; text-decoration: none;
+            padding: 0.3rem 0.7rem; border-radius: 6px; font-size: 0.9rem;
+            transition: background 0.2s, color 0.2s; white-space: nowrap;
+        }
+        .nav-link-custom:hover { background: rgba(255,255,255,0.08); color: #fff; }
+        .nav-link-custom.active { background: rgba(119,141,169,0.25); color: #e2e8f0; }
+
+        .toolbar-title h4 { font-weight: 700; }
+        .toolbar-title .subtitle { color: #778da9; font-size: 0.88rem; }
+
+        .pick-card {
+            background: linear-gradient(135deg, #1b263b 0%, #1e3a5f 100%);
+            border: 1px solid #415a77; border-radius: 14px;
+            padding: 1.1rem 1.25rem; margin-bottom: 0.85rem; position: relative;
+        }
+        .pick-card .ticker { font-size: 1.4rem; font-weight: 800; color: #fff; }
+        .pick-card .name { color: #adb5bd; font-size: 0.85rem; margin-bottom: 0.4rem; }
+        .pick-card .sector-pill {
+            display: inline-block; background: rgba(119,141,169,0.25); color: #e2e8f0;
+            padding: 0.15rem 0.55rem; border-radius: 6px;
+            font-size: 0.75rem; margin-right: 0.4rem;
+        }
+        .metric-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 0.65rem; margin-top: 0.8rem;
+        }
+        .metric {
+            background: rgba(13,27,42,0.4); border: 1px solid rgba(119,141,169,0.2);
+            border-radius: 8px; padding: 0.55rem 0.65rem;
+        }
+        .metric .label {
+            font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
+            color: #778da9; margin-bottom: 0.15rem;
+        }
+        .metric .value { font-size: 1rem; font-weight: 700; color: #fff; }
+        .metric .value.discount-pos { color: #4ade80; }
+        .metric .value.discount-neg { color: #f87171; }
+
+        .empty-state {
+            background: #1b263b; border: 1px dashed #415a77; border-radius: 12px;
+            padding: 2.5rem 1rem; text-align: center; color: #adb5bd;
+        }
+        .empty-state .spinner-border { color: #60a5fa; }
+
+        .search-section { position: relative; }
+        .search-section .input-group input::placeholder { color: #6b7e92; }
+        .search-section .input-group input:focus {
+            background: #1b263b !important; color: #fff !important;
+            border-color: #60a5fa !important;
+            box-shadow: 0 0 0 0.2rem rgba(96,165,250,0.2);
+        }
+        .typeahead-dropdown {
+            position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+            background: #1b263b; border: 1px solid #415a77; border-radius: 10px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 50;
+            max-height: 320px; overflow-y: auto; display: none;
+        }
+        .typeahead-dropdown.open { display: block; }
+        .typeahead-item {
+            padding: 0.55rem 0.85rem; cursor: pointer;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 1rem; border-bottom: 1px solid rgba(65,90,119,0.3);
+        }
+        .typeahead-item:last-child { border-bottom: none; }
+        .typeahead-item:hover, .typeahead-item.active { background: rgba(96,165,250,0.15); }
+        .typeahead-item .ta-symbol {
+            font-weight: 700; color: #fff; font-size: 0.95rem; min-width: 90px;
+        }
+        .typeahead-item .ta-name {
+            color: #adb5bd; font-size: 0.85rem; flex: 1;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .typeahead-item .ta-meta { color: #6b7e92; font-size: 0.72rem; text-align: right; white-space: nowrap; }
+
+        .zone-badge {
+            display: inline-block; padding: 0.25rem 0.7rem; border-radius: 8px;
+            font-size: 0.92rem; font-weight: 800; letter-spacing: 0.02em;
+            border: 1px solid; white-space: nowrap;
+        }
+        .zone-steal     { background: rgba(74,222,128,0.20); color: #4ade80; border-color: rgba(74,222,128,0.55); box-shadow: 0 0 12px rgba(74,222,128,0.15); }
+        .zone-discount  { background: rgba(74,222,128,0.10); color: #86efac; border-color: rgba(74,222,128,0.35); }
+        .zone-fair      { background: rgba(251,191,36,0.12); color: #fbbf24; border-color: rgba(251,191,36,0.40); }
+        .zone-expensive { background: rgba(248,113,113,0.12); color: #f87171; border-color: rgba(248,113,113,0.40); }
+        .zone-na        { background: rgba(119,141,169,0.15); color: #adb5bd; border-color: rgba(119,141,169,0.30); }
+
+        .btn-remove {
+            position: absolute; top: 0.5rem; right: 0.5rem;
+            background: rgba(13,27,42,0.85); border: 1px solid #415a77;
+            color: #adb5bd; border-radius: 50%; width: 32px; height: 32px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.15s; font-size: 0.9rem; padding: 0;
+        }
+        .btn-remove:hover {
+            background: rgba(248,113,113,0.85); color: #fff; border-color: #f87171;
+        }
+
+        .exposure-section {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1rem; margin-bottom: 1.3rem;
+        }
+        .chart-card {
+            background: #1b263b; border: 1px solid #415a77; border-radius: 12px;
+            padding: 1rem;
+        }
+        .chart-card h6 {
+            color: #e2e8f0; font-size: 0.9rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.05em;
+            margin-bottom: 0.8rem; text-align: center;
+        }
+        .chart-canvas-wrap { position: relative; height: 220px; }
+
+        .stats-strip {
+            display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;
+            background: #1b263b; border: 1px solid #415a77; border-radius: 10px;
+            padding: 0.75rem 1rem;
+        }
+        .stats-strip .stat { color: #adb5bd; font-size: 0.85rem; }
+        .stats-strip .stat strong { color: #fff; font-size: 1rem; margin-left: 0.3rem; }
+
+        .added-meta {
+            font-size: 0.75rem; color: #778da9; margin-top: 0.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .nav-link-custom { padding: 0.3rem 0.5rem; font-size: 0.82rem; }
+            .pick-card { padding: 0.9rem; }
+        }
+        @media (max-width: 480px) {
+            .nav-link-custom { padding: 0.3rem 0.4rem; }
+            .nav-link-custom .nav-label { display: none; }
+            .nav-link-custom i.bi { margin-right: 0 !important; font-size: 1rem; }
+        }
+    </style>
+</head>
+<body>
+    <!-- NAVBAR -->
+    <nav class="navbar mb-4">
+        <div class="container-fluid px-2 px-lg-3">
+            <div class="d-flex align-items-center justify-content-between w-100">
+                <a href="/" class="navbar-brand text-decoration-none">ES Gamma Analyzer</a>
+                <div class="d-flex align-items-center gap-2">
+                    <a href="/" class="nav-link-custom"><i class="bi bi-graph-up me-1"></i><span class="nav-label">Gamma</span></a>
+                    <a href="/checklist" class="nav-link-custom"><i class="bi bi-check2-square me-1"></i><span class="nav-label">Checklist</span></a>
+                    <a href="/stocks" class="nav-link-custom"><i class="bi bi-bank me-1"></i><span class="nav-label">Stocks</span></a>
+                    <a href="/screener" class="nav-link-custom"><i class="bi bi-funnel me-1"></i><span class="nav-label">Screener</span></a>
+                    <a href="/portfolio" class="nav-link-custom active"><i class="bi bi-briefcase me-1"></i><span class="nav-label">Portafoglio</span></a>
+
+                    {% set user = session.get('user') %}
+                    {% if user %}
+                        <div class="dropdown ms-2">
+                            <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                {{ user.get('name') or user.get('email') or 'Account' }}
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" style="background:#1b263b;border:2px solid #415a77;">
+                                {% if user.get('email') %}
+                                    <li><span class="dropdown-item-text" style="color:#adb5bd;">{{ user.get('email') }}</span></li>
+                                    <li><hr class="dropdown-divider" style="border-color:#415a77;"></li>
+                                {% endif %}
+                                <li><a class="dropdown-item" href="/admin" style="color:#f8f9fa;">Admin</a></li>
+                                <li><hr class="dropdown-divider" style="border-color:#415a77;"></li>
+                                <li><a class="dropdown-item" href="/logout" style="color:#f8f9fa;">Logout</a></li>
+                            </ul>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-2 px-lg-3" style="max-width: 1100px;">
+        <div class="toolbar-title mb-3">
+            <h4 style="color:#fff; margin-bottom:0.15rem;">Il mio portafoglio</h4>
+            <div class="subtitle">
+                Aggiungi titoli, vedi l'analisi Damodaran live e l'esposizione per settore, paese e zona di valutazione.
+            </div>
+        </div>
+
+        <div class="search-section mb-3">
+            <div class="input-group">
+                <span class="input-group-text" style="background:#1b263b;border:1px solid #415a77;color:#778da9;">
+                    <i class="bi bi-search"></i>
+                </span>
+                <input type="text" id="lookupInput" class="form-control"
+                       placeholder="Cerca un ticker da aggiungere (es. NVDA, AMP.MI, IFX.DE)"
+                       maxlength="50" autocomplete="off" autocorrect="off" spellcheck="false"
+                       style="background:#1b263b;border:1px solid #415a77;color:#fff;">
+                <button class="btn btn-success" id="addBtn" type="button" title="Aggiungi al portafoglio">
+                    <i class="bi bi-plus-lg"></i> Aggiungi
+                </button>
+            </div>
+            <div id="typeaheadDropdown" class="typeahead-dropdown" role="listbox"></div>
+            <div id="addStatus" class="mt-2" style="font-size:0.85rem;"></div>
+        </div>
+
+        <div id="exposureSection" class="exposure-section" style="display:none;">
+            <div class="chart-card">
+                <h6><i class="bi bi-pie-chart me-1"></i> Esposizione per settore</h6>
+                <div class="chart-canvas-wrap"><canvas id="chartSector"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h6><i class="bi bi-globe me-1"></i> Esposizione per paese</h6>
+                <div class="chart-canvas-wrap"><canvas id="chartCountry"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h6><i class="bi bi-stoplights me-1"></i> Esposizione per zona di valutazione</h6>
+                <div class="chart-canvas-wrap"><canvas id="chartZone"></canvas></div>
+            </div>
+        </div>
+
+        <div id="statsStrip" class="stats-strip" style="display:none;">
+            <div class="stat">Titoli: <strong id="statTotal">—</strong></div>
+            <div class="stat">Validi: <strong id="statValid">—</strong></div>
+            <div class="stat">Affari: <strong id="statSteal" style="color:#4ade80;">—</strong></div>
+            <div class="stat">Sconto: <strong id="statDiscount" style="color:#86efac;">—</strong></div>
+            <div class="stat">Eque: <strong id="statFair" style="color:#fbbf24;">—</strong></div>
+            <div class="stat">Care: <strong id="statExpensive" style="color:#f87171;">—</strong></div>
+        </div>
+
+        <div id="holdingsContainer">
+            <div class="empty-state">
+                <div class="spinner-border" role="status"></div>
+                <div class="mt-3">Carico il portafoglio…</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // ---- Formatters (shared with screener) ----
+        const fmtMoney = v => v == null ? '—' : '$' + Number(v).toFixed(2);
+        const fmtPct = v => v == null ? '—' : (Number(v) * 100).toFixed(1) + '%';
+        const fmtNum = (v, d = 2) => v == null ? '—' : Number(v).toFixed(d);
+        const fmtMcap = v => {
+            if (v == null) return '—';
+            if (v >= 1e12) return (v / 1e12).toFixed(2) + 'T';
+            if (v >= 1e9)  return (v / 1e9).toFixed(1) + 'B';
+            if (v >= 1e6)  return (v / 1e6).toFixed(0) + 'M';
+            return String(v);
+        };
+        const fmtAge = epochSec => {
+            if (!epochSec) return '—';
+            const d = new Date(epochSec * 1000);
+            return d.toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' });
+        };
+        const escapeHtml = s => String(s || '').replace(/[&<>"']/g, ch => ({
+            '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+        }[ch]));
+
+        // ---- Zone classification (same logic as screener) ----
+        function computeZone(r) {
+            const peNow = (r.current_price && r.forward_eps && r.forward_eps > 0)
+                ? r.current_price / r.forward_eps : null;
+            const peTheo = r.pe_theoretical;
+            if (peNow == null || peTheo == null || peTheo <= 0) {
+                return { label: 'N/D', cls: 'zone-na', peNow, peTheo, ratio: null };
+            }
+            const ratio = peNow / peTheo;
+            if (ratio <= 0.35) return { label: '🟢🟢 Affare', cls: 'zone-steal', peNow, peTheo, ratio };
+            if (ratio <= 0.55) return { label: '🟢 Sconto', cls: 'zone-discount', peNow, peTheo, ratio };
+            if (ratio <= 0.85) return { label: '🟡 Equa', cls: 'zone-fair', peNow, peTheo, ratio };
+            return { label: '🔴 Cara', cls: 'zone-expensive', peNow, peTheo, ratio };
+        }
+
+        function renderHoldingCard(r) {
+            if (r.error) {
+                return `
+                    <div class="pick-card">
+                        <button class="btn-remove" data-ticker="${escapeHtml(r.ticker)}" title="Rimuovi"><i class="bi bi-x-lg"></i></button>
+                        <div class="ticker">${escapeHtml(r.ticker)}</div>
+                        <div class="name" style="color:#f87171;">${escapeHtml(r.error)}</div>
+                        <div class="added-meta">Aggiunto il ${fmtAge(r.added_at)}</div>
+                    </div>`;
+            }
+            const zone = computeZone(r);
+            const peNow = zone.peNow;
+            const lowMultiple = (zone.peNow != null && zone.peTheo != null && zone.peNow < zone.peTheo);
+            return `
+                <div class="pick-card">
+                    <button class="btn-remove" data-ticker="${escapeHtml(r.ticker)}" title="Rimuovi dal portafoglio"><i class="bi bi-x-lg"></i></button>
+                    <div class="d-flex justify-content-between align-items-start" style="padding-right:40px;">
+                        <div>
+                            <div class="ticker">${r.ticker}</div>
+                            <div class="name">${escapeHtml(r.name || '')}</div>
+                            <div>
+                                <span class="sector-pill">${escapeHtml(r.bucket || '—')}</span>
+                                <span class="sector-pill">${escapeHtml(r.country || '—')}</span>
+                                <span class="sector-pill">Mcap ${fmtMcap(r.market_cap)}</span>
+                                <span class="sector-pill">β ${fmtNum(r.beta, 2)}</span>
+                            </div>
+                        </div>
+                        <div class="text-end">
+                            <div style="font-size:0.7rem; color:#778da9; text-transform:uppercase; letter-spacing:0.05em;">Zona</div>
+                            <div class="zone-badge ${zone.cls}">${zone.label}</div>
+                        </div>
+                    </div>
+                    <div class="metric-grid">
+                        <div class="metric"><div class="label">Prezzo</div><div class="value">${fmtMoney(r.current_price)}</div></div>
+                        <div class="metric"><div class="label">EPS Forward</div><div class="value">${fmtMoney(r.forward_eps)}</div></div>
+                        <div class="metric"><div class="label">Growth 5y</div><div class="value">${fmtPct(r.growth_5y)}</div></div>
+                        <div class="metric"><div class="label">P/E attuale</div>
+                            <div class="value ${peNow == null ? '' : (lowMultiple ? 'discount-pos' : 'discount-neg')}">${fmtNum(peNow, 1)}</div></div>
+                        <div class="metric"><div class="label">P/E teorico</div><div class="value">${fmtNum(r.pe_theoretical, 1)}</div></div>
+                        <div class="metric"><div class="label">Target</div><div class="value">${fmtMoney(r.target_y1)}</div></div>
+                        <div class="metric"><div class="label">Discount</div>
+                            <div class="value ${r.discount_pct > 0 ? 'discount-pos' : 'discount-neg'}">${fmtPct(r.discount_pct)}</div></div>
+                        <div class="metric"><div class="label">Volatilità</div><div class="value">${fmtNum(r.dev_st_pct, 1)}%</div></div>
+                    </div>
+                    <div class="added-meta">Aggiunto il ${fmtAge(r.added_at)}</div>
+                </div>`;
+        }
+
+        // ---- Charts (Chart.js) ----
+        const ZONE_COLORS = {
+            'Affare':   '#4ade80',
+            'Sconto':   '#86efac',
+            'Equa':     '#fbbf24',
+            'Cara':     '#f87171',
+            'N/D':      '#778da9',
+        };
+        // Distinct palette for sector / country (cycled)
+        const PALETTE = [
+            '#60a5fa','#a78bfa','#f472b6','#fb923c','#34d399',
+            '#fbbf24','#22d3ee','#e879f9','#f87171','#94a3b8',
+            '#84cc16','#06b6d4',
+        ];
+
+        let charts = { sector: null, country: null, zone: null };
+
+        function buildPieChart(canvasId, data, colorsMap) {
+            const labels = Object.keys(data);
+            const values = labels.map(k => data[k]);
+            const colors = colorsMap
+                ? labels.map(k => colorsMap[k] || '#94a3b8')
+                : labels.map((_, i) => PALETTE[i % PALETTE.length]);
+            const ctx = document.getElementById(canvasId);
+            if (charts[canvasId.replace('chart','').toLowerCase()]) {
+                charts[canvasId.replace('chart','').toLowerCase()].destroy();
+            }
+            const chart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: colors,
+                        borderColor: '#0d1b2a',
+                        borderWidth: 2,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: { color: '#cbd5e1', font: { size: 11 }, boxWidth: 12 },
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => {
+                                    const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                                    const pct = total ? ((ctx.parsed / total) * 100).toFixed(0) : 0;
+                                    return `${ctx.label}: ${ctx.parsed} (${pct}%)`;
+                                },
+                            },
+                        },
+                    },
+                    cutout: '55%',
+                },
+            });
+            return chart;
+        }
+
+        function renderExposure(exposure) {
+            const total = exposure.total_count || 0;
+            const valid = exposure.valid_count || 0;
+            document.getElementById('statTotal').textContent = total;
+            document.getElementById('statValid').textContent = valid;
+            document.getElementById('statSteal').textContent = exposure.by_zone?.Affare || 0;
+            document.getElementById('statDiscount').textContent = exposure.by_zone?.Sconto || 0;
+            document.getElementById('statFair').textContent = exposure.by_zone?.Equa || 0;
+            document.getElementById('statExpensive').textContent = exposure.by_zone?.Cara || 0;
+            document.getElementById('statsStrip').style.display = total ? 'flex' : 'none';
+
+            if (valid === 0) {
+                document.getElementById('exposureSection').style.display = 'none';
+                return;
+            }
+            document.getElementById('exposureSection').style.display = 'grid';
+            charts.sector  = buildPieChart('chartSector',  exposure.by_sector || {});
+            charts.country = buildPieChart('chartCountry', exposure.by_country || {});
+            // Filter out zero zones for the zone chart
+            const zoneFiltered = {};
+            Object.entries(exposure.by_zone || {}).forEach(([k, v]) => { if (v > 0) zoneFiltered[k] = v; });
+            charts.zone    = buildPieChart('chartZone', zoneFiltered, ZONE_COLORS);
+        }
+
+        function renderHoldings(holdings) {
+            const container = document.getElementById('holdingsContainer');
+            if (!holdings || holdings.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="bi bi-briefcase" style="font-size:2.2rem;"></i>
+                        <div class="mt-3" style="font-size:1rem;">Il portafoglio è vuoto.</div>
+                        <div class="mt-1" style="font-size:0.85rem;">
+                            Aggiungi titoli con la barra di ricerca sopra.
+                        </div>
+                    </div>`;
+                return;
+            }
+            container.innerHTML = holdings.map(renderHoldingCard).join('');
+            container.querySelectorAll('.btn-remove').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const ticker = btn.dataset.ticker;
+                    if (!confirm(`Rimuovere ${ticker} dal portafoglio?`)) return;
+                    btn.disabled = true;
+                    try {
+                        const res = await fetch('/api/portfolio/' + encodeURIComponent(ticker), { method: 'DELETE' });
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        loadPortfolio();
+                    } catch (err) {
+                        alert('Errore: ' + err.message);
+                        btn.disabled = false;
+                    }
+                });
+            });
+        }
+
+        async function loadPortfolio() {
+            try {
+                const res = await fetch('/api/portfolio');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                renderExposure(data.exposure || {});
+                renderHoldings(data.holdings || []);
+            } catch (err) {
+                document.getElementById('holdingsContainer').innerHTML = `
+                    <div class="empty-state" style="color:#f87171;">
+                        Errore caricamento: ${escapeHtml(err.message)}
+                    </div>`;
+            }
+        }
+
+        async function addTicker(ticker) {
+            const status = document.getElementById('addStatus');
+            status.innerHTML = `<span style="color:#60a5fa;"><i class="bi bi-hourglass"></i> Aggiungo ${escapeHtml(ticker)}…</span>`;
+            try {
+                const res = await fetch('/api/portfolio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ticker }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+                status.innerHTML = `<span style="color:#4ade80;"><i class="bi bi-check-circle"></i> ${escapeHtml(ticker)} aggiunto</span>`;
+                document.getElementById('lookupInput').value = '';
+                closeDropdown();
+                loadPortfolio();
+                setTimeout(() => { status.innerHTML = ''; }, 3000);
+            } catch (err) {
+                status.innerHTML = `<span style="color:#f87171;"><i class="bi bi-exclamation-triangle"></i> ${escapeHtml(err.message)}</span>`;
+            }
+        }
+
+        // ---- Typeahead (same as screener) ----
+        const lookupInput = document.getElementById('lookupInput');
+        const dropdown = document.getElementById('typeaheadDropdown');
+        let taResults = [];
+        let taActiveIdx = -1;
+        let taDebounceTimer = null;
+        let taAbortCtrl = null;
+
+        function closeDropdown() {
+            dropdown.classList.remove('open');
+            dropdown.innerHTML = '';
+            taResults = [];
+            taActiveIdx = -1;
+        }
+
+        function renderDropdown() {
+            if (!taResults.length) { closeDropdown(); return; }
+            dropdown.innerHTML = taResults.map((r, i) => `
+                <div class="typeahead-item ${i === taActiveIdx ? 'active' : ''}" data-idx="${i}" role="option">
+                    <div class="ta-symbol">${escapeHtml(r.symbol)}</div>
+                    <div class="ta-name">${escapeHtml(r.name) || '—'}</div>
+                    <div class="ta-meta">${escapeHtml(r.exchange)}<br><span style="opacity:0.6;">${escapeHtml(r.type)}</span></div>
+                </div>
+            `).join('');
+            dropdown.classList.add('open');
+            dropdown.querySelectorAll('.typeahead-item').forEach(el => {
+                el.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    const idx = Number(el.dataset.idx);
+                    selectResult(idx);
+                });
+            });
+        }
+
+        function selectResult(idx) {
+            const r = taResults[idx];
+            if (!r) return;
+            lookupInput.value = r.symbol;
+            closeDropdown();
+            addTicker(r.symbol);
+        }
+
+        async function fetchTypeahead(q) {
+            if (taAbortCtrl) taAbortCtrl.abort();
+            taAbortCtrl = new AbortController();
+            try {
+                const res = await fetch('/api/screener/search?q=' + encodeURIComponent(q),
+                    { signal: taAbortCtrl.signal });
+                if (!res.ok) return;
+                const data = await res.json();
+                taResults = data.results || [];
+                taActiveIdx = -1;
+                renderDropdown();
+            } catch (err) {
+                if (err.name !== 'AbortError') closeDropdown();
+            }
+        }
+
+        lookupInput.addEventListener('input', (e) => {
+            const q = e.target.value.trim();
+            clearTimeout(taDebounceTimer);
+            if (q.length < 2) { closeDropdown(); return; }
+            taDebounceTimer = setTimeout(() => fetchTypeahead(q), 250);
+        });
+
+        lookupInput.addEventListener('keydown', (e) => {
+            const isOpen = dropdown.classList.contains('open');
+            if (e.key === 'ArrowDown' && isOpen) {
+                e.preventDefault();
+                taActiveIdx = Math.min(taResults.length - 1, taActiveIdx + 1);
+                renderDropdown();
+            } else if (e.key === 'ArrowUp' && isOpen) {
+                e.preventDefault();
+                taActiveIdx = Math.max(0, taActiveIdx - 1);
+                renderDropdown();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (isOpen && taActiveIdx >= 0) {
+                    selectResult(taActiveIdx);
+                } else {
+                    const t = lookupInput.value.trim().toUpperCase();
+                    if (t) { closeDropdown(); addTicker(t); }
+                }
+            } else if (e.key === 'Escape') {
+                closeDropdown();
+            }
+        });
+
+        lookupInput.addEventListener('blur', () => setTimeout(closeDropdown, 150));
+
+        document.getElementById('addBtn').addEventListener('click', () => {
+            const t = lookupInput.value.trim().toUpperCase();
+            if (t) { closeDropdown(); addTicker(t); }
+        });
+
+        loadPortfolio();
+    </script>
+</body>
+</html>
