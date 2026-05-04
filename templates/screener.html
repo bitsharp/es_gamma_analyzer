@@ -94,6 +94,18 @@
             font-size: 0.75rem;
             margin-right: 0.4rem;
         }
+        .pick-card .source-pill {
+            font-weight: 600;
+            letter-spacing: 0.04em;
+        }
+        .pick-card .source-pill.source-fmp {
+            background: rgba(34,197,94,0.22);
+            color: #86efac;
+        }
+        .pick-card .source-pill.source-yf {
+            background: rgba(59,130,246,0.22);
+            color: #93c5fd;
+        }
         .metric-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -474,11 +486,17 @@
                     <h6>Fonte dati</h6>
                     <p class="mb-2">
                         Fondamentali (prezzo, EPS forward, growth, beta, settore, paese)
-                        forniti da <strong>Yahoo Finance</strong> via la libreria
-                        <code>yfinance</code>. La ricerca tipo-ahead usa l'API pubblica
+                        forniti in primis da <strong>Financial Modeling Prep</strong>
+                        (badge <span class="sector-pill source-pill source-fmp">FMP</span>
+                        sulla card), con fallback a <strong>Yahoo Finance</strong>
+                        via libreria <code>yfinance</code>
+                        (badge <span class="sector-pill source-pill source-yf">YF</span>).
+                        Il piano free FMP copre solo le analyst-estimates dei ticker US,
+                        quindi mercati IT/DE/IN ricadono di fatto sempre su YF.
+                        La ricerca tipo-ahead usa l'API pubblica
                         <code>query2.finance.yahoo.com/v1/finance/search</code>.
                         Tutti i dati sono live al momento del calcolo (cache 12h per il
-                        top 5, nessuna cache per la ricerca singolo ticker).
+                        top 10, nessuna cache per la ricerca singolo ticker).
                     </p>
 
                     <h6>Modello di valutazione</h6>
@@ -755,6 +773,10 @@
                                 <span class="sector-pill">${r.country || '—'}</span>
                                 <span class="sector-pill">Mcap ${fmtMcap(r.market_cap)}</span>
                                 <span class="sector-pill">β ${fmtNum(r.beta, 2)}</span>
+                                <span class="sector-pill source-pill source-${(r._source || 'unk').toLowerCase()}"
+                                      title="Fonte fondamentali: ${r._source === 'fmp' ? 'Financial Modeling Prep' : (r._source === 'yf' ? 'Yahoo Finance' : 'sconosciuta')}">
+                                    ${r._source === 'fmp' ? 'FMP' : (r._source === 'yf' ? 'YF' : '—')}
+                                </span>
                                 ${strategyBadge}
                             </div>
                         </div>

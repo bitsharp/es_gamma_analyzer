@@ -6659,7 +6659,131 @@ def _calculate_damodaran_target(
     }
 
 
+_FMP_BASE_URL = "https://financialmodelingprep.com/stable"
+_FMP_TIMEOUT_SECONDS = 8
+
+
+def _fmp_get(path: str, **params) -> Optional[Any]:
+    """GET wrapper for FMP `stable` API. Returns parsed JSON, or None on any
+    failure (missing key, network error, non-200, error payload). Never raises."""
+    api_key = (os.getenv("FMP_API_KEY") or "").strip()
+    if not api_key:
+        return None
+    try:
+        params["apikey"] = api_key
+        qs = urllib.parse.urlencode(params)
+        url = f"{_FMP_BASE_URL}/{path}?{qs}"
+        req = urllib.request.Request(url, headers={"User-Agent": "es-gamma-analyzer/1.0"})
+        with urllib.request.urlopen(req, timeout=_FMP_TIMEOUT_SECONDS) as resp:
+            if resp.status != 200:
+                return None
+            data = json.loads(resp.read().decode("utf-8"))
+        if isinstance(data, dict) and (data.get("Error Message") or data.get("error")):
+            return None
+        return data
+    except Exception:
+        return None
+
+
+def _fetch_ticker_fundamentals_fmp(ticker: str) -> Optional[dict]:
+    """Fetch fundamentals for a single ticker via FinancialModelingPrep
+    `stable` API. Returns the same dict shape as _fetch_ticker_fundamentals_yf,
+    or None when required fields are missing or FMP is unavailable.
+    """
+    profile_data = _fmp_get("profile", symbol=ticker)
+    if not profile_data or not isinstance(profile_data, list) or not profile_data:
+        return None
+    p = profile_data[0]
+
+    current_price = p.get("price")
+    market_cap = p.get("marketCap")
+    beta = p.get("beta")
+    sector = p.get("sector") or ""
+    country_iso = p.get("country") or ""
+    long_name = p.get("companyName") or ticker
+
+    if not current_price or current_price <= 0:
+        return None
+
+    # Forward EPS + 5y CAGR from analyst estimates (consensus mean per fiscal year).
+    estimates = _fmp_get("analyst-estimates", symbol=ticker, period="annual", limit=10)
+    if not estimates or not isinstance(estimates, list):
+        return None
+    today_str = _dt.date.today().isoformat()
+    future_eps = []
+    for est in estimates:
+        d = (est.get("date") or "")[:10]
+        eps = est.get("epsAvg")
+        if d > today_str and eps is not None and eps > 0:
+            future_eps.append((d, float(eps)))
+    if not future_eps:
+        return None
+    future_eps.sort()
+    forward_eps = future_eps[0][1]
+
+    # CAGR from year+1 to the furthest available forecast (cap at 5y span).
+    growth = None
+    if len(future_eps) >= 2:
+        idx = min(len(future_eps) - 1, 4)
+        last_eps = future_eps[idx][1]
+        n = idx
+        if last_eps > 0 and forward_eps > 0 and n > 0:
+            growth = (last_eps / forward_eps) ** (1.0 / n) - 1.0
+    if growth is None:
+        return None
+
+    # 1y annualized stdev of daily returns (volatility for ratio).
+    dev_st_pct = None
+    try:
+        hist = _fmp_get("historical-price-eod/light", symbol=ticker)
+        if hist and isinstance(hist, list):
+            prices = [h.get("price") for h in hist if h.get("price")]
+            if len(prices) > 30:
+                import math
+                prices = prices[:260]
+                prices.reverse()  # FMP returns newest first
+                rets = []
+                for i in range(1, len(prices)):
+                    if prices[i - 1] > 0:
+                        rets.append((prices[i] - prices[i - 1]) / prices[i - 1])
+                if len(rets) > 20:
+                    mean = sum(rets) / len(rets)
+                    var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+                    dev_st_pct = float((var ** 0.5) * math.sqrt(252) * 100)
+    except Exception:
+        dev_st_pct = None
+
+    bucket = _SCREENER_GICS_TO_BUCKET.get(sector, "Tech")
+
+    return {
+        "ticker": ticker,
+        "name": long_name,
+        "yf_sector": sector,
+        "bucket": bucket,
+        "country_iso": country_iso,
+        "country": "US",
+        "market_cap": float(market_cap) if market_cap else None,
+        "beta": float(beta) if beta is not None else None,
+        "current_price": float(current_price),
+        "forward_eps": float(forward_eps),
+        "growth_5y": float(growth),
+        "dev_st_pct": dev_st_pct,
+        "_source": "fmp",
+    }
+
+
 def _fetch_ticker_fundamentals(ticker: str) -> Optional[dict]:
+    """Fundamentals for a ticker — FMP first, yfinance fallback.
+
+    Returns None when neither source has the required fields (forward EPS,
+    price, growth)."""
+    fmp_res = _fetch_ticker_fundamentals_fmp(ticker)
+    if fmp_res is not None:
+        return fmp_res
+    return _fetch_ticker_fundamentals_yf(ticker)
+
+
+def _fetch_ticker_fundamentals_yf(ticker: str) -> Optional[dict]:
     """Fetch fundamentals for a single ticker via yfinance.
 
     Returns None when required fields (forward EPS, price, growth) are missing.
@@ -6757,6 +6881,7 @@ def _fetch_ticker_fundamentals(ticker: str) -> Optional[dict]:
             "forward_eps": float(forward_eps),
             "growth_5y": float(growth),
             "dev_st_pct": dev_st_pct,
+            "_source": "yf",
         }
     except Exception:
         return None
