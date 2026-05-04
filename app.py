@@ -6526,10 +6526,11 @@ def _map_country_to_bucket(country_name: Optional[str]) -> str:
 
 
 def _screener_universe_for(market: str) -> list:
-    """Universe for a given market code. US uses the top-30 on Vercel
-    (60s timeout) and the full ~95 tickers locally."""
+    """Universe for a given market code. US always uses the full ~95-ticker
+    universe — Vercel can handle it within the 60s budget thanks to FMP
+    Starter (no rate-limit fallbacks) + 8 parallel workers."""
     if market == "US":
-        return _SCREENER_US_TOP30_UNIVERSE if _SCREENER_IS_VERCEL else _SCREENER_US_UNIVERSE
+        return _SCREENER_US_UNIVERSE
     if market == "IT":
         return _SCREENER_IT_UNIVERSE
     if market == "DE":
