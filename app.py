@@ -6639,6 +6639,9 @@ _ZONE_THRESHOLDS = (0.35, 0.55, 0.85)  # ratio peNow/peTheo
 _ZONE_RANK_NA = 4  # used when inputs missing — ranked last
 
 
+_ZONE_LABELS = ("Affare", "Sconto", "Equa", "Cara", "N/D")
+
+
 def _compute_zone_rank(forward_eps, current_price, pe_theoretical) -> int:
     """0=Affare, 1=Sconto, 2=Equa, 3=Cara, 4=N/D. Lower = more attractive
     for purchase per the Serafini methodology."""
@@ -6657,6 +6660,12 @@ def _compute_zone_rank(forward_eps, current_price, pe_theoretical) -> int:
     if ratio <= t3:
         return 2
     return 3
+
+
+def _zone_label_for(rank: int) -> str:
+    if 0 <= rank < len(_ZONE_LABELS):
+        return _ZONE_LABELS[rank]
+    return "N/D"
 
 
 def _calculate_damodaran_target(
@@ -7342,7 +7351,7 @@ def _portfolio_aggregate_exposure(holdings: list) -> dict:
     """
     by_sector = {}
     by_country = {}
-    by_zone = {"Affare": 0, "Sconto": 0, "Equa": 0, "Cara": 0, "N/D": 0}
+    by_zone = {label: 0 for label in _ZONE_LABELS}
     valid = 0
     for h in holdings:
         if h.get("error"):
@@ -7352,21 +7361,12 @@ def _portfolio_aggregate_exposure(holdings: list) -> dict:
         country = h.get("country") or "N/D"
         by_sector[sector] = by_sector.get(sector, 0) + 1
         by_country[country] = by_country.get(country, 0) + 1
-        # Zone classification (mirrors frontend computeZone)
-        pe_now = (h["current_price"] / h["forward_eps"]) if h.get("forward_eps") else None
-        pe_theo = h.get("pe_theoretical")
-        if pe_now and pe_theo and pe_theo > 0:
-            ratio = pe_now / pe_theo
-            if ratio <= 0.35:
-                by_zone["Affare"] += 1
-            elif ratio <= 0.55:
-                by_zone["Sconto"] += 1
-            elif ratio <= 0.85:
-                by_zone["Equa"] += 1
-            else:
-                by_zone["Cara"] += 1
-        else:
-            by_zone["N/D"] += 1
+        rank = h.get("zone_rank")
+        if rank is None:
+            rank = _compute_zone_rank(
+                h.get("forward_eps"), h.get("current_price"), h.get("pe_theoretical"),
+            )
+        by_zone[_zone_label_for(rank)] += 1
     return {
         "by_sector": by_sector,
         "by_country": by_country,

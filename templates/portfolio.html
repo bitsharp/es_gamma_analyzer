@@ -138,6 +138,51 @@
             font-size: 0.75rem; color: #778da9; margin-top: 0.5rem;
         }
 
+        .filter-bar {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1.2rem;
+            background: #1b263b; border: 1px solid #415a77; border-radius: 10px;
+            padding: 0.7rem 1rem; margin-bottom: 1rem;
+        }
+        .filter-bar .filter-group {
+            display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+        }
+        .filter-bar .filter-label {
+            font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+            color: #778da9; font-weight: 700; margin-right: 0.2rem;
+        }
+        .filter-bar .zone-toggle {
+            background: rgba(119,141,169,0.18); color: #cbd5e1;
+            border: 1px solid rgba(119,141,169,0.35);
+            padding: 0.25rem 0.7rem; border-radius: 999px;
+            font-size: 0.78rem; font-weight: 600; cursor: pointer;
+            transition: opacity 0.15s, transform 0.1s;
+            user-select: none;
+        }
+        .filter-bar .zone-toggle.off { opacity: 0.35; }
+        .filter-bar .zone-toggle:hover { transform: translateY(-1px); }
+        .filter-bar .zone-toggle.active-steal     { background: rgba(74,222,128,0.22); color: #4ade80; border-color: rgba(74,222,128,0.55); }
+        .filter-bar .zone-toggle.active-discount  { background: rgba(74,222,128,0.10); color: #86efac; border-color: rgba(74,222,128,0.35); }
+        .filter-bar .zone-toggle.active-fair      { background: rgba(251,191,36,0.18); color: #fbbf24; border-color: rgba(251,191,36,0.45); }
+        .filter-bar .zone-toggle.active-expensive { background: rgba(248,113,113,0.15); color: #f87171; border-color: rgba(248,113,113,0.40); }
+        .filter-bar .zone-toggle.active-na        { background: rgba(119,141,169,0.18); color: #adb5bd; border-color: rgba(119,141,169,0.40); }
+        .filter-bar .discount-input {
+            background: #0d1b2a; border: 1px solid #415a77; color: #fff;
+            border-radius: 6px; padding: 0.25rem 0.55rem; width: 80px;
+            font-size: 0.85rem;
+        }
+        .filter-bar .discount-input:focus {
+            outline: none; border-color: #60a5fa; box-shadow: 0 0 0 0.15rem rgba(96,165,250,0.2);
+        }
+        .filter-bar .reset-btn {
+            background: transparent; border: 1px solid #415a77; color: #778da9;
+            padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.78rem;
+            cursor: pointer;
+        }
+        .filter-bar .reset-btn:hover { color: #fff; border-color: #778da9; }
+        .filter-bar .filter-count {
+            color: #778da9; font-size: 0.78rem; margin-left: auto;
+        }
+
         @media (max-width: 768px) {
             .nav-link-custom { padding: 0.3rem 0.5rem; font-size: 0.82rem; }
             .pick-card { padding: 0.9rem; }
@@ -233,6 +278,24 @@
             <div class="stat">Care: <strong id="statExpensive" style="color:#f87171;">—</strong></div>
         </div>
 
+        <div id="filterBar" class="filter-bar" style="display:none;">
+            <div class="filter-group">
+                <span class="filter-label">Zona</span>
+                <button type="button" class="zone-toggle active-steal"     data-zone-rank="0">🟢🟢 Affare</button>
+                <button type="button" class="zone-toggle active-discount"  data-zone-rank="1">🟢 Sconto</button>
+                <button type="button" class="zone-toggle active-fair"      data-zone-rank="2">🟡 Equa</button>
+                <button type="button" class="zone-toggle active-expensive" data-zone-rank="3">🔴 Cara</button>
+                <button type="button" class="zone-toggle active-na"        data-zone-rank="4">N/D</button>
+            </div>
+            <div class="filter-group">
+                <span class="filter-label">Discount ≥</span>
+                <input type="number" id="discountMinInput" class="discount-input"
+                       placeholder="es. 20" min="-100" max="500" step="1" inputmode="numeric"> %
+            </div>
+            <button type="button" id="resetFiltersBtn" class="reset-btn">Reset</button>
+            <span class="filter-count" id="filterCount"></span>
+        </div>
+
         <div id="holdingsContainer">
             <div class="empty-state">
                 <div class="spinner-border" role="status"></div>
@@ -263,19 +326,26 @@
             '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
         }[ch]));
 
-        // ---- Zone classification (same logic as screener) ----
+        // ---- Zone classification ----
+        // Numeric classification (rank 0..4) is computed server-side
+        // (_compute_zone_rank in app.py). This map drives only the visual
+        // presentation; thresholds are NOT duplicated here.
+        const ZONE_PRESENTATION = [
+            { rank: 0, label: '🟢🟢 Affare', cls: 'zone-steal' },
+            { rank: 1, label: '🟢 Sconto',   cls: 'zone-discount' },
+            { rank: 2, label: '🟡 Equa',     cls: 'zone-fair' },
+            { rank: 3, label: '🔴 Cara',     cls: 'zone-expensive' },
+            { rank: 4, label: 'N/D',         cls: 'zone-na' },
+        ];
+
         function computeZone(r) {
+            const rank = (typeof r.zone_rank === 'number') ? r.zone_rank : 4;
+            const z = ZONE_PRESENTATION[rank] || ZONE_PRESENTATION[4];
             const peNow = (r.current_price && r.forward_eps && r.forward_eps > 0)
                 ? r.current_price / r.forward_eps : null;
             const peTheo = r.pe_theoretical;
-            if (peNow == null || peTheo == null || peTheo <= 0) {
-                return { label: 'N/D', cls: 'zone-na', peNow, peTheo, ratio: null };
-            }
-            const ratio = peNow / peTheo;
-            if (ratio <= 0.35) return { label: '🟢🟢 Affare', cls: 'zone-steal', peNow, peTheo, ratio };
-            if (ratio <= 0.55) return { label: '🟢 Sconto', cls: 'zone-discount', peNow, peTheo, ratio };
-            if (ratio <= 0.85) return { label: '🟡 Equa', cls: 'zone-fair', peNow, peTheo, ratio };
-            return { label: '🔴 Cara', cls: 'zone-expensive', peNow, peTheo, ratio };
+            const ratio = (peNow != null && peTheo != null && peTheo > 0) ? peNow / peTheo : null;
+            return { label: z.label, cls: z.cls, peNow, peTheo, ratio, rank };
         }
 
         function renderHoldingCard(r) {
@@ -412,9 +482,45 @@
             charts.zone    = buildPieChart('chartZone', zoneFiltered, ZONE_COLORS);
         }
 
+        // ---- Filters ----
+        const filterState = {
+            // Set of zone ranks to SHOW (0..4). Default: all.
+            zoneRanks: new Set([0, 1, 2, 3, 4]),
+            // Minimum discount_pct (decimal: 0.20 = 20%). null = no filter.
+            discountMin: null,
+        };
+        // In-memory copy of last fetched holdings, so filters apply without
+        // refetching from the server.
+        let lastHoldings = [];
+
+        function applyFilters(holdings) {
+            return holdings.filter(h => {
+                // Errored holdings always show — user needs to be able to remove them.
+                if (h.error) return true;
+                const rank = (typeof h.zone_rank === 'number') ? h.zone_rank : 4;
+                if (!filterState.zoneRanks.has(rank)) return false;
+                if (filterState.discountMin != null) {
+                    const d = h.discount_pct;
+                    if (d == null || d < filterState.discountMin) return false;
+                }
+                return true;
+            });
+        }
+
+        function updateFilterCount(filteredCount, totalCount) {
+            const el = document.getElementById('filterCount');
+            if (filteredCount === totalCount) {
+                el.textContent = '';
+            } else {
+                el.textContent = `Mostro ${filteredCount} / ${totalCount}`;
+            }
+        }
+
         function renderHoldings(holdings) {
             const container = document.getElementById('holdingsContainer');
+            const filterBar = document.getElementById('filterBar');
             if (!holdings || holdings.length === 0) {
+                filterBar.style.display = 'none';
                 container.innerHTML = `
                     <div class="empty-state">
                         <i class="bi bi-briefcase" style="font-size:2.2rem;"></i>
@@ -425,7 +531,21 @@
                     </div>`;
                 return;
             }
-            container.innerHTML = holdings.map(renderHoldingCard).join('');
+            filterBar.style.display = 'flex';
+            const filtered = applyFilters(holdings);
+            updateFilterCount(filtered.length, holdings.length);
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="bi bi-funnel" style="font-size:2rem;"></i>
+                        <div class="mt-3" style="font-size:1rem;">Nessun titolo corrisponde ai filtri.</div>
+                        <div class="mt-1" style="font-size:0.85rem;">
+                            Prova ad allargare la selezione o premi <em>Reset</em>.
+                        </div>
+                    </div>`;
+                return;
+            }
+            container.innerHTML = filtered.map(renderHoldingCard).join('');
             container.querySelectorAll('.btn-remove').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     e.stopPropagation();
@@ -444,13 +564,52 @@
             });
         }
 
+        // Re-render cards using the cached holdings list (used when filters change).
+        function rerenderHoldings() {
+            renderHoldings(lastHoldings);
+        }
+
+        // ---- Filter wiring ----
+        document.querySelectorAll('.zone-toggle').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const rank = Number(btn.dataset.zoneRank);
+                if (filterState.zoneRanks.has(rank)) {
+                    filterState.zoneRanks.delete(rank);
+                    btn.classList.add('off');
+                } else {
+                    filterState.zoneRanks.add(rank);
+                    btn.classList.remove('off');
+                }
+                rerenderHoldings();
+            });
+        });
+
+        document.getElementById('discountMinInput').addEventListener('input', (e) => {
+            const raw = e.target.value.trim();
+            if (raw === '' || isNaN(Number(raw))) {
+                filterState.discountMin = null;
+            } else {
+                filterState.discountMin = Number(raw) / 100;  // input is %, store decimal
+            }
+            rerenderHoldings();
+        });
+
+        document.getElementById('resetFiltersBtn').addEventListener('click', () => {
+            filterState.zoneRanks = new Set([0, 1, 2, 3, 4]);
+            filterState.discountMin = null;
+            document.querySelectorAll('.zone-toggle').forEach(b => b.classList.remove('off'));
+            document.getElementById('discountMinInput').value = '';
+            rerenderHoldings();
+        });
+
         async function loadPortfolio() {
             try {
                 const res = await fetch('/api/portfolio');
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
                 renderExposure(data.exposure || {});
-                renderHoldings(data.holdings || []);
+                lastHoldings = data.holdings || [];
+                renderHoldings(lastHoldings);
             } catch (err) {
                 document.getElementById('holdingsContainer').innerHTML = `
                     <div class="empty-state" style="color:#f87171;">
