@@ -423,8 +423,9 @@
                     </div>
                     <div class="collapse" id="collapseSession">
                     <div class="card-body">
-                        <!-- Account PNL Summary (auto-populated on import) -->
-                        <div id="accountPnlSummary" class="mb-3" style="display:none;">
+                        <!-- Account PNL Summary — button is always visible so users can import
+                             account balance even before/without entering trades. -->
+                        <div class="mb-3">
                             <div class="d-flex align-items-center justify-content-between mb-1">
                                 <label class="small mb-0" style="color:#2dd4bf;">
                                     <i class="bi bi-bar-chart-line-fill me-1"></i>P&amp;L per Account
@@ -433,12 +434,15 @@
                                     <input type="file" id="accountCsvInput" accept=".csv,.tsv,.txt" style="display:none;">
                                     <button class="btn btn-sm" id="importAccountBtn"
                                         onclick="document.getElementById('accountCsvInput').click()"
+                                        title="Importa il bilancio account (CSV Overcharts / AMP-Rithmic con colonne Account, Cash, Net Liq, Realized P/L)"
                                         style="padding:0.15rem 0.55rem;font-size:0.75rem;background:rgba(45,212,191,0.1);border:1px solid rgba(45,212,191,0.35);color:#2dd4bf;">
                                         <i class="bi bi-upload me-1"></i>Importa CSV Account
                                     </button>
                                 </span>
                             </div>
-                            <div id="accountPnlTable" style="border:1px solid #415a77;border-radius:8px;overflow:hidden;"></div>
+                            <div id="accountPnlSummary" style="display:none;">
+                                <div id="accountPnlTable" style="border:1px solid #415a77;border-radius:8px;overflow:hidden;"></div>
+                            </div>
                         </div>
 
                         <!-- Apex Trail Monitor (multi-tier) -->
@@ -828,17 +832,22 @@
                     const acc     = cols[iAccount]  || '';
                     const cash    = parseFloat(cols[iCash])   || 0;
                     const netliq  = parseFloat(cols[iNetLiq]) || 0;
+                    const realPnl = (iRealPnl >= 0) ? (parseFloat(cols[iRealPnl]) || 0) : null;
 
                     if (!acc) continue;
                     if (!accountNetLiq[acc]) accountNetLiq[acc] = { end: '', cash: '' };
                     accountNetLiq[acc].end  = netliq.toFixed(2);
                     accountNetLiq[acc].cash = cash.toFixed(2);
+                    if (realPnl !== null) {
+                        accountNetLiq[acc].realizedPnl = realPnl.toFixed(2);
+                    }
                     imported++;
                 }
 
                 if (imported === 0) { alert('Nessun account trovato nel file.'); return; }
 
-                // Re-render the table to reflect new values
+                // Re-render the table to reflect new values (forces visibility
+                // even if no trade-level P&L exists).
                 updateAccountPnlSummary();
                 scheduleSave();
                 this.value = '';
@@ -1384,26 +1393,51 @@
 
         const summaryDiv = document.getElementById('accountPnlSummary');
         const tableDiv  = document.getElementById('accountPnlTable');
-        const accounts  = Object.keys(summary);
 
-        if (accounts.length === 0) {
+        // Show the summary if either there are trades with P&L OR we have imported
+        // account balance data — so users can import account-only days.
+        const tradeAccounts = Object.keys(summary);
+        const importedAccounts = Object.keys(accountNetLiq).filter(a => {
+            const v = accountNetLiq[a] || {};
+            return v.end || v.cash || v.realizedPnl;
+        });
+        const allAccounts = Array.from(new Set([...tradeAccounts, ...importedAccounts]));
+
+        if (allAccounts.length === 0) {
             summaryDiv.style.display = 'none';
             return;
         }
 
         summaryDiv.style.display = '';
-        const rows = accounts.map(acc => {
-            const d   = summary[acc];
+        const rows = allAccounts.map(acc => {
+            const d   = summary[acc] || { pnl: 0, count: 0, contracts: 0 };
             const nl  = accountNetLiq[acc] || { end: '', cash: '' };
+            const hasTrades = !!summary[acc];
             const cls = d.pnl > 0 ? 'pnl-positive' : d.pnl < 0 ? 'pnl-negative' : '';
             const esc = acc.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+
+            // Broker-reported realized P/L (from CSV) shown next to the trade-derived P&L.
+            const brokerPnl = nl.realizedPnl != null && nl.realizedPnl !== '' ? parseFloat(nl.realizedPnl) : null;
+            const brokerCls = brokerPnl == null ? '' : (brokerPnl > 0 ? 'pnl-positive' : brokerPnl < 0 ? 'pnl-negative' : '');
+            const brokerHtml = brokerPnl != null
+                ? `<span class="${brokerCls}" style="font-size:0.74rem;font-weight:600;"
+                         title="Realized P/L riportato dal broker (CSV importato)">
+                       broker ${brokerPnl >= 0 ? '+' : ''}$${brokerPnl.toFixed(2)}
+                   </span>`
+                : '';
+
+            const tradePnlHtml = hasTrades
+                ? `<span class="fw-bold ${cls}" style="font-size:0.9rem;">${d.pnl >= 0 ? '+' : ''}$${d.pnl.toFixed(2)}
+                       <span class="text-muted" style="font-size:0.72rem;font-weight:400;">(${d.count}T / ${d.contracts}K)</span></span>`
+                : `<span class="text-muted" style="font-size:0.78rem;font-style:italic;">nessun trade</span>`;
+
             return `<div class="px-3 py-2" style="border-bottom:1px solid rgba(65,90,119,0.4);">
                 <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-1">
                     <span class="small" style="color:#93c5fd;">${esc}</span>
-                    <div class="d-flex align-items-center gap-3 ms-auto">
-                        <span class="netliq-comm-display" data-account="${esc}" style="font-size:0.78rem;color:#94a3b8;">Comm: —</span>
-                        <span class="fw-bold ${cls}" style="font-size:0.9rem;">${d.pnl >= 0 ? '+' : ''}$${d.pnl.toFixed(2)}
-                          <span class="text-muted" style="font-size:0.72rem;font-weight:400;">(${d.count}T / ${d.contracts}K)</span></span>
+                    <div class="d-flex align-items-center gap-3 ms-auto flex-wrap">
+                        ${hasTrades ? `<span class="netliq-comm-display" data-account="${esc}" style="font-size:0.78rem;color:#94a3b8;">Comm: —</span>` : ''}
+                        ${brokerHtml}
+                        ${tradePnlHtml}
                     </div>
                 </div>
                 <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.77rem;color:#64748b;">
@@ -1419,7 +1453,9 @@
             </div>`;
         });
 
-        if (accounts.length > 0) {
+        // TOTALE row — only when trade-level P&L data exists (account-only
+        // imports leave it off because there's nothing to total).
+        if (tradeAccounts.length > 0) {
             const total      = Object.values(summary).reduce((s, d) => s + d.pnl, 0);
             const tot_count  = Object.values(summary).reduce((s, d) => s + d.count, 0);
             const tot_contr  = Object.values(summary).reduce((s, d) => s + d.contracts, 0);
@@ -1450,8 +1486,9 @@
             });
         });
 
-        // Refresh displays with already-saved Net Liq data
-        accounts.forEach(acc => refreshAccountCommDisplay(acc, summary[acc].contracts));
+        // Refresh displays with already-saved Net Liq data (only for accounts
+        // with trade-derived contracts — commission display depends on it).
+        tradeAccounts.forEach(acc => refreshAccountCommDisplay(acc, summary[acc].contracts));
         recalcCommissionsFromNetLiq();
         updateSessionFromTrades();
         updateApexTrail();

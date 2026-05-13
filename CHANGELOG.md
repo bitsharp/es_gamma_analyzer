@@ -5,6 +5,17 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.0.2] — 2026-05-13
+
+### Modificato
+- **Bottone "Importa CSV Account"** sempre visibile, indipendentemente dalla presenza di trade. Prima era nascosto dentro la sezione P&L che appariva solo dopo aver importato dei trade — chi voleva caricare solo il bilancio account a fine giornata non lo trovava.
+- Il **Realized P/L** del CSV broker (campo `Realized P/L` di AMP/Rithmic/Overcharts) ora viene mostrato accanto al P&L calcolato dai trade — utile per riconciliare commissioni e slippage.
+- La sezione P&L per Account ora compare anche per giornate senza trade ma con bilancio importato (es. giornate flat con solo aggiornamento balance).
+
+### Tecnico
+- Tooltip dell'import button chiarisce il formato accettato: CSV Overcharts / AMP-Rithmic con colonne Account, Cash, Net Liq, Realized P/L.
+
+
 ## [1.0.1] — 2026-05-13
 
 Piccolo fix di scopribilità: il bottone d'import della checklist accetta anche export di altri broker.
