@@ -40,7 +40,11 @@
     <nav class="navbar mb-4">
         <div class="container-fluid px-2 px-lg-3">
             <span class="navbar-brand" style="font-size: 1.6rem; font-weight: 700; color: #ffffff;">ES Gamma Analyzer</span>
-            <span class="text-muted">Sign in</span>
+            <span title="Deploy: {{ build_info.date }} UTC"
+                  style="font-family:monospace;font-size:0.65rem;color:#778da9;padding:0.15rem 0.45rem;background:rgba(119,141,169,0.12);border:1px solid rgba(119,141,169,0.25);border-radius:4px;white-space:nowrap;letter-spacing:0.02em;margin-left:0.6rem;">
+                {{ build_info.label }}
+            </span>
+            <span class="text-muted ms-auto">Sign in</span>
         </div>
     </nav>
 

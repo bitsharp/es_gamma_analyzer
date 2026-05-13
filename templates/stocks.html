@@ -342,7 +342,13 @@
     <nav class="navbar mb-4">
         <div class="container-fluid px-2 px-lg-3">
             <div class="d-flex align-items-center justify-content-between w-100">
-                <a href="/" class="navbar-brand text-decoration-none">ES Gamma Analyzer</a>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <a href="/" class="navbar-brand text-decoration-none">ES Gamma Analyzer</a>
+                    <span title="Deploy: {{ build_info.date }} UTC"
+                          style="font-family:monospace;font-size:0.65rem;color:#778da9;padding:0.15rem 0.45rem;background:rgba(119,141,169,0.12);border:1px solid rgba(119,141,169,0.25);border-radius:4px;white-space:nowrap;letter-spacing:0.02em;">
+                        {{ build_info.label }}
+                    </span>
+                </div>
 
                 <div class="d-flex align-items-center gap-2">
                     <a href="/" class="nav-link-custom"><i class="bi bi-graph-up me-1"></i><span class="nav-label">Gamma</span></a>
@@ -381,6 +387,7 @@
                 <div style="color:#778da9; font-size:0.88rem;">
                     New positions + added positions (<span id="currentFilterLabel">≥&nbsp;20%</span> aumento share count) dall'ultimo deposito 13F-HR presso la SEC.
                 </div>
+                <div id="periodInfoBar" style="margin-top:0.45rem; font-size:0.82rem; color:#cbd5e1; display:none;"></div>
             </div>
             <div class="toolbar-actions d-flex align-items-center gap-2 flex-wrap">
                 <span class="filter-label">Δ filter</span>
@@ -662,6 +669,25 @@
             fundsContainer.innerHTML = (lastFundsData || []).map(renderFundCard).join('');
         }
 
+        function renderPeriodInfo(period) {
+            const el = document.getElementById('periodInfoBar');
+            if (!el || !period) return;
+            const days = period.days_until_next_deadline;
+            let when;
+            if (days < 0) when = `era prevista il ${period.next_deadline} (in ritardo di ${-days} giorni)`;
+            else if (days === 0) when = `<strong>oggi</strong> (${period.next_deadline})`;
+            else if (days === 1) when = `<strong>domani</strong> (${period.next_deadline})`;
+            else if (days <= 14) when = `<strong>tra ${days} giorni</strong> (${period.next_deadline})`;
+            else when = `entro il <strong>${period.next_deadline}</strong> (tra ${days} giorni)`;
+            el.innerHTML = `
+                <i class="bi bi-calendar3" style="color:#60a5fa; margin-right:0.3rem;"></i>
+                Dati al <strong style="color:#fff;">${period.current_report_date}</strong>
+                (${period.current_quarter}) — prossimo rilascio: <strong style="color:#fff;">${period.next_quarter}</strong>
+                ${when}.
+            `;
+            el.style.display = '';
+        }
+
         async function loadFunds() {
             loadingBox.style.display = '';
             fundsContainer.innerHTML = '';
@@ -671,6 +697,7 @@
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
                 lastFundsData = data.funds || [];
+                renderPeriodInfo(data.period_info);
                 renderAll();
             } catch (e) {
                 fundsContainer.innerHTML = `<div class="error-banner">Errore caricamento: ${escapeHtml(e.message || e)}</div>`;

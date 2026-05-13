@@ -70,12 +70,73 @@ try:
 except Exception:
     _APP_BUILD = None
 
+
+def _compute_build_info() -> dict:
+    """Identifier shown in the header so it's obvious which deploy is live.
+
+    Prefers (in order): Vercel's git env vars → local `git` command → mtime of
+    this file. Computes a sequential "build number" from the commit count when
+    a full git history is available (locally), otherwise falls back to the
+    short SHA alone.
+    """
+    sha = (os.getenv("VERCEL_GIT_COMMIT_SHA") or "").strip()[:7]
+    count = None
+    if not sha:
+        try:
+            import subprocess
+            sha = subprocess.check_output(
+                ["git", "rev-parse", "--short=7", "HEAD"],
+                cwd=os.path.dirname(os.path.abspath(__file__)),
+                stderr=subprocess.DEVNULL, timeout=2,
+            ).decode().strip()
+        except Exception:
+            sha = ""
+    try:
+        import subprocess
+        out = subprocess.check_output(
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            stderr=subprocess.DEVNULL, timeout=2,
+        ).decode().strip()
+        # Shallow clones (typical on Vercel) report a tiny count — only trust it
+        # when it's plausibly the real total.
+        n = int(out)
+        if n > 10:
+            count = n
+    except Exception:
+        count = None
+
+    if _APP_BUILD:
+        date_iso = _dt.datetime.utcfromtimestamp(_APP_BUILD).strftime("%Y-%m-%d %H:%M")
+    else:
+        date_iso = ""
+
+    if count and sha:
+        label = f"build #{count} · {sha}"
+    elif sha:
+        label = f"build {sha}"
+    elif _APP_BUILD:
+        label = f"build {_APP_BUILD}"
+    else:
+        label = "build —"
+
+    return {"sha": sha or "—", "count": count, "date": date_iso, "label": label}
+
+
+_BUILD_INFO = _compute_build_info()
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
 
 # Behind reverse proxies (e.g., Vercel), trust forwarded headers so url_for(..., _external=True)
 # produces the correct https://<host>/... callback URLs.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
+
+@app.context_processor
+def _inject_build_info():
+    """Make build_info available in every template (used by the navbar badge)."""
+    return {"build_info": _BUILD_INFO}
 
 # Session secret (required for OAuth login). In production, set FLASK_SECRET_KEY.
 _secret_from_env = (os.getenv('FLASK_SECRET_KEY') or os.getenv('SECRET_KEY') or '').strip()
@@ -6358,6 +6419,51 @@ def stocks_page():
     return render_template('stocks.html')
 
 
+def _compute_13f_period_info(today: Optional["_dt.date"] = None) -> dict:
+    """Compute the current 13F reporting period and the next filing deadline.
+
+    13F-HR are due 45 days after each calendar quarter end (SEC rule 13f-1).
+    Returns:
+      - current_report_date: latest quarter-end whose 45-day deadline has passed
+      - current_quarter_label: e.g. "Q4 2025"
+      - next_report_date: the upcoming quarter end (data being reported next)
+      - next_deadline: the SEC deadline for that upcoming filing
+      - days_until_next_deadline: int (can be negative if we're past it)
+    """
+    today = today or _dt.date.today()
+    # Quarter ends: Mar 31, Jun 30, Sep 30, Dec 31 — plus 45 days = deadline.
+    candidates = []
+    for y in (today.year - 1, today.year, today.year + 1):
+        for m, d in ((3, 31), (6, 30), (9, 30), (12, 31)):
+            try:
+                q_end = _dt.date(y, m, d)
+            except ValueError:
+                continue
+            deadline = q_end + _dt.timedelta(days=45)
+            candidates.append((q_end, deadline))
+    candidates.sort(key=lambda t: t[0])
+
+    passed = [c for c in candidates if c[1] <= today]
+    upcoming = [c for c in candidates if c[1] > today]
+    current = passed[-1] if passed else candidates[0]
+    nxt = upcoming[0] if upcoming else candidates[-1]
+
+    def _qlabel(d: "_dt.date") -> str:
+        q = (d.month - 1) // 3 + 1
+        return f"Q{q} {d.year}"
+
+    return {
+        "current_report_date": current[0].isoformat(),
+        "current_deadline": current[1].isoformat(),
+        "current_quarter": _qlabel(current[0]),
+        "next_report_date": nxt[0].isoformat(),
+        "next_deadline": nxt[1].isoformat(),
+        "next_quarter": _qlabel(nxt[0]),
+        "days_until_next_deadline": (nxt[1] - today).days,
+        "today": today.isoformat(),
+    }
+
+
 @app.route('/api/stocks/top-buys', methods=['GET'])
 @login_required
 def api_stocks_top_buys():
@@ -6390,6 +6496,7 @@ def api_stocks_top_buys():
         "funds": fresh,
         "min_added_pct": _STOCKS_ADDED_MIN_PCT,
         "hidden_stale": hidden,
+        "period_info": _compute_13f_period_info(),
     })
 
 
