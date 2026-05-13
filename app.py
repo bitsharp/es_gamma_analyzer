@@ -5941,7 +5941,11 @@ def api_checklist_reset():
 # ============================================================================
 
 def _parse_apex_csv(content: str, date_filter: str = '') -> list:
-    """Parse an Overcharts/Apex TSV export and return a list of round-trip trade dicts.
+    """Parse an Overcharts TSV order export and return a list of round-trip trades.
+
+    Compatible with any broker connected to Overcharts (Apex, AMP/Rithmic, etc.)
+    since they all share the same column layout. The function is named "apex"
+    only because that was the first broker tested.
 
     Only 'Filled' rows are considered.  If date_filter is provided (YYYY-MM-DD),
     only fills whose fill date matches that day are included — this is essential

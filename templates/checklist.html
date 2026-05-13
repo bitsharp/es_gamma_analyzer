@@ -397,8 +397,8 @@
                             <button class="btn btn-sm btn-outline-info" id="importApexBtn"
                                 onclick="event.stopPropagation(); document.getElementById('apexCsvInput').click()"
                                 style="padding:0.2rem 0.7rem; font-size:0.82rem;"
-                                title="Importa ordini eseguiti dal CSV di Overcharts/Apex">
-                                <i class="bi bi-upload me-1"></i>Importa CSV Apex
+                                title="Importa ordini eseguiti da un export Overcharts (compatibile con Apex, AMP/Rithmic, ecc.)">
+                                <i class="bi bi-upload me-1"></i>Importa CSV Overcharts
                             </button>
                             <button class="btn btn-sm btn-primary" id="addTradeBtn" style="padding:0.2rem 0.7rem; font-size:0.82rem;" onclick="event.stopPropagation();">
                                 <i class="bi bi-plus-lg me-1"></i>Aggiungi Trade
@@ -922,7 +922,7 @@
             const importBtn = document.getElementById('importApexBtn');
             if (importBtn) {
                 importBtn.innerHTML = `<i class="bi bi-upload me-1"></i>Importa CSV ${shortDate}`;
-                importBtn.title = `Importa solo i trade del ${longDate} dal CSV Overcharts/Apex`;
+                importBtn.title = `Importa solo i trade del ${longDate} da un CSV Overcharts (Apex, AMP/Rithmic, ecc.)`;
             }
         }
     }
