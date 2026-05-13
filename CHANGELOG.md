@@ -5,6 +5,20 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.0.3] — 2026-05-13
+
+### Aggiunto
+- Card **"Stato Account"** dedicata per i broker AMP/Rithmic — mostra Net Liq, Cash, Realized/Open/Total P/L, currency e nome broker direttamente dai dati importati. Per i conti Apex resta invece l'Apex Trail con tier e trailing drawdown.
+- Il titolo della sezione monitor cambia automaticamente:
+  - solo Apex → **"APEX TRAIL"** (giallo)
+  - solo AMP/Rithmic → **"STATO ACCOUNT"** (turchese)
+  - mix di broker → **"MONITOR ACCOUNT"** (grigio neutro)
+
+### Modificato
+- L'import del CSV account ora cattura anche `Broker`, `Currency`, `Open P/L` e `Total P/L` (prima venivano ignorati). Il broker determina quale card render — niente più Apex trail su conti che non sono Apex.
+- La sezione monitor compare anche per account-only days (prima richiedeva almeno una trade card).
+
+
 ## [1.0.2] — 2026-05-13
 
 ### Modificato

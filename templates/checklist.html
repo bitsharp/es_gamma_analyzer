@@ -445,10 +445,12 @@
                             </div>
                         </div>
 
-                        <!-- Apex Trail Monitor (multi-tier) -->
+                        <!-- Account Monitor — Apex Trail per Apex accounts, AMP state for AMP/Rithmic.
+                             Title and per-card render switch automatically based on the broker
+                             captured during CSV import (or "Apex" by default for legacy data). -->
                         <div id="apexTrailSection" class="mb-3" style="display:none;">
                             <div class="d-flex align-items-center mb-2">
-                                <label class="small mb-0" style="color:#f59e0b;">
+                                <label id="apexTrailTitle" class="small mb-0" style="color:#f59e0b;">
                                     <i class="bi bi-graph-up-arrow me-1"></i>APEX TRAIL
                                 </label>
                             </div>
@@ -820,6 +822,10 @@
                 const iCash     = col('cash');
                 const iNetLiq   = col('net liq');
                 const iRealPnl  = col('realized p/l');
+                const iBroker   = col('broker');
+                const iCurrency = col('currency');
+                const iOpenPnl  = col('open p/l');
+                const iTotalPnl = col('total p/l');
 
                 if (iAccount === -1 || iCash === -1 || iNetLiq === -1) {
                     alert('Colonne richieste non trovate nel file (Account, Cash, Net Liq).');
@@ -829,18 +835,24 @@
                 let imported = 0;
                 for (let i = 1; i < lines.length; i++) {
                     const cols = lines[i].split(sep).map(c => c.trim());
-                    const acc     = cols[iAccount]  || '';
-                    const cash    = parseFloat(cols[iCash])   || 0;
-                    const netliq  = parseFloat(cols[iNetLiq]) || 0;
-                    const realPnl = (iRealPnl >= 0) ? (parseFloat(cols[iRealPnl]) || 0) : null;
+                    const acc       = cols[iAccount]  || '';
+                    const cash      = parseFloat(cols[iCash])   || 0;
+                    const netliq    = parseFloat(cols[iNetLiq]) || 0;
+                    const realPnl   = (iRealPnl  >= 0) ? (parseFloat(cols[iRealPnl])  || 0) : null;
+                    const broker    = (iBroker   >= 0) ? (cols[iBroker]   || '') : '';
+                    const currency  = (iCurrency >= 0) ? (cols[iCurrency] || '') : '';
+                    const openPnl   = (iOpenPnl  >= 0) ? (parseFloat(cols[iOpenPnl])  || 0) : null;
+                    const totalPnl  = (iTotalPnl >= 0) ? (parseFloat(cols[iTotalPnl]) || 0) : null;
 
                     if (!acc) continue;
                     if (!accountNetLiq[acc]) accountNetLiq[acc] = { end: '', cash: '' };
                     accountNetLiq[acc].end  = netliq.toFixed(2);
                     accountNetLiq[acc].cash = cash.toFixed(2);
-                    if (realPnl !== null) {
-                        accountNetLiq[acc].realizedPnl = realPnl.toFixed(2);
-                    }
+                    if (realPnl  !== null) accountNetLiq[acc].realizedPnl = realPnl.toFixed(2);
+                    if (openPnl  !== null) accountNetLiq[acc].openPnl     = openPnl.toFixed(2);
+                    if (totalPnl !== null) accountNetLiq[acc].totalPnl    = totalPnl.toFixed(2);
+                    if (broker)   accountNetLiq[acc].broker   = broker;
+                    if (currency) accountNetLiq[acc].currency = currency;
                     imported++;
                 }
 
@@ -1586,22 +1598,90 @@
     }
     function setApexFloor(acc, val) { localStorage.setItem('apexFloor_' + acc, val); }
 
+    function _isAmpAccount(acc) {
+        const broker = ((accountNetLiq[acc] || {}).broker || '').toLowerCase();
+        return broker.includes('amp') || broker.includes('rithmic');
+    }
+
+    function _renderAmpStateCard(acc) {
+        const nl = accountNetLiq[acc] || {};
+        const broker      = nl.broker   || 'AMP';
+        const currency    = nl.currency || 'USD';
+        const netLiq      = nl.end  !== '' && nl.end  != null ? parseFloat(nl.end)  : NaN;
+        const cash        = nl.cash !== '' && nl.cash != null ? parseFloat(nl.cash) : NaN;
+        const realizedPnl = nl.realizedPnl != null ? parseFloat(nl.realizedPnl) : 0;
+        const openPnl     = nl.openPnl     != null ? parseFloat(nl.openPnl)     : 0;
+        const totalPnl    = nl.totalPnl    != null ? parseFloat(nl.totalPnl)    : (realizedPnl + openPnl);
+
+        const pnlColor = totalPnl > 0 ? '#22c55e' : totalPnl < 0 ? '#ef4444' : '#94a3b8';
+        const realCol  = realizedPnl > 0 ? '#22c55e' : realizedPnl < 0 ? '#ef4444' : '#94a3b8';
+        const openCol  = openPnl > 0 ? '#22c55e' : openPnl < 0 ? '#ef4444' : '#94a3b8';
+        const sign     = v => v >= 0 ? '+' : '';
+        const fmtMoney = v => isNaN(v) ? '—' : `${sign(v)}$${v.toFixed(2)}`;
+        const esc      = acc.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+        const brokerEsc = broker.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+
+        return `<div style="background:rgba(20,30,48,0.7);border:1px solid rgba(45,212,191,0.4);border-radius:8px;padding:0.7rem 0.85rem 0.6rem;margin-bottom:0.5rem;">
+  <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-2">
+      <span style="color:#93c5fd;font-size:0.85rem;font-weight:600;">${esc}</span>
+      <span style="font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:4px;background:rgba(45,212,191,0.15);border:1px solid rgba(45,212,191,0.4);color:#2dd4bf;letter-spacing:0.03em;">${brokerEsc}</span>
+    </div>
+    <div class="d-flex gap-3 align-items-center">
+      <span style="font-size:0.78rem;color:#94a3b8;">Net Liq: <b style="color:#e2e8f0;">${currency} ${isNaN(netLiq) ? '—' : netLiq.toFixed(2)}</b></span>
+      <span style="font-size:0.85rem;font-weight:700;color:${pnlColor};">${fmtMoney(totalPnl)}</span>
+    </div>
+  </div>
+
+  <div class="d-flex gap-3 flex-wrap" style="font-size:0.78rem;">
+    <span style="color:#94a3b8;">Cash: <b style="color:#e2e8f0;">${isNaN(cash) ? '—' : '$' + cash.toFixed(2)}</b></span>
+    <span style="color:#475569;">|</span>
+    <span style="color:#94a3b8;">Realized: <b style="color:${realCol};">${fmtMoney(realizedPnl)}</b></span>
+    <span style="color:#475569;">|</span>
+    <span style="color:#94a3b8;">Open: <b style="color:${openCol};">${fmtMoney(openPnl)}</b></span>
+  </div>
+</div>`;
+    }
+
     function updateApexTrail() {
-        // Collect distinct accounts from trade cards
+        // Collect distinct accounts from trade cards + accounts that were imported
+        // (so account-only days still render a card).
         const accounts = [];
         document.querySelectorAll('.trade-card').forEach(card => {
             const el  = card.querySelector('.trade-account-input');
             const acc = el ? el.value.trim() : '';
             if (acc && !accounts.includes(acc)) accounts.push(acc);
         });
+        Object.keys(accountNetLiq).forEach(acc => {
+            if (!accounts.includes(acc)) accounts.push(acc);
+        });
 
         const section   = document.getElementById('apexTrailSection');
         const container = document.getElementById('apexTrailCards');
+        const titleEl   = document.getElementById('apexTrailTitle');
         if (!section || !container) return;
         if (accounts.length === 0) { section.style.display = 'none'; return; }
         section.style.display = '';
 
+        // Dynamic section title based on broker mix.
+        const ampCount = accounts.filter(_isAmpAccount).length;
+        const apexCount = accounts.length - ampCount;
+        if (titleEl) {
+            if (apexCount > 0 && ampCount === 0) {
+                titleEl.innerHTML = '<i class="bi bi-graph-up-arrow me-1"></i>APEX TRAIL';
+                titleEl.style.color = '#f59e0b';
+            } else if (ampCount > 0 && apexCount === 0) {
+                titleEl.innerHTML = '<i class="bi bi-wallet2 me-1"></i>STATO ACCOUNT';
+                titleEl.style.color = '#2dd4bf';
+            } else {
+                titleEl.innerHTML = '<i class="bi bi-clipboard-data me-1"></i>MONITOR ACCOUNT';
+                titleEl.style.color = '#94a3b8';
+            }
+        }
+
         const html = accounts.map(acc => {
+            if (_isAmpAccount(acc)) return _renderAmpStateCard(acc);
+            // ----- Default: Apex Trail card -----
             const tier      = getApexTier(acc);
             const cfg       = APEX_CONFIGS[tier] || APEX_CONFIGS[25000];
             const lockLvl   = cfg.initial + cfg.profitTarget;
