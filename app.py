@@ -6927,6 +6927,196 @@ def _fetch_ticker_fundamentals_yf(ticker: str) -> Optional[dict]:
         return None
 
 
+# ============================================================================
+# HISTORICAL FORWARD P/E (Serafini "zona di riacquisto storica")
+# ----------------------------------------------------------------------------
+# Builds a 5-year time series of forward P/E using the "hindsight NTM" method
+# (same approach Tikr shows on its forward-P/E history chart): for each past
+# date D, NTM_EPS(D) = sum of the next 4 quarterly EPS reported after D.
+# A stock is flagged as being in a historical buy zone when its current
+# forward P/E sits in the bottom quartile of this distribution.
+# ============================================================================
+
+_PE_HISTORY_YEARS = 5
+_PE_HISTORY_SAMPLE_EVERY_N_DAYS = 7
+_PE_HISTORY_CACHE_TTL_SECONDS = 7 * 24 * 3600
+_MONGO_PE_HISTORY_COLLECTION = None
+
+
+def _get_mongo_pe_history_collection():
+    """Lazy getter for the forward P/E history cache collection."""
+    global _MONGO_CLIENT, _MONGO_PE_HISTORY_COLLECTION
+    if _MONGO_PE_HISTORY_COLLECTION is not None:
+        return _MONGO_PE_HISTORY_COLLECTION
+    if MongoClient is None:
+        return None
+    uri = (os.getenv("MONGODB_URI") or "").strip()
+    if not uri:
+        return None
+    db_name = (os.getenv("MONGODB_DB") or "es_gamma_analyzer").strip()
+    coll_name = (os.getenv("MONGODB_PE_HISTORY_COLLECTION") or "pe_history_cache").strip()
+    try:
+        if _MONGO_CLIENT is None:
+            _MONGO_CLIENT = MongoClient(uri, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+        db = _MONGO_CLIENT[db_name]
+        coll = db[coll_name]
+        try:
+            coll.create_index("ticker", unique=True)
+            coll.create_index("computed_at", expireAfterSeconds=_PE_HISTORY_CACHE_TTL_SECONDS)
+        except Exception:
+            pass
+        _MONGO_PE_HISTORY_COLLECTION = coll
+        return coll
+    except Exception:
+        return None
+
+
+def _percentile(sorted_vals, p):
+    """Linear-interpolated percentile for a pre-sorted list. p in [0,100]."""
+    if not sorted_vals:
+        return None
+    if len(sorted_vals) == 1:
+        return float(sorted_vals[0])
+    k = (len(sorted_vals) - 1) * (p / 100.0)
+    f = int(k)
+    c = min(f + 1, len(sorted_vals) - 1)
+    if f == c:
+        return float(sorted_vals[f])
+    return float(sorted_vals[f] + (sorted_vals[c] - sorted_vals[f]) * (k - f))
+
+
+def _compute_forward_pe_history_fmp(ticker: str) -> Optional[dict]:
+    """Compute a ~5y weekly series of forward P/E using hindsight NTM EPS.
+
+    Returns dict {ticker, computed_at, series: [{date, pe}], stats: {q1, median, q3,
+    current_pe, current_percentile, count, in_buy_zone}} or None on failure.
+    """
+    today = _dt.date.today()
+    from_date = (today - _dt.timedelta(days=_PE_HISTORY_YEARS * 365 + 30)).isoformat()
+
+    # Quarterly EPS (10y horizon to ensure we have NTM windows for early dates).
+    quarters = _fmp_get(
+        "income-statement", symbol=ticker, period="quarter", limit=44
+    )
+    if not quarters or not isinstance(quarters, list):
+        return None
+    eps_quarters = []
+    for q in quarters:
+        d = (q.get("date") or "")[:10]
+        # FMP uses epsdiluted (preferred) or eps (basic).
+        eps = q.get("epsdiluted")
+        if eps is None:
+            eps = q.get("eps")
+        if d and eps is not None:
+            try:
+                eps_quarters.append((d, float(eps)))
+            except (TypeError, ValueError):
+                continue
+    if len(eps_quarters) < 8:
+        return None
+    eps_quarters.sort()  # ascending by date
+
+    # Historical daily prices.
+    hist = _fmp_get("historical-price-eod/light", symbol=ticker, **{"from": from_date})
+    if not hist or not isinstance(hist, list):
+        return None
+    prices = []
+    for h in hist:
+        d = (h.get("date") or "")[:10]
+        p = h.get("price")
+        if d and p:
+            try:
+                prices.append((d, float(p)))
+            except (TypeError, ValueError):
+                continue
+    if len(prices) < 60:
+        return None
+    prices.sort()  # ascending by date
+
+    # For each historical price date, find the next 4 quarters and sum.
+    # Walk both lists in order (O(n)).
+    series = []
+    qi = 0
+    for idx, (pdate, price) in enumerate(prices):
+        if idx % _PE_HISTORY_SAMPLE_EVERY_N_DAYS != 0:
+            continue
+        # Advance qi until eps_quarters[qi].date > pdate
+        while qi < len(eps_quarters) and eps_quarters[qi][0] <= pdate:
+            qi += 1
+        # Need 4 quarters strictly after pdate.
+        if qi + 4 > len(eps_quarters):
+            continue
+        ntm_eps = sum(eps_quarters[qi + j][1] for j in range(4))
+        if ntm_eps <= 0:
+            continue
+        pe = price / ntm_eps
+        if pe <= 0 or pe > 500:  # sanity cap
+            continue
+        series.append({"date": pdate, "pe": round(pe, 2)})
+
+    if len(series) < 20:
+        return None
+
+    pe_values = sorted(s["pe"] for s in series)
+    q1 = _percentile(pe_values, 25)
+    median = _percentile(pe_values, 50)
+    q3 = _percentile(pe_values, 75)
+
+    # Current point from current forward EPS estimate.
+    current_pe = None
+    current_percentile = None
+    in_buy_zone = False
+    fund = _fetch_ticker_fundamentals_fmp(ticker)
+    if fund and fund.get("forward_eps") and fund["forward_eps"] > 0 and fund.get("current_price"):
+        current_pe = fund["current_price"] / fund["forward_eps"]
+        below = sum(1 for v in pe_values if v <= current_pe)
+        current_percentile = round(100.0 * below / len(pe_values), 1)
+        in_buy_zone = current_pe <= q1 if q1 else False
+
+    return {
+        "ticker": ticker,
+        "computed_at": _dt.datetime.utcnow(),
+        "series": series,
+        "stats": {
+            "q1": round(q1, 2) if q1 else None,
+            "median": round(median, 2) if median else None,
+            "q3": round(q3, 2) if q3 else None,
+            "min": round(pe_values[0], 2),
+            "max": round(pe_values[-1], 2),
+            "current_pe": round(current_pe, 2) if current_pe else None,
+            "current_percentile": current_percentile,
+            "in_buy_zone": in_buy_zone,
+            "count": len(series),
+        },
+    }
+
+
+def _get_forward_pe_history(ticker: str) -> Optional[dict]:
+    """Cached fetch of forward P/E history. Mongo-backed with 7-day TTL.
+    Returns None when FMP can't deliver enough data."""
+    ticker = (ticker or "").strip().upper()
+    if not ticker:
+        return None
+    coll = _get_mongo_pe_history_collection()
+    if coll is not None:
+        try:
+            doc = coll.find_one({"ticker": ticker})
+            if doc:
+                doc.pop("_id", None)
+                return doc
+        except Exception:
+            pass
+    fresh = _compute_forward_pe_history_fmp(ticker)
+    if fresh is None:
+        return None
+    if coll is not None:
+        try:
+            coll.replace_one({"ticker": ticker}, fresh, upsert=True)
+        except Exception:
+            pass
+    return fresh
+
+
 def _stock_strategy_check(r: dict) -> dict:
     """Strategy filters from the Serafini course + sanity guards on yfinance
     data quality. Returns {passes: bool, reasons: [str]} so the UI can show
@@ -7260,6 +7450,31 @@ def api_screener_lookup(ticker):
     row["passes_strategy"] = check["passes"]
     row["strategy_reasons"] = check["reasons"]
     return jsonify(row)
+
+
+@app.route('/api/screener/pe-history/<ticker>', methods=['GET'])
+@login_required
+def api_screener_pe_history(ticker):
+    """Historical forward P/E (5y, weekly) + Q1/median/Q3 + current percentile.
+    Used by the screener/portfolio cards to surface Serafini's "zona di
+    riacquisto storica" — current forward P/E in the bottom quartile of
+    its multi-year distribution. Mongo-cached for 7 days per ticker.
+    """
+    ticker_norm = (ticker or "").strip().upper()
+    if not ticker_norm or not all(c.isalnum() or c in ".-" for c in ticker_norm) or len(ticker_norm) > 12:
+        return jsonify({"error": "invalid ticker", "ticker": ticker_norm}), 400
+    res = _get_forward_pe_history(ticker_norm)
+    if res is None:
+        return jsonify({"error": "history not available", "ticker": ticker_norm}), 404
+    computed_at = res.get("computed_at")
+    if hasattr(computed_at, "isoformat"):
+        computed_at = computed_at.isoformat() + "Z"
+    return jsonify({
+        "ticker": res.get("ticker", ticker_norm),
+        "computed_at": computed_at,
+        "series": res.get("series", []),
+        "stats": res.get("stats", {}),
+    })
 
 
 @app.route('/api/screener/refresh', methods=['POST'])
