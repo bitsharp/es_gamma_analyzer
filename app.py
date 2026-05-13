@@ -71,56 +71,136 @@ except Exception:
     _APP_BUILD = None
 
 
-def _compute_build_info() -> dict:
-    """Identifier shown in the header so it's obvious which deploy is live.
+_CHANGELOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CHANGELOG.md")
+# Matches "## [1.2.3] — 2026-05-13" with hyphen, em-dash or en-dash.
+_CHANGELOG_HEADING_RE = re.compile(
+    r"^##\s*\[(?P<version>\d+\.\d+\.\d+)\]\s*[—–-]\s*(?P<date>\d{4}-\d{2}-\d{2})",
+    re.MULTILINE,
+)
 
-    Prefers (in order): Vercel's git env vars → local `git` command → mtime of
-    this file. Computes a sequential "build number" from the commit count when
-    a full git history is available (locally), otherwise falls back to the
-    short SHA alone.
-    """
-    sha = (os.getenv("VERCEL_GIT_COMMIT_SHA") or "").strip()[:7]
-    count = None
-    if not sha:
-        try:
-            import subprocess
-            sha = subprocess.check_output(
-                ["git", "rev-parse", "--short=7", "HEAD"],
-                cwd=os.path.dirname(os.path.abspath(__file__)),
-                stderr=subprocess.DEVNULL, timeout=2,
-            ).decode().strip()
-        except Exception:
-            sha = ""
+
+def _read_changelog_text() -> str:
     try:
-        import subprocess
-        out = subprocess.check_output(
-            ["git", "rev-list", "--count", "HEAD"],
-            cwd=os.path.dirname(os.path.abspath(__file__)),
-            stderr=subprocess.DEVNULL, timeout=2,
-        ).decode().strip()
-        # Shallow clones (typical on Vercel) report a tiny count — only trust it
-        # when it's plausibly the real total.
-        n = int(out)
-        if n > 10:
-            count = n
+        with open(_CHANGELOG_PATH, "r", encoding="utf-8") as fh:
+            return fh.read()
     except Exception:
-        count = None
+        return ""
 
-    if _APP_BUILD:
-        date_iso = _dt.datetime.utcfromtimestamp(_APP_BUILD).strftime("%Y-%m-%d %H:%M")
-    else:
-        date_iso = ""
 
-    if count and sha:
-        label = f"build #{count} · {sha}"
-    elif sha:
-        label = f"build {sha}"
-    elif _APP_BUILD:
-        label = f"build {_APP_BUILD}"
+def _parse_latest_release(text: str) -> dict:
+    """Returns {version, date} for the topmost release in the changelog,
+    or {} if no version heading is found."""
+    if not text:
+        return {}
+    m = _CHANGELOG_HEADING_RE.search(text)
+    if not m:
+        return {}
+    return {"version": m.group("version"), "date": m.group("date")}
+
+
+def _compute_build_info() -> dict:
+    """Identifier shown in the header. Reads CHANGELOG.md as the single source
+    of truth for the user-visible version + release date. Falls back to the
+    file mtime if the changelog isn't parseable for any reason.
+    """
+    text = _read_changelog_text()
+    rel = _parse_latest_release(text)
+    version = rel.get("version")
+    date = rel.get("date")
+
+    if not date and _APP_BUILD:
+        date = _dt.datetime.utcfromtimestamp(_APP_BUILD).strftime("%Y-%m-%d")
+
+    if version and date:
+        label = f"v{version} · {date}"
+    elif version:
+        label = f"v{version}"
+    elif date:
+        label = f"build {date}"
     else:
         label = "build —"
 
-    return {"sha": sha or "—", "count": count, "date": date_iso, "label": label}
+    return {
+        "version": version or "—",
+        "date": date or "",
+        "label": label,
+        "has_notes": bool(text),
+    }
+
+
+def _render_changelog_html(text: str) -> str:
+    """Tiny Markdown → HTML converter for our changelog. Handles only the
+    constructs we use: H1–H4, bullet lists, **bold**, `code`, paragraphs,
+    blank lines. Output is wrapped in <div class="rn-content">.
+    Input is HTML-escaped first so no Markdown can produce raw HTML."""
+    if not text:
+        return '<div class="rn-content"><p>Note di rilascio non disponibili.</p></div>'
+
+    def esc(s):
+        return (s.replace("&", "&amp;").replace("<", "&lt;")
+                 .replace(">", "&gt;").replace('"', "&quot;"))
+
+    _inline_bold = re.compile(r"\*\*(.+?)\*\*")
+    _inline_code = re.compile(r"`([^`]+)`")
+    _inline_link = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+
+    def inline(s):
+        s = _inline_code.sub(lambda m: f"<code>{m.group(1)}</code>", s)
+        s = _inline_bold.sub(lambda m: f"<strong>{m.group(1)}</strong>", s)
+        # Links: only allow http(s) and relative URLs
+        def _link_repl(m):
+            label, href = m.group(1), m.group(2)
+            if href.startswith(("http://", "https://", "/", "#")):
+                return f'<a href="{href}" target="_blank" rel="noopener">{label}</a>'
+            return m.group(0)
+        s = _inline_link.sub(_link_repl, s)
+        return s
+
+    out = []
+    in_list = False
+    in_para = []
+
+    def flush_para():
+        if in_para:
+            out.append("<p>" + inline(" ".join(in_para)) + "</p>")
+            in_para.clear()
+
+    def close_list():
+        nonlocal in_list
+        if in_list:
+            out.append("</ul>")
+            in_list = False
+
+    for raw_line in text.split("\n"):
+        line = esc(raw_line.rstrip())
+        if not line.strip():
+            flush_para()
+            close_list()
+            continue
+        if line.startswith("#### "):
+            flush_para(); close_list()
+            out.append(f"<h5>{inline(line[5:])}</h5>")
+        elif line.startswith("### "):
+            flush_para(); close_list()
+            out.append(f"<h4>{inline(line[4:])}</h4>")
+        elif line.startswith("## "):
+            flush_para(); close_list()
+            out.append(f"<h3>{inline(line[3:])}</h3>")
+        elif line.startswith("# "):
+            flush_para(); close_list()
+            out.append(f"<h2>{inline(line[2:])}</h2>")
+        elif line.lstrip().startswith("- "):
+            flush_para()
+            if not in_list:
+                out.append("<ul>")
+                in_list = True
+            out.append(f"<li>{inline(line.lstrip()[2:])}</li>")
+        else:
+            close_list()
+            in_para.append(line.strip())
+    flush_para()
+    close_list()
+    return '<div class="rn-content">\n' + "\n".join(out) + "\n</div>"
 
 
 _BUILD_INFO = _compute_build_info()
@@ -286,7 +366,7 @@ def _require_login():
     if (not os.getenv('VERCEL')) and path.startswith('/api/debug/'):
         return None
 
-    if path == '/api/health' or path in public_paths or path.startswith(public_prefixes) or path.startswith('/static'):
+    if path == '/api/health' or path == '/api/release-notes' or path in public_paths or path.startswith(public_prefixes) or path.startswith('/static'):
         return None
 
     if _is_authenticated():
@@ -5025,6 +5105,18 @@ def api_cot_sp500():
     return jsonify(data)
 
 
+@app.route('/api/release-notes', methods=['GET'], endpoint='api_release_notes')
+def api_release_notes():
+    """Returns the full CHANGELOG.md rendered as HTML (single source of truth
+    for the in-app "Cosa c'è di nuovo" modal). Public — no auth required."""
+    text = _read_changelog_text()
+    return jsonify({
+        "version": _BUILD_INFO.get("version"),
+        "date": _BUILD_INFO.get("date"),
+        "html": _render_changelog_html(text),
+    })
+
+
 @app.route('/api/health', methods=['GET'], endpoint='api_health')
 def api_health():
     mongo = _get_mongo_collection()
@@ -5033,6 +5125,7 @@ def api_health():
         "status": "ok",
         "pymupdf_available": bool(_PYMUPDF_AVAILABLE),
         "app_build": _APP_BUILD,
+        "version": _BUILD_INFO.get("version"),
         "python": _RUNTIME_PYTHON,
         "in_venv": bool(_IN_VENV),
         "virtual_env": os.getenv("VIRTUAL_ENV"),

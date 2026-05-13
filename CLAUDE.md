@@ -135,6 +135,17 @@ There is **no separate Python module for extraction/analysis** even though the R
 - `/admin/*` routes must be gated by `_is_admin()`, not just `login_required`.
 - File uploads are capped at 16 MB (`MAX_CONTENT_LENGTH`). Filenames must go through `secure_filename`. Prefer `get_upload_folder()` over hardcoded `uploads/`.
 
+## Release versioning
+
+The version pill in the navbar (and the "Cosa c'è di nuovo" modal) is driven by `CHANGELOG.md` — it's the single source of truth. To cut a new release:
+
+1. At the top of `CHANGELOG.md`, add a new entry with a heading like `## [X.Y.Z] — YYYY-MM-DD` (em-dash, en-dash or hyphen all accepted).
+2. List changes under `### Aggiunto`, `### Modificato`, `### Rimosso`, `### Tecnico` (Italian, matching existing entries).
+3. Bump `MAJOR.MINOR.PATCH` per SemVer: PATCH for bugfixes, MINOR for new features, MAJOR for breaking changes.
+4. Commit and push — Vercel redeploys, the badge updates automatically on the next request.
+
+`_compute_build_info()` reads only the latest entry; older entries appear in the modal via `/api/release-notes` (which renders the whole file).
+
 ## Reference Docs
 
 - [README.md](README.md) — Full guide in Italian (setup, concepts, deploy)

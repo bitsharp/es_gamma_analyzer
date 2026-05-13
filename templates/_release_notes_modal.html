@@ -1,0 +1,193 @@
+{# Release notes modal — included by every page that has a navbar.
+   Pairs with the build badge (.build-badge-btn) rendered in the navbar.
+   The button calls window.openReleaseNotes(), which lazy-loads /api/release-notes.
+#}
+<style>
+    /* Build badge — clickable version pill in the navbar */
+    .build-badge-btn {
+        font-family: monospace;
+        font-size: 0.65rem;
+        color: #adb5bd;
+        padding: 0.18rem 0.5rem;
+        background: rgba(119,141,169,0.12);
+        border: 1px solid rgba(119,141,169,0.25);
+        border-radius: 4px;
+        white-space: nowrap;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+        line-height: 1.3;
+    }
+    .build-badge-btn:hover,
+    .build-badge-btn:focus-visible {
+        background: rgba(96,165,250,0.18);
+        border-color: rgba(96,165,250,0.5);
+        color: #fff;
+        outline: none;
+    }
+
+    /* Modal */
+    .rn-modal[hidden] { display: none !important; }
+    .rn-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+    }
+    .rn-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(0,0,0,0.7);
+        backdrop-filter: blur(2px);
+    }
+    .rn-panel {
+        position: relative;
+        background: #1b263b;
+        border: 1px solid #415a77;
+        border-radius: 12px;
+        max-width: 720px;
+        width: 100%;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .rn-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid #415a77;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    .rn-head h3 {
+        margin: 0;
+        color: #fff;
+        font-size: 1.1rem;
+    }
+    .rn-head .rn-version {
+        font-family: monospace;
+        font-size: 0.78rem;
+        color: #60a5fa;
+        background: rgba(96,165,250,0.12);
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        margin-left: 0.6rem;
+    }
+    .rn-close {
+        background: none;
+        border: none;
+        color: #adb5bd;
+        font-size: 1.7rem;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0 0.4rem;
+    }
+    .rn-close:hover { color: #fff; }
+    .rn-body {
+        padding: 1.1rem 1.25rem;
+        overflow-y: auto;
+        color: #cbd5e1;
+        font-size: 0.88rem;
+        line-height: 1.55;
+    }
+    .rn-loading { color: #778da9; font-style: italic; }
+    .rn-body h2 {
+        color: #fff;
+        font-size: 1.05rem;
+        margin: 0 0 0.4rem;
+    }
+    .rn-body h3 {
+        color: #60a5fa;
+        font-size: 1rem;
+        margin: 1.4rem 0 0.5rem;
+        padding-bottom: 0.3rem;
+        border-bottom: 1px solid rgba(96,165,250,0.3);
+    }
+    .rn-body h3:first-child { margin-top: 0; }
+    .rn-body h4 {
+        color: #4ade80;
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin: 1rem 0 0.4rem;
+    }
+    .rn-body h5 { color: #e2e8f0; font-size: 0.85rem; margin: 0.8rem 0 0.3rem; }
+    .rn-body p { margin: 0.5rem 0; }
+    .rn-body ul { padding-left: 1.4rem; margin: 0.3rem 0 0.9rem; }
+    .rn-body li { margin: 0.25rem 0; }
+    .rn-body strong { color: #fff; font-weight: 600; }
+    .rn-body code {
+        font-family: monospace;
+        font-size: 0.82rem;
+        color: #fbbf24;
+        background: rgba(251,191,36,0.1);
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+    }
+    .rn-body a { color: #60a5fa; text-decoration: none; }
+    .rn-body a:hover { color: #93c5fd; text-decoration: underline; }
+
+    @media (max-width: 600px) {
+        .rn-panel { max-height: 92vh; }
+        .rn-head h3 { font-size: 1rem; }
+        .rn-body { font-size: 0.85rem; padding: 0.9rem 1rem; }
+    }
+</style>
+
+<div id="rnModal" class="rn-modal" hidden role="dialog" aria-modal="true" aria-labelledby="rnTitle">
+    <div class="rn-overlay" data-rn-close></div>
+    <div class="rn-panel">
+        <div class="rn-head">
+            <h3 id="rnTitle">
+                Cosa c'è di nuovo
+                <span class="rn-version">v{{ build_info.version }}</span>
+            </h3>
+            <button type="button" class="rn-close" data-rn-close aria-label="Chiudi">&times;</button>
+        </div>
+        <div class="rn-body" id="rnBody">
+            <div class="rn-loading">Carico le note di rilascio…</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function () {
+        const modal = document.getElementById('rnModal');
+        if (!modal) return;
+        let loaded = false;
+
+        window.openReleaseNotes = function () {
+            modal.hidden = false;
+            document.body.style.overflow = 'hidden';
+            if (loaded) return;
+            loaded = true;
+            fetch('/api/release-notes')
+                .then(r => r.ok ? r.json() : Promise.reject(r))
+                .then(d => {
+                    document.getElementById('rnBody').innerHTML =
+                        d.html || '<p>Note di rilascio non disponibili.</p>';
+                })
+                .catch(() => {
+                    loaded = false;
+                    document.getElementById('rnBody').innerHTML =
+                        '<p style="color:#f87171;">Errore caricamento note di rilascio.</p>';
+                });
+        };
+
+        function close() {
+            modal.hidden = true;
+            document.body.style.overflow = '';
+        }
+        modal.addEventListener('click', (e) => {
+            if (e.target.closest('[data-rn-close]')) close();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !modal.hidden) close();
+        });
+    })();
+</script>
