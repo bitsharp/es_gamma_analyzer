@@ -136,8 +136,64 @@
         margin-top: 0.4rem;
         font-size: 0.72rem;
         color: #adb5bd;
+        line-height: 1.6;
     }
     .pe-history .ph-zone-dates strong { color: #4ade80; }
+    .pe-history .ph-zone-entry {
+        display: inline-block;
+        margin-right: 0.2rem;
+    }
+    .pe-history .ph-zone-entry .ph-zone-pe {
+        color: #778da9;
+        font-size: 0.68rem;
+    }
+
+    .pe-history .ph-peaks {
+        margin-top: 0.25rem;
+        font-size: 0.7rem;
+        color: #778da9;
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    .pe-history .ph-peak strong { color: #e2e8f0; }
+    .pe-history .ph-peak.peak-max { color: #fca5a5; }
+    .pe-history .ph-peak.peak-max strong { color: #f87171; }
+    .pe-history .ph-peak.peak-min { color: #86efac; }
+    .pe-history .ph-peak.peak-min strong { color: #4ade80; }
+
+    /* Chart markers (HTML overlay, kept square regardless of SVG stretch) */
+    .pe-history .ph-marker-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: calc(100% - 60px);
+        height: 100%;
+        pointer-events: none;
+    }
+    .pe-history .ph-marker {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: auto;
+        cursor: help;
+    }
+    .pe-history .ph-marker.buy {
+        /* down-pointing triangle, sits above the data point */
+        border-left: 6px solid transparent;
+        border-right: 6px solid transparent;
+        border-top: 9px solid #4ade80;
+        transform: translate(-50%, -180%);
+        filter: drop-shadow(0 1px 1px rgba(0,0,0,0.35));
+    }
+    .pe-history .ph-marker.max {
+        /* up-pointing triangle, sits below the data point */
+        border-left: 6px solid transparent;
+        border-right: 6px solid transparent;
+        border-bottom: 9px solid #f87171;
+        transform: translate(-50%, 80%);
+        filter: drop-shadow(0 1px 1px rgba(0,0,0,0.35));
+    }
     .pe-history .ph-loading,
     .pe-history .ph-unavailable {
         color: #778da9;
@@ -207,12 +263,32 @@
                 ? `<span class="ph-buy-badge" title="P/E attuale ≤ Q1 storico">Zona ricarico storica</span>`
                 : `<span class="ph-buy-badge dim">P/E ${fmt(stats.current_pe)}x · ${fmt(curPct)}° perc.</span>`;
 
-            const chart = buildChart(series, stats, expanded, dotClass);
+            const lastZones = lastBuyZoneEntries(series, stats.q1, 3);
+            const chart = buildChart(series, stats, expanded, dotClass, lastZones);
 
-            const lastZones = lastBuyZoneDates(series, stats.q1, 3);
+            const fmtPrice = p => '$' + (p >= 100 ? p.toFixed(0) : p.toFixed(2));
             const zonesHtml = lastZones.length
-                ? `<div class="ph-zone-dates">Ultime zone Q1 (≤ ${stats.q1}x): ${lastZones.map(d => `<strong>${d}</strong>`).join(' · ')}</div>`
+                ? `<div class="ph-zone-dates"><strong style="color:#778da9;font-weight:600;">Ultime zone Q1 (≤ ${stats.q1}x):</strong>
+                       ${lastZones.map(z =>
+                           `<span class="ph-zone-entry"><strong>${z.date}</strong> a <strong>${fmtPrice(z.price)}</strong> <span class="ph-zone-pe">(${z.pe}x)</span></span>`
+                       ).join(' · ')}</div>`
                 : '';
+
+            // Picchi storici: max + min P/E with their dates & prices.
+            let peaksHtml = '';
+            if (stats.max_pe_value != null && stats.min_pe_value != null) {
+                peaksHtml = `
+                    <div class="ph-peaks">
+                        <span class="ph-peak peak-max" title="P/E più alto della serie 5y — il momento più caro">
+                            ▲ max <strong>${stats.max_pe_value}x</strong>
+                            il ${stats.max_pe_date} a <strong>${fmtPrice(stats.max_pe_price)}</strong>
+                        </span>
+                        <span class="ph-peak peak-min" title="P/E più basso della serie 5y — il bottom storico">
+                            ▼ min <strong>${stats.min_pe_value}x</strong>
+                            il ${stats.min_pe_date} a <strong>${fmtPrice(stats.min_pe_price)}</strong>
+                        </span>
+                    </div>`;
+            }
 
             const toggleIcon = expanded ? '⊟' : '⊞';
             const toggleTitle = expanded ? 'Comprimi grafico' : 'Espandi grafico';
@@ -231,10 +307,12 @@
                 </div>
                 <div class="ph-chart-wrap${expanded ? ' expanded' : ''}">
                     ${chart.svg}
+                    ${chart.markersWrap || ''}
                     ${chart.labels}
                     ${chart.xLabels}
                 </div>
                 ${zonesHtml}
+                ${peaksHtml}
             `;
 
             const btn = slot.querySelector('[data-action="toggle-ph"]');
@@ -260,14 +338,17 @@
             return sortedArr[f] + (sortedArr[c] - sortedArr[f]) * (k - f);
         }
 
-        function lastBuyZoneDates(series, q1, maxOut) {
+        function lastBuyZoneEntries(series, q1, maxOut) {
+            // Returns up to maxOut entries — start-of-period when P/E first
+            // dipped to/below Q1 — with index, date, pe, price.
             if (!series.length || q1 == null) return [];
             const out = [];
             let inZone = false;
             for (let i = 0; i < series.length; i++) {
-                const below = series[i].pe <= q1;
+                const s = series[i];
+                const below = s.pe <= q1;
                 if (below && !inZone) {
-                    out.push(series[i].date);
+                    out.push({ idx: i, date: s.date, pe: s.pe, price: s.price });
                     inZone = true;
                 } else if (!below) {
                     inZone = false;
@@ -276,7 +357,7 @@
             return out.slice(-maxOut);
         }
 
-        function buildChart(series, stats, expanded, dotClass) {
+        function buildChart(series, stats, expanded, dotClass, buyZoneEntries) {
             // Robust Y range: clip to ~5th-95th percentile so the few crazy
             // post-IPO / pre-earnings outliers don't squash the line.
             const sortedPe = series.map(s => s.pe).slice().sort((a, b) => a - b);
@@ -333,6 +414,35 @@
                 ${dot}
             </svg>`;
 
+            // Chart markers (HTML overlay, kept square regardless of SVG stretch).
+            // Only rendered when expanded — would be illegible at 110px height.
+            let markersHtml = '';
+            if (expanded) {
+                const fmtP = p => '$' + (p >= 100 ? p.toFixed(0) : p.toFixed(2));
+                if (Array.isArray(buyZoneEntries)) {
+                    buyZoneEntries.forEach(z => {
+                        const xPct = (xOf(z.idx) / W * 100).toFixed(1);
+                        const yPct = (yOf(z.pe) / H * 100).toFixed(1);
+                        markersHtml += `<span class="ph-marker buy"
+                            style="left: ${xPct}%; top: ${yPct}%;"
+                            title="Entrata zona Q1 — ${z.date} a ${fmtP(z.price)} (P/E ${z.pe}x)"></span>`;
+                    });
+                }
+                if (stats.max_pe_date && stats.max_pe_value != null) {
+                    const maxIdx = series.findIndex(s => s.date === stats.max_pe_date);
+                    if (maxIdx >= 0) {
+                        const xPct = (xOf(maxIdx) / W * 100).toFixed(1);
+                        const yPct = (yOf(stats.max_pe_value) / H * 100).toFixed(1);
+                        markersHtml += `<span class="ph-marker max"
+                            style="left: ${xPct}%; top: ${yPct}%;"
+                            title="Picco P/E — ${stats.max_pe_date} a ${fmtP(stats.max_pe_price)} (P/E ${stats.max_pe_value}x)"></span>`;
+                    }
+                }
+            }
+            const markersWrap = markersHtml
+                ? `<div class="ph-marker-overlay">${markersHtml}</div>`
+                : '';
+
             // HTML overlay labels at the right gutter, positioned by % of chart height.
             const pctOf = y => (y / H * 100).toFixed(1);
             // Hide the "current" label when it would overlap Q1 / median / Q3
@@ -363,7 +473,7 @@
                     <span class="ph-xaxis-label" style="right: 60px;">${dEnd}</span>
                 `;
             }
-            return { svg, labels, xLabels };
+            return { svg, labels, xLabels, markersWrap };
         }
     })();
 </script>

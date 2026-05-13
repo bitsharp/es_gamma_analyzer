@@ -7052,7 +7052,7 @@ def _compute_forward_pe_history_fmp(ticker: str) -> Optional[dict]:
         pe = price / ntm_eps
         if pe <= 0 or pe > 500:  # sanity cap
             continue
-        series.append({"date": pdate, "pe": round(pe, 2)})
+        series.append({"date": pdate, "pe": round(pe, 2), "price": round(price, 2)})
 
     if len(series) < 20:
         return None
@@ -7062,19 +7062,26 @@ def _compute_forward_pe_history_fmp(ticker: str) -> Optional[dict]:
     median = _percentile(pe_values, 50)
     q3 = _percentile(pe_values, 75)
 
+    # Identify the historical max/min P/E points (with their dates and prices).
+    max_pe_point = max(series, key=lambda s: s["pe"])
+    min_pe_point = min(series, key=lambda s: s["pe"])
+
     # Current point from current forward EPS estimate.
     current_pe = None
     current_percentile = None
+    current_price = None
     in_buy_zone = False
     fund = _fetch_ticker_fundamentals_fmp(ticker)
     if fund and fund.get("forward_eps") and fund["forward_eps"] > 0 and fund.get("current_price"):
         current_pe = fund["current_price"] / fund["forward_eps"]
+        current_price = fund["current_price"]
         below = sum(1 for v in pe_values if v <= current_pe)
         current_percentile = round(100.0 * below / len(pe_values), 1)
         in_buy_zone = current_pe <= q1 if q1 else False
 
     return {
         "ticker": ticker,
+        "schema_version": 2,
         "computed_at": _dt.datetime.utcnow(),
         "series": series,
         "stats": {
@@ -7083,7 +7090,14 @@ def _compute_forward_pe_history_fmp(ticker: str) -> Optional[dict]:
             "q3": round(q3, 2) if q3 else None,
             "min": round(pe_values[0], 2),
             "max": round(pe_values[-1], 2),
+            "max_pe_value": max_pe_point["pe"],
+            "max_pe_date": max_pe_point["date"],
+            "max_pe_price": max_pe_point["price"],
+            "min_pe_value": min_pe_point["pe"],
+            "min_pe_date": min_pe_point["date"],
+            "min_pe_price": min_pe_point["price"],
             "current_pe": round(current_pe, 2) if current_pe else None,
+            "current_price": round(current_price, 2) if current_price else None,
             "current_percentile": current_percentile,
             "in_buy_zone": in_buy_zone,
             "count": len(series),
@@ -7101,7 +7115,7 @@ def _get_forward_pe_history(ticker: str) -> Optional[dict]:
     if coll is not None:
         try:
             doc = coll.find_one({"ticker": ticker})
-            if doc:
+            if doc and doc.get("schema_version") == 2:
                 doc.pop("_id", None)
                 return doc
         except Exception:
