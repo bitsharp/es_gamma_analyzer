@@ -1,72 +1,390 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="it">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - ES Gamma Analyzer</title>
+    <title>Accedi — ES Gamma Analyzer</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='logo.svg') }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
+        :root {
+            --bg-0: #060d18;
+            --bg-1: #0d1b2a;
+            --bg-2: #1b263b;
+            --border: #2a3a55;
+            --teal: #2dd4bf;
+            --teal-soft: rgba(45, 212, 191, 0.18);
+            --rose: #fb7185;
+            --amber: #fbbf24;
+            --muted: #9aa9bd;
+            --text: #e7ecf3;
+        }
+
+        * { box-sizing: border-box; }
+
         body {
-            background: #0d1b2a;
-            color: #f8f9fa;
+            margin: 0;
             min-height: 100vh;
+            background: var(--bg-0);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            overflow-x: hidden;
         }
 
-        .navbar {
-            background: linear-gradient(135deg, #1b263b 0%, #415a77 100%);
-            border-bottom: 2px solid #778da9;
+        /* Ambient background: radial glows + faint grid */
+        .bg-fx {
+            position: fixed; inset: 0;
+            z-index: 0;
+            background:
+                radial-gradient(800px 600px at 80% 10%, rgba(45, 212, 191, 0.10), transparent 60%),
+                radial-gradient(700px 500px at 10% 90%, rgba(251, 113, 133, 0.08), transparent 60%),
+                radial-gradient(1200px 800px at 50% 50%, rgba(65, 90, 119, 0.20), transparent 70%),
+                linear-gradient(180deg, #060d18 0%, #0d1b2a 100%);
+        }
+        .bg-fx::after {
+            content: "";
+            position: absolute; inset: 0;
+            background-image:
+                linear-gradient(rgba(120, 141, 169, 0.06) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(120, 141, 169, 0.06) 1px, transparent 1px);
+            background-size: 44px 44px;
+            mask-image: radial-gradient(900px 600px at 50% 50%, #000 30%, transparent 80%);
+            -webkit-mask-image: radial-gradient(900px 600px at 50% 50%, #000 30%, transparent 80%);
         }
 
+        .top-nav {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 22px;
+        }
+        .top-nav .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            color: #fff;
+            font-weight: 700;
+            font-size: 1.05rem;
+            letter-spacing: 0.2px;
+            text-decoration: none;
+        }
+        .top-nav .brand img {
+            width: 32px; height: 32px; border-radius: 8px;
+        }
+        .build-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            background: rgba(120, 141, 169, 0.12);
+            border: 1px solid var(--border);
+            color: var(--muted);
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 0.78rem;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .build-badge:hover {
+            color: var(--text);
+            border-color: var(--teal);
+            background: var(--teal-soft);
+        }
+
+        .hero {
+            position: relative;
+            z-index: 1;
+            min-height: calc(100vh - 78px);
+            display: grid;
+            grid-template-columns: 1.1fr 1fr;
+            align-items: center;
+            gap: 48px;
+            padding: 20px 6vw 60px;
+        }
+        @media (max-width: 900px) {
+            .hero {
+                grid-template-columns: 1fr;
+                gap: 28px;
+                padding: 0 22px 40px;
+            }
+        }
+
+        /* LEFT: pitch */
+        .pitch .logo-mark {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 78px; height: 78px;
+            margin-bottom: 22px;
+            filter: drop-shadow(0 8px 30px rgba(45, 212, 191, 0.22));
+        }
+        .pitch .logo-mark img {
+            width: 100%; height: 100%;
+            border-radius: 18px;
+        }
+        .pitch h1 {
+            font-size: clamp(2rem, 4.4vw, 3.1rem);
+            font-weight: 800;
+            line-height: 1.08;
+            margin: 0 0 14px;
+            background: linear-gradient(180deg, #ffffff 0%, #c8d1df 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .pitch h1 .accent {
+            background: linear-gradient(135deg, #5eead4 0%, #2dd4bf 60%, #0ea5e9 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .pitch .lead {
+            color: var(--muted);
+            font-size: 1.08rem;
+            line-height: 1.6;
+            max-width: 560px;
+            margin: 0 0 28px;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            max-width: 560px;
+        }
+        @media (max-width: 520px) {
+            .features { grid-template-columns: 1fr; }
+        }
+        .feature {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 12px 14px;
+            background: rgba(27, 38, 59, 0.55);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            backdrop-filter: blur(6px);
+        }
+        .feature .ico {
+            flex: 0 0 36px;
+            width: 36px; height: 36px;
+            display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 10px;
+            font-size: 1rem;
+            background: var(--teal-soft);
+            color: var(--teal);
+            border: 1px solid rgba(45, 212, 191, 0.35);
+        }
+        .feature .meta { line-height: 1.25; }
+        .feature .meta b { display: block; color: #fff; font-size: 0.95rem; }
+        .feature .meta span { color: var(--muted); font-size: 0.82rem; }
+
+        /* RIGHT: login card */
+        .login-wrap {
+            display: flex;
+            justify-content: center;
+        }
         .login-card {
-            background: #1b263b;
-            border: 2px solid #415a77;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            position: relative;
+            width: 100%;
+            max-width: 440px;
+            background: linear-gradient(180deg, rgba(27, 38, 59, 0.85) 0%, rgba(13, 27, 42, 0.95) 100%);
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            padding: 34px 30px 26px;
+            box-shadow:
+                0 30px 80px rgba(0, 0, 0, 0.55),
+                0 0 0 1px rgba(45, 212, 191, 0.04) inset;
+            backdrop-filter: blur(8px);
+            overflow: hidden;
+        }
+        .login-card::before {
+            content: "";
+            position: absolute;
+            inset: -1px;
+            border-radius: 22px;
+            padding: 1px;
+            background: linear-gradient(135deg, rgba(45, 212, 191, 0.55), rgba(120, 141, 169, 0.1) 40%, rgba(45, 212, 191, 0.0) 70%);
+            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            -webkit-mask-composite: xor;
+                    mask-composite: exclude;
+            pointer-events: none;
+        }
+        .login-card h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin: 0 0 6px;
+            color: #fff;
+        }
+        .login-card .sub {
+            color: var(--muted);
+            font-size: 0.95rem;
+            margin: 0 0 26px;
         }
 
         .btn-google {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            padding: 13px 16px;
+            border-radius: 12px;
             background: #ffffff;
             color: #111827;
+            font-weight: 600;
+            font-size: 1rem;
+            text-decoration: none;
             border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+            transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s;
         }
-
         .btn-google:hover {
             background: #f3f4f6;
             color: #111827;
+            transform: translateY(-1px);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+        }
+        .btn-google:active { transform: translateY(0); }
+        .btn-google svg { width: 18px; height: 18px; }
+
+        .divider {
+            display: flex; align-items: center; gap: 10px;
+            color: var(--muted);
+            font-size: 0.78rem;
+            margin: 22px 0 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+        }
+        .divider::before, .divider::after {
+            content: "";
+            height: 1px; flex: 1;
+            background: linear-gradient(90deg, transparent, var(--border), transparent);
+        }
+
+        .fineprint {
+            color: var(--muted);
+            font-size: 0.78rem;
+            line-height: 1.55;
+            margin-top: 14px;
+        }
+        .fineprint code {
+            background: rgba(120, 141, 169, 0.12);
+            color: var(--text);
+            padding: 1px 6px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+        }
+
+        .card-footer-note {
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.78rem;
+            margin-top: 18px;
+        }
+        .card-footer-note .dot {
+            display: inline-block;
+            width: 6px; height: 6px;
+            background: var(--teal);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--teal);
+            margin-right: 6px;
+            vertical-align: middle;
         }
     </style>
 </head>
 <body>
-    <nav class="navbar mb-4">
-        <div class="container-fluid px-2 px-lg-3">
-            <span class="navbar-brand" style="font-size: 1.6rem; font-weight: 700; color: #ffffff;">ES Gamma Analyzer</span>
-            <button type="button" class="build-badge-btn ms-2"
-                    onclick="openReleaseNotes()"
-                    title="Cosa c'è di nuovo — release del {{ build_info.date }}">
-                {{ build_info.label }}
-            </button>
-            <span class="text-muted ms-auto">Sign in</span>
-        </div>
-    </nav>
+    <div class="bg-fx" aria-hidden="true"></div>
 
-    <div class="container" style="max-width: 520px;">
-        <div class="card login-card">
-            <div class="card-body p-4">
-                <h4 class="mb-2">Accedi alla dashboard</h4>
-                <p class="text-muted mb-4">Usa Google per accedere alla dashboard principale.</p>
+    <header class="top-nav">
+        <a href="/" class="brand">
+            <img src="{{ url_for('static', filename='logo.svg') }}" alt="">
+            <span>ES Gamma Analyzer</span>
+        </a>
+        <button type="button" class="build-badge"
+                onclick="openReleaseNotes()"
+                title="Cosa c'è di nuovo — release del {{ build_info.date }}">
+            <i class="bi bi-stars"></i> {{ build_info.label }}
+        </button>
+    </header>
 
-                <a class="btn btn-google w-100" href="/login/google">
-                    <i class="bi bi-google me-2"></i>Continue with Google
-                </a>
+    <main class="hero">
+        <section class="pitch">
+            <div class="logo-mark">
+                <img src="{{ url_for('static', filename='logo.svg') }}" alt="ES Gamma Analyzer logo">
+            </div>
+            <h1>
+                Analizza il <span class="accent">gamma 0DTE</span><br>
+                sull'E-mini S&amp;P 500.
+            </h1>
+            <p class="lead">
+                Estrai i livelli di gamma dai PDF dei broker, individua il gamma flip e i
+                supporti/resistenze chiave, e segui SPX, ES, SPY e mega-cap in tempo reale —
+                tutto in un'unica dashboard.
+            </p>
 
-                <div class="mt-3 text-muted small">
-                    Se il login non funziona, verifica che siano impostate le variabili d'ambiente
-                    <span class="text-nowrap">GOOGLE_CLIENT_ID</span>, <span class="text-nowrap">GOOGLE_CLIENT_SECRET</span>,
-                    <span class="text-nowrap">FLASK_SECRET_KEY</span>.
+            <div class="features">
+                <div class="feature">
+                    <span class="ico"><i class="bi bi-file-earmark-pdf"></i></span>
+                    <div class="meta">
+                        <b>Parser PDF</b>
+                        <span>Estrazione strike-level da OpenInterest</span>
+                    </div>
+                </div>
+                <div class="feature">
+                    <span class="ico"><i class="bi bi-bullseye"></i></span>
+                    <div class="meta">
+                        <b>Gamma Flip</b>
+                        <span>Livelli chiave automatici</span>
+                    </div>
+                </div>
+                <div class="feature">
+                    <span class="ico"><i class="bi bi-journal-text"></i></span>
+                    <div class="meta">
+                        <b>Trading Journal</b>
+                        <span>Log trade in stile TradeZella</span>
+                    </div>
+                </div>
+                <div class="feature">
+                    <span class="ico"><i class="bi bi-check2-square"></i></span>
+                    <div class="meta">
+                        <b>Checklist</b>
+                        <span>Routine pre-market guidata</span>
+                    </div>
                 </div>
             </div>
-        </div>
-    </div>
+        </section>
+
+        <section class="login-wrap">
+            <div class="login-card">
+                <h2>Accedi alla dashboard</h2>
+                <p class="sub">Usa il tuo account Google per entrare. Nessuna password da ricordare.</p>
+
+                <a class="btn-google" href="/login/google">
+                    <svg viewBox="0 0 48 48" aria-hidden="true">
+                        <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.4 29.3 35.5 24 35.5c-6.4 0-11.5-5.1-11.5-11.5S17.6 12.5 24 12.5c2.9 0 5.6 1.1 7.6 2.9l5.7-5.7C33.9 6.5 29.2 4.5 24 4.5 13.2 4.5 4.5 13.2 4.5 24S13.2 43.5 24 43.5 43.5 34.8 43.5 24c0-1.2-.1-2.3-.3-3.5z"/>
+                        <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 16 18.9 12.5 24 12.5c2.9 0 5.6 1.1 7.6 2.9l5.7-5.7C33.9 6.5 29.2 4.5 24 4.5 16.3 4.5 9.7 8.8 6.3 14.7z"/>
+                        <path fill="#4CAF50" d="M24 43.5c5.1 0 9.8-2 13.3-5.2l-6.1-5.2c-2 1.4-4.5 2.4-7.2 2.4-5.3 0-9.7-3-11.3-7.4l-6.5 5C9.6 39.1 16.2 43.5 24 43.5z"/>
+                        <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.4l6.1 5.2c-.4.4 6.7-4.9 6.7-14.6 0-1.2-.1-2.3-.4-3.5z"/>
+                    </svg>
+                    Continua con Google
+                </a>
+
+                <div class="divider">solo via Google</div>
+
+                <div class="fineprint">
+                    Se il login non funziona, verifica che siano impostate le variabili d'ambiente
+                    <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code>,
+                    <code>FLASK_SECRET_KEY</code>.
+                </div>
+
+                <div class="card-footer-note">
+                    <span class="dot"></span>Sessione cifrata · Solo email autorizzate hanno accesso
+                </div>
+            </div>
+        </section>
+    </main>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     {% include '_release_notes_modal.html' %}

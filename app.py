@@ -4818,9 +4818,8 @@ def journal_day_view():
 
 @app.route('/favicon.ico')
 def favicon():
-    # Avoid a 404 page if the browser requests /favicon.ico.
-    # Returning 204 is fine; you can later add a real icon under /static.
-    return ('', 204)
+    # Serve the SVG favicon for legacy /favicon.ico requests.
+    return redirect(url_for('static', filename='favicon.svg'), code=302)
 
 
 @app.route('/login')

@@ -5,6 +5,20 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.1.0] — 2026-05-14
+
+### Aggiunto
+- **Logo / brand mark** dell'applicazione: nuova icona SVG (γ stilizzata su tile dark con candle e gamma flip), usata come favicon su tutte le pagine e come logo accanto al titolo nella navbar della dashboard.
+- **Apple touch icon** per quando l'app viene aggiunta alla home dello smartphone.
+
+### Modificato
+- **Pagina di login completamente ridisegnata**: layout hero su due colonne con pitch del prodotto (PDF parser, gamma flip, journal, checklist), card di login con bordo gradient e glow, bottone Google con logo nativo a 4 colori, background con radial glow + grid sottile. Su mobile collassa a colonna singola.
+- `/favicon.ico` ora redireziona al nuovo SVG invece di restituire 204.
+
+### Tecnico
+- Nuova cartella [static/](static/) con [logo.svg](static/logo.svg) (512×512) e [favicon.svg](static/favicon.svg) (64×64), serviti via `url_for('static', ...)`.
+
+
 ## [1.0.3] — 2026-05-13
 
 ### Aggiunto
