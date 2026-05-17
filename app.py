@@ -6622,6 +6622,23 @@ _SCREENER_SECTOR_DISCOUNTS = {
     "Materials": 0,
 }
 
+# Display metadata for each sector bucket (label IT, Bootstrap icon, accent color).
+# Used by the Settori view to render the sector grid and the drill-down header.
+_SCREENER_SECTOR_LABELS = {
+    "Tech":          ("Tecnologia",          "bi-cpu",              "#60a5fa"),
+    "Comms":         ("Comunicazioni",       "bi-broadcast",        "#a78bfa"),
+    "Discretionary": ("Consumer Cyclical",   "bi-bag",              "#fb7185"),
+    "Staples":       ("Consumer Defensive",  "bi-basket",           "#34d399"),
+    "Financial":     ("Financial Services",  "bi-bank",             "#fbbf24"),
+    "Healthcare":    ("Healthcare",          "bi-heart-pulse",      "#f472b6"),
+    "Industrial":    ("Industrials",         "bi-gear",             "#94a3b8"),
+    "Energy":        ("Energy",              "bi-fuel-pump",        "#fb923c"),
+    "Materials":     ("Basic Materials",     "bi-bricks",           "#facc15"),
+    "RealEstate":    ("Real Estate",         "bi-building",         "#22d3ee"),
+    "Utilities":     ("Utilities",           "bi-lightning-charge", "#2dd4bf"),
+    "Lusso":         ("Lusso",               "bi-gem",              "#e879f9"),
+}
+
 # Mapping from yfinance GICS sector strings to our internal bucket.
 _SCREENER_GICS_TO_BUCKET = {
     "Technology": "Tech",
@@ -7737,6 +7754,165 @@ def api_screener_refresh():
         return jsonify({"status": "started", "market": market})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ============================================================================
+# SECTOR DRILL-DOWN (live FMP/yfinance data, no mock)
+# ----------------------------------------------------------------------------
+# Reuses the same screener cache as Damodaran view. The "criteria per sector"
+# = the same Serafini strategy filters PLUS the per-bucket sector_disc applied
+# in _calculate_damodaran_target. No new fundamentals fetched beyond what the
+# main refresh already pulled (FMP profile + analyst-estimates + history,
+# yfinance fallback).
+# ============================================================================
+
+
+@app.route('/api/screener/sectors', methods=['GET'])
+@login_required
+def api_screener_sectors():
+    """List of sectors with per-bucket counts for a market.
+    Counts come from the live cache (FMP/yfinance results). No mock data.
+    """
+    market = (request.args.get('market') or 'US').strip().upper()
+    if market not in _SCREENER_VALID_MARKETS:
+        return jsonify({"error": f"invalid market '{market}'"}), 400
+
+    fresh = _ensure_screener_cache_fresh(market=market)
+    cache = _get_market_cache(market)
+    results = list(cache.get("results") or [])
+
+    counts = {}
+    qualified_counts = {}
+    for r in results:
+        b = r.get("bucket") or "Tech"
+        counts[b] = counts.get(b, 0) + 1
+        if _stock_passes_strategy(r):
+            qualified_counts[b] = qualified_counts.get(b, 0) + 1
+
+    sectors = []
+    for bucket, (label, icon, color) in _SCREENER_SECTOR_LABELS.items():
+        sectors.append({
+            "bucket": bucket,
+            "label": label,
+            "icon": icon,
+            "color": color,
+            "sector_disc": _SCREENER_SECTOR_DISCOUNTS.get(bucket, 0),
+            "count": counts.get(bucket, 0),
+            "qualified_count": qualified_counts.get(bucket, 0),
+        })
+
+    return jsonify({
+        "market": market,
+        "computed_at": cache.get("computed_at"),
+        "is_fresh": fresh,
+        "in_progress": cache.get("in_progress", False),
+        "universe_size": len(_screener_universe_for(market)),
+        "evaluated_count": len(results),
+        "qualified_count": sum(qualified_counts.values()),
+        "sectors": sectors,
+    })
+
+
+@app.route('/api/screener/sectors/<bucket>', methods=['GET'])
+@login_required
+def api_screener_sector_top(bucket):
+    """Top N qualified stocks for a single sector bucket in a market.
+    Same ranking as the Damodaran top: zone_rank ASC, then discount_pct DESC.
+    """
+    bucket = (bucket or "").strip()
+    if bucket not in _SCREENER_SECTOR_LABELS:
+        return jsonify({
+            "error": f"invalid sector '{bucket}'",
+            "valid": list(_SCREENER_SECTOR_LABELS.keys()),
+        }), 400
+
+    market = (request.args.get('market') or 'US').strip().upper()
+    if market not in _SCREENER_VALID_MARKETS:
+        return jsonify({"error": f"invalid market '{market}'"}), 400
+
+    try:
+        limit = int(request.args.get('limit') or 5)
+    except (TypeError, ValueError):
+        limit = 5
+    limit = max(1, min(20, limit))
+
+    fresh = _ensure_screener_cache_fresh(market=market)
+    cache = _get_market_cache(market)
+    results = list(cache.get("results") or [])
+    sector_rows = [r for r in results if (r.get("bucket") or "Tech") == bucket]
+    qualified = [r for r in sector_rows if _stock_passes_strategy(r)]
+    qualified.sort(key=lambda r: (
+        r.get("zone_rank", _ZONE_RANK_NA),
+        -(r.get("discount_pct") or -999),
+    ))
+    top = qualified[:limit]
+
+    label, icon, color = _SCREENER_SECTOR_LABELS[bucket]
+    return jsonify({
+        "market": market,
+        "bucket": bucket,
+        "label": label,
+        "icon": icon,
+        "color": color,
+        "sector_disc": _SCREENER_SECTOR_DISCOUNTS.get(bucket, 0),
+        "computed_at": cache.get("computed_at"),
+        "is_fresh": fresh,
+        "in_progress": cache.get("in_progress", False),
+        "evaluated_count": len(sector_rows),
+        "qualified_count": len(qualified),
+        "top": top,
+    })
+
+
+@app.route('/api/screener/sectors/<bucket>/lookup/<ticker>', methods=['GET'])
+@login_required
+def api_screener_sector_lookup(bucket, ticker):
+    """On-demand analysis scoped to a sector. Uses the ticker's REAL sector
+    discount (so the math stays honest), but flags `sector_mismatch=True`
+    when the ticker's bucket differs from the user's chosen sector — the UI
+    surfaces a warning instead of silently mis-classifying.
+    """
+    bucket = (bucket or "").strip()
+    if bucket not in _SCREENER_SECTOR_LABELS:
+        return jsonify({
+            "error": f"invalid sector '{bucket}'",
+            "valid": list(_SCREENER_SECTOR_LABELS.keys()),
+        }), 400
+
+    ticker_norm = (ticker or "").strip().upper()
+    if (not ticker_norm
+        or not all(c.isalnum() or c in ".-" for c in ticker_norm)
+        or len(ticker_norm) > 12):
+        return jsonify({"error": "invalid ticker", "ticker": ticker_norm}), 400
+
+    fund = _fetch_ticker_fundamentals(ticker_norm)
+    if not fund:
+        return jsonify({
+            "error": "ticker not found or missing data (forward EPS / growth)",
+            "ticker": ticker_norm,
+        }), 404
+
+    detected_country = _map_country_to_bucket(fund.get("country_iso"))
+    fund["country"] = detected_country
+    actual_bucket = fund.get("bucket") or "Tech"
+
+    calc = _calculate_damodaran_target(
+        avg_growth=fund["growth_5y"],
+        forward_eps=fund["forward_eps"],
+        current_price=fund["current_price"],
+        country=fund["country"],
+        bucket=actual_bucket,
+        dev_st_pct=fund["dev_st_pct"],
+    )
+    row = {**fund, **calc, "market": detected_country}
+    check = _stock_strategy_check(row)
+    row["passes_strategy"] = check["passes"]
+    row["strategy_reasons"] = check["reasons"]
+    row["requested_bucket"] = bucket
+    row["sector_mismatch"] = (actual_bucket != bucket)
+    if actual_bucket in _SCREENER_SECTOR_LABELS:
+        row["actual_sector_label"] = _SCREENER_SECTOR_LABELS[actual_bucket][0]
+    return jsonify(row)
 
 
 # ============================================================================

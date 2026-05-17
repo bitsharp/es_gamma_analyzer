@@ -5,6 +5,18 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.2.0] — 2026-05-17
+
+### Aggiunto
+- **Vista "Settori" nello Screener**: tab interna che affianca la Strategia Damodaran. Mostra una griglia di 12 settori (Tech, Comms, Discretionary, Staples, Financial, Healthcare, Industrial, Energy, Materials, Real Estate, Utilities, Lusso) con icona, sconto P/E del settore e numero di aziende qualificate vs valutate per il mercato corrente.
+- **Drill-down per settore**: cliccando un settore si entra in una vista che mostra le **top 5 aziende qualificate** (stesso ranking della Damodaran: Zona Affare → Sconto → Equa → Cara, poi Discount %). Le market tab restano attive per cambiare paese senza perdere la sezione.
+- **Ricerca scoped al settore**: nel drill-down la casella di ricerca cerca un ticker e applica la valutazione Damodaran. Se il ticker appartiene a un altro settore, viene mostrato un banner di mismatch e usato il `sector_disc` reale per non distorcere i calcoli.
+
+### Tecnico
+- 3 nuovi endpoint: `GET /api/screener/sectors`, `GET /api/screener/sectors/<bucket>`, `GET /api/screener/sectors/<bucket>/lookup/<ticker>`. Riusano il cache screener esistente (FMP primario, yfinance fallback) — nessun dato mock.
+- Nuova mappa `_SCREENER_SECTOR_LABELS` con label IT, icona Bootstrap Icons e colore accent per ciascun bucket.
+
+
 ## [1.1.0] — 2026-05-14
 
 ### Aggiunto

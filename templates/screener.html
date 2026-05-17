@@ -202,6 +202,195 @@
             white-space: nowrap;
         }
 
+        /* View switcher (Damodaran vs Settori) */
+        .view-tabs {
+            display: flex;
+            gap: 0.25rem;
+            border-bottom: 1px solid #415a77;
+            margin-bottom: 1.2rem;
+        }
+        .view-tab {
+            background: transparent;
+            border: 1px solid transparent;
+            border-bottom: none;
+            color: #adb5bd;
+            padding: 0.55rem 1.1rem;
+            border-radius: 10px 10px 0 0;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            transition: all 0.15s;
+            position: relative;
+            top: 1px;
+        }
+        .view-tab:hover {
+            color: #fff;
+            background: rgba(96,165,250,0.08);
+        }
+        .view-tab.active {
+            color: #fff;
+            background: rgba(96,165,250,0.18);
+            border-color: #415a77;
+            border-bottom-color: #1b263b;
+        }
+
+        /* Sector grid (Settori view, default state) */
+        .sector-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+            gap: 0.85rem;
+        }
+        .sector-tile {
+            background: linear-gradient(135deg, #1b263b 0%, #1e3a5f 100%);
+            border: 1px solid #415a77;
+            border-left: 4px solid #415a77;
+            border-radius: 12px;
+            padding: 1rem 1.1rem;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.2s, border-color 0.2s;
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
+            min-height: 130px;
+        }
+        .sector-tile:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 22px rgba(0,0,0,0.45);
+        }
+        .sector-tile .st-head {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+        }
+        .sector-tile .st-icon {
+            width: 38px; height: 38px;
+            border-radius: 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+        .sector-tile .st-label {
+            font-weight: 700;
+            color: #fff;
+            font-size: 1.02rem;
+        }
+        .sector-tile .st-meta {
+            font-size: 0.74rem;
+            color: #778da9;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .sector-tile .st-counts {
+            display: flex;
+            align-items: baseline;
+            gap: 0.5rem;
+            margin-top: auto;
+        }
+        .sector-tile .st-count-big {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #4ade80;
+            line-height: 1;
+        }
+        .sector-tile .st-count-sub {
+            color: #adb5bd;
+            font-size: 0.82rem;
+        }
+        .sector-tile.empty {
+            opacity: 0.55;
+            cursor: default;
+        }
+        .sector-tile.empty:hover {
+            transform: none;
+            box-shadow: none;
+        }
+        .sector-tile.empty .st-count-big { color: #6b7e92; }
+
+        /* Drill-down header */
+        .breadcrumb-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        .breadcrumb-bar .btn-back {
+            background: rgba(96,165,250,0.12);
+            border: 1px solid #415a77;
+            color: #93c5fd;
+            border-radius: 8px;
+            padding: 0.4rem 0.85rem;
+            cursor: pointer;
+            font-size: 0.88rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.15s;
+        }
+        .breadcrumb-bar .btn-back:hover {
+            background: rgba(96,165,250,0.22);
+            color: #fff;
+            border-color: #60a5fa;
+        }
+        .breadcrumb-bar .sector-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #fff;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+        }
+        .breadcrumb-bar .sector-title .icon-chip {
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.05rem;
+        }
+        .breadcrumb-bar .meta-pill {
+            background: rgba(119,141,169,0.18);
+            color: #cbd5e1;
+            border: 1px solid rgba(119,141,169,0.3);
+            border-radius: 6px;
+            padding: 0.2rem 0.55rem;
+            font-size: 0.76rem;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        .breadcrumb-bar .meta-pill.disc-neg { color: #86efac; border-color: rgba(74,222,128,0.35); }
+        .breadcrumb-bar .meta-pill.disc-pos { color: #fca5a5; border-color: rgba(248,113,113,0.35); }
+
+        .mismatch-banner {
+            background: rgba(251,191,36,0.10);
+            border: 1px solid rgba(251,191,36,0.40);
+            border-radius: 10px;
+            padding: 0.65rem 0.9rem;
+            color: #fbbf24;
+            margin-bottom: 0.7rem;
+            font-size: 0.86rem;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+        .mismatch-banner .mb-icon { flex: 0 0 auto; font-size: 1.05rem; }
+
+        .scope-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            background: rgba(96,165,250,0.10);
+            border: 1px solid rgba(96,165,250,0.30);
+            color: #93c5fd;
+            border-radius: 8px;
+            padding: 0.25rem 0.6rem;
+            font-size: 0.78rem;
+            margin-bottom: 0.5rem;
+        }
+
         .market-tabs {
             display: flex;
             gap: 0.4rem;
@@ -423,16 +612,29 @@
     </nav>
 
     <div class="container-fluid px-2 px-lg-3" style="max-width: 1400px;">
+        <div class="view-tabs" role="tablist" aria-label="Vista">
+            <button class="view-tab active" data-view="damodaran" type="button" role="tab">
+                <i class="bi bi-stars"></i> Strategia Damodaran
+            </button>
+            <button class="view-tab" data-view="sectors" type="button" role="tab">
+                <i class="bi bi-grid-3x3-gap"></i> Settori
+            </button>
+        </div>
+
         <div class="toolbar-title mb-3">
-            <h4 style="color:#fff; margin-bottom:0.15rem;">
+            <h4 id="viewTitle" style="color:#fff; margin-bottom:0.15rem;">
                 Top 10 <span id="marketLabel">USA</span> — Strategia Damodaran
             </h4>
-            <div class="subtitle">
+            <div class="subtitle" id="viewSubtitle">
                 Sottocuotate, growth &gt; 5%, market cap &gt; 2B. Ordinati per Zona (Affare → Sconto → Equa → Cara) e poi per Discount %.
             </div>
         </div>
 
-        <div class="search-section mb-3">
+        <div class="search-section mb-3" id="searchSection">
+            <div id="searchScopeIndicator" class="scope-indicator" style="display:none;">
+                <i class="bi bi-funnel-fill"></i>
+                <span>Ricerca limitata al settore: <strong id="searchScopeLabel">—</strong></span>
+            </div>
             <div class="input-group">
                 <span class="input-group-text" style="background:#1b263b;border:1px solid #415a77;color:#778da9;">
                     <i class="bi bi-search"></i>
@@ -482,6 +684,26 @@
             <div class="empty-state">
                 <div class="spinner-border" role="status"></div>
                 <div class="mt-3">Carico i top picks…</div>
+            </div>
+        </div>
+
+        <div id="sectorContent" style="display:none;">
+            <div id="sectorGrid" class="sector-grid">
+                <div class="empty-state" style="grid-column: 1 / -1;">
+                    <div class="spinner-border" role="status"></div>
+                    <div class="mt-3">Carico i settori…</div>
+                </div>
+            </div>
+            <div id="sectorDrillDown" style="display:none;">
+                <div class="breadcrumb-bar">
+                    <button class="btn-back" id="btnBackToSectors" type="button">
+                        <i class="bi bi-arrow-left"></i> Tutti i settori
+                    </button>
+                    <div class="sector-title" id="drillSectorTitle">—</div>
+                    <span class="meta-pill" id="drillSectorDisc" title="Sconto Damodaran applicato al P/E teorico per questo settore">—</span>
+                    <span class="meta-pill" id="drillSectorCounts">—</span>
+                </div>
+                <div id="drillTopPicks"></div>
             </div>
         </div>
 
@@ -640,23 +862,68 @@
             return `${Math.round(h / 24)}g fa`;
         };
 
-        // ---- Market selector state ----
+        // ---- View + market state ----
+        let activeView = 'damodaran';   // 'damodaran' | 'sectors'
+        let activeSector = null;        // bucket name when drilled into a sector
         let activeMarket = 'US';
+        let sectorMeta = {};            // bucket -> {label, icon, color, sector_disc}
         const MARKET_LABEL = { US: 'USA', IT: 'Italia', DE: 'Germania', IN: 'India' };
+        const DAMODARAN_SUBTITLE = 'Sottocuotate, growth > 5%, market cap > 2B. Ordinati per Zona (Affare → Sconto → Equa → Cara) e poi per Discount %.';
 
         function setActiveMarket(m) {
             activeMarket = m;
             document.querySelectorAll('.market-tab').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.market === m);
             });
-            document.getElementById('marketLabel').textContent = MARKET_LABEL[m] || m;
             // Show loading immediately while we fetch
-            document.getElementById('picksContainer').innerHTML = `
-                <div class="empty-state">
-                    <div class="spinner-border" role="status"></div>
-                    <div class="mt-3">Carico top 5 ${MARKET_LABEL[m]}…</div>
-                </div>`;
-            loadTop();
+            reloadCurrentView({ showSpinner: true });
+        }
+
+        function reloadCurrentView(opts) {
+            opts = opts || {};
+            if (activeView === 'damodaran') {
+                updateTitleDamodaran();
+                if (opts.showSpinner) {
+                    document.getElementById('picksContainer').innerHTML = `
+                        <div class="empty-state">
+                            <div class="spinner-border" role="status"></div>
+                            <div class="mt-3">Carico top 10 ${MARKET_LABEL[activeMarket]}…</div>
+                        </div>`;
+                }
+                loadTop();
+            } else {
+                if (activeSector) {
+                    if (opts.showSpinner) {
+                        document.getElementById('drillTopPicks').innerHTML = `
+                            <div class="empty-state">
+                                <div class="spinner-border" role="status"></div>
+                                <div class="mt-3">Carico ${escapeHtml(activeSector)} (${MARKET_LABEL[activeMarket]})…</div>
+                            </div>`;
+                    }
+                    loadSectorTop(activeSector);
+                } else {
+                    updateTitleSectors();
+                    loadSectors();
+                }
+            }
+        }
+
+        function updateTitleDamodaran() {
+            document.getElementById('viewTitle').innerHTML =
+                `Top 10 <span id="marketLabel">${escapeHtml(MARKET_LABEL[activeMarket])}</span> — Strategia Damodaran`;
+            document.getElementById('viewSubtitle').textContent = DAMODARAN_SUBTITLE;
+        }
+
+        function updateTitleSectors() {
+            document.getElementById('viewTitle').textContent =
+                `Settori — Mercato ${MARKET_LABEL[activeMarket]}`;
+            document.getElementById('viewSubtitle').textContent =
+                'Clicca un settore per vedere le top 5 aziende che superano i filtri della strategia. Conteggi live dal cache FMP/Yahoo Finance.';
+        }
+
+        function fmtDisc(d) {
+            if (d == null || d === 0) return '0';
+            return d > 0 ? `+${d}` : String(d);
         }
 
         async function loadTop() {
@@ -875,7 +1142,7 @@
             return `<div class="lookup-result-wrap mt-2">${closeBtn}${innerHtml}</div>`;
         }
 
-        async function lookupTicker(ticker) {
+        async function lookupTicker(ticker, sectorBucket) {
             const result = document.getElementById('lookupResult');
             const safe = escapeHtml(ticker);
             result.innerHTML = wrapLookupResult(`
@@ -885,7 +1152,10 @@
                 </div>`, true);
             attachCloseHandler();
             try {
-                const res = await fetch('/api/screener/lookup/' + encodeURIComponent(ticker));
+                const url = sectorBucket
+                    ? `/api/screener/sectors/${encodeURIComponent(sectorBucket)}/lookup/${encodeURIComponent(ticker)}`
+                    : `/api/screener/lookup/${encodeURIComponent(ticker)}`;
+                const res = await fetch(url);
                 const data = await res.json().catch(() => ({}));
                 if (res.status === 404) {
                     result.innerHTML = wrapLookupResult(`
@@ -899,8 +1169,24 @@
                 if (!res.ok) {
                     throw new Error(data.error || ('HTTP ' + res.status));
                 }
+                let mismatchBanner = '';
+                if (data.sector_mismatch) {
+                    const requestedMeta = sectorMeta[data.requested_bucket];
+                    const requestedLabel = requestedMeta ? requestedMeta.label : data.requested_bucket;
+                    const actualLabel = data.actual_sector_label || data.bucket || 'sconosciuto';
+                    mismatchBanner = `<div class="mismatch-banner">
+                        <i class="bi bi-exclamation-triangle-fill mb-icon"></i>
+                        <div>
+                            <strong>${safe}</strong> è classificata come
+                            <strong>${escapeHtml(actualLabel)}</strong>, non
+                            <strong>${escapeHtml(requestedLabel)}</strong>.
+                            La valutazione mostrata applica il <code>sector_disc</code> del
+                            settore reale per non distorcere i calcoli.
+                        </div>
+                    </div>`;
+                }
                 result.innerHTML = wrapLookupResult(
-                    renderPickCardHtml(data, { showStrategyBadge: true }), true);
+                    mismatchBanner + renderPickCardHtml(data, { showStrategyBadge: true }), true);
                 attachCloseHandler();
                 hydratePEHistoryWithin(result);
             } catch (err) {
@@ -965,7 +1251,7 @@
             if (!r) return;
             lookupInput.value = r.symbol;
             closeDropdown();
-            lookupTicker(r.symbol);
+            lookupTicker(r.symbol, activeView === 'sectors' ? activeSector : null);
         }
 
         async function fetchTypeahead(q) {
@@ -1021,7 +1307,7 @@
                     const t = lookupInput.value.trim().toUpperCase();
                     if (t) {
                         closeDropdown();
-                        lookupTicker(t);
+                        lookupTicker(t, activeView === 'sectors' ? activeSector : null);
                     }
                 }
             } else if (e.key === 'Escape') {
@@ -1038,7 +1324,7 @@
             const t = lookupInput.value.trim().toUpperCase();
             if (t) {
                 closeDropdown();
-                lookupTicker(t);
+                lookupTicker(t, activeView === 'sectors' ? activeSector : null);
             }
         });
 
@@ -1062,9 +1348,192 @@
             }
         });
 
+        // ---- Sector view ----
+        async function loadSectors() {
+            const grid = document.getElementById('sectorGrid');
+            grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">
+                <div class="spinner-border" role="status"></div>
+                <div class="mt-3">Carico i settori (mercato ${MARKET_LABEL[activeMarket]})…</div>
+            </div>`;
+            try {
+                const res = await fetch(`/api/screener/sectors?market=${activeMarket}`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                renderStatus(data);
+                sectorMeta = {};
+                (data.sectors || []).forEach(s => { sectorMeta[s.bucket] = s; });
+                renderSectorGrid(data.sectors || []);
+            } catch (err) {
+                grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;color:#f87171;">
+                    <i class="bi bi-exclamation-triangle me-1"></i>Errore: ${escapeHtml(err.message)}
+                </div>`;
+            }
+        }
+
+        function renderSectorGrid(sectors) {
+            const grid = document.getElementById('sectorGrid');
+            if (!sectors.length) {
+                grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Nessun settore disponibile.</div>`;
+                return;
+            }
+            grid.innerHTML = sectors.map(s => {
+                const empty = s.count === 0;
+                const discTxt = s.sector_disc === 0
+                    ? 'nessuno sconto'
+                    : `${fmtDisc(s.sector_disc)} pt P/E`;
+                return `
+                    <div class="sector-tile ${empty ? 'empty' : ''}"
+                         data-bucket="${escapeHtml(s.bucket)}"
+                         role="button" tabindex="${empty ? -1 : 0}"
+                         title="${empty ? 'Nessun titolo di questo settore nel mercato corrente' : 'Apri il settore'}">
+                        <div class="st-head">
+                            <span class="st-icon" style="background:${s.color}22;color:${s.color};border:1px solid ${s.color}55;">
+                                <i class="${escapeHtml(s.icon)}"></i>
+                            </span>
+                            <div>
+                                <div class="st-label">${escapeHtml(s.label)}</div>
+                                <div class="st-meta">${escapeHtml(discTxt)}</div>
+                            </div>
+                        </div>
+                        <div class="st-counts">
+                            <span class="st-count-big">${s.qualified_count}</span>
+                            <span class="st-count-sub">qualificate / ${s.count} valutate</span>
+                        </div>
+                    </div>`;
+            }).join('');
+            grid.querySelectorAll('.sector-tile').forEach(tile => {
+                if (tile.classList.contains('empty')) return;
+                const open = () => drillIntoSector(tile.dataset.bucket);
+                tile.addEventListener('click', open);
+                tile.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        open();
+                    }
+                });
+            });
+        }
+
+        async function drillIntoSector(bucket) {
+            activeSector = bucket;
+            const meta = sectorMeta[bucket];
+            document.getElementById('sectorGrid').style.display = 'none';
+            document.getElementById('sectorDrillDown').style.display = 'block';
+
+            const scope = document.getElementById('searchScopeIndicator');
+            document.getElementById('searchSection').style.display = 'block';
+            scope.style.display = 'inline-flex';
+            document.getElementById('searchScopeLabel').textContent = meta ? meta.label : bucket;
+            lookupInput.placeholder = `Cerca un ticker in ${meta ? meta.label : bucket}…`;
+            lookupInput.value = '';
+            clearLookupResult();
+
+            if (meta) {
+                const titleEl = document.getElementById('drillSectorTitle');
+                titleEl.innerHTML = `
+                    <span class="icon-chip" style="background:${meta.color}22;color:${meta.color};border:1px solid ${meta.color}55;">
+                        <i class="${escapeHtml(meta.icon)}"></i>
+                    </span>
+                    ${escapeHtml(meta.label)}`;
+                const discPill = document.getElementById('drillSectorDisc');
+                const d = meta.sector_disc;
+                discPill.textContent = `sector_disc = ${fmtDisc(d)}`;
+                discPill.className = 'meta-pill' + (d < 0 ? ' disc-neg' : (d > 0 ? ' disc-pos' : ''));
+            }
+            document.getElementById('viewTitle').innerHTML =
+                `${meta ? `<i class="${meta.icon}" style="color:${meta.color};"></i> ${escapeHtml(meta.label)}` : escapeHtml(bucket)} — ${MARKET_LABEL[activeMarket]}`;
+            document.getElementById('viewSubtitle').textContent =
+                `Top 5 qualificate del settore secondo i filtri della strategia (growth ≥5%, mcap ≥2B, P/E teorico <100). Dati FMP/Yahoo Finance live.`;
+
+            await loadSectorTop(bucket);
+        }
+
+        async function loadSectorTop(bucket) {
+            const cont = document.getElementById('drillTopPicks');
+            cont.innerHTML = `<div class="empty-state">
+                <div class="spinner-border" role="status"></div>
+                <div class="mt-3">Carico le top 5 di ${escapeHtml(bucket)} (${MARKET_LABEL[activeMarket]})…</div>
+            </div>`;
+            try {
+                const res = await fetch(`/api/screener/sectors/${encodeURIComponent(bucket)}?market=${activeMarket}&limit=5`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                renderStatus(data);
+                document.getElementById('drillSectorCounts').textContent =
+                    `${data.qualified_count} qualificate / ${data.evaluated_count} valutate`;
+                if (!data.top || !data.top.length) {
+                    cont.innerHTML = `<div class="empty-state">
+                        <i class="bi bi-search" style="font-size:2rem;"></i>
+                        <div class="mt-3">Nessun titolo qualificato in questo settore per ${MARKET_LABEL[activeMarket]}.</div>
+                        <div class="mt-1" style="font-size:0.85rem;color:#778da9;">
+                            Le aziende del settore non superano i filtri della strategia
+                            (growth ≥5%, mcap ≥2B, P/E teorico &lt;100, sotto fair value).
+                            Prova un altro mercato dalle tab in alto, o cerca un titolo specifico
+                            nella casella di ricerca per analizzarlo comunque.
+                        </div>
+                    </div>`;
+                    return;
+                }
+                cont.innerHTML = data.top.map((r, idx) => renderPickCardHtml(r, { rank: idx + 1 })).join('');
+                hydratePEHistoryWithin(cont);
+            } catch (err) {
+                cont.innerHTML = `<div class="empty-state" style="color:#f87171;">
+                    <i class="bi bi-exclamation-triangle me-1"></i>Errore: ${escapeHtml(err.message)}
+                </div>`;
+            }
+        }
+
+        function backToSectorGrid() {
+            activeSector = null;
+            document.getElementById('sectorGrid').style.display = 'grid';
+            document.getElementById('sectorDrillDown').style.display = 'none';
+            document.getElementById('searchSection').style.display = 'none';
+            document.getElementById('searchScopeIndicator').style.display = 'none';
+            clearLookupResult();
+            lookupInput.value = '';
+            updateTitleSectors();
+        }
+
+        function setActiveView(view) {
+            if (view === activeView) return;
+            activeView = view;
+            activeSector = null;
+            document.querySelectorAll('.view-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.view === view);
+            });
+            const picks = document.getElementById('picksContainer');
+            const sect  = document.getElementById('sectorContent');
+            const search = document.getElementById('searchSection');
+            const scope = document.getElementById('searchScopeIndicator');
+            clearLookupResult();
+            lookupInput.value = '';
+            scope.style.display = 'none';
+            if (view === 'damodaran') {
+                picks.style.display = 'block';
+                sect.style.display = 'none';
+                search.style.display = 'block';
+                lookupInput.placeholder = 'Cerca per nome o ticker (es. apple, nvidia, ferrari)';
+                updateTitleDamodaran();
+                loadTop();
+            } else {
+                picks.style.display = 'none';
+                sect.style.display = 'block';
+                document.getElementById('sectorGrid').style.display = 'grid';
+                document.getElementById('sectorDrillDown').style.display = 'none';
+                search.style.display = 'none';
+                updateTitleSectors();
+                loadSectors();
+            }
+        }
+
+        document.querySelectorAll('.view-tab').forEach(btn => {
+            btn.addEventListener('click', () => setActiveView(btn.dataset.view));
+        });
+        document.getElementById('btnBackToSectors').addEventListener('click', backToSectorGrid);
+
         loadTop();
-        // Poll every 30s while in_progress, every 5min otherwise
-        setInterval(loadTop, 30000);
+        // Poll every 30s; respects the current view (Damodaran / Settori grid / drill-down)
+        setInterval(() => reloadCurrentView({ showSpinner: false }), 30000);
     </script>
     {% include '_release_notes_modal.html' %}
 </body>
