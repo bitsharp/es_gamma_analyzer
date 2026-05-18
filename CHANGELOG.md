@@ -5,6 +5,17 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.3.0] — 2026-05-18
+
+### Modificato
+- **Rebrand → Polaris.** Il nome user-visible dell'app cambia da "ES Gamma Analyzer" a **Polaris**: navbar, title delle pagine, hero della pagina di login, alt-text del logo, User-Agent verso SEC/EDGAR e FMP. Il pitch del login è stato esteso per riflettere lo scope reale (non solo gamma 0DTE, ma anche screener Damodaran, journal, checklist, portafoglio).
+- **Icona ridisegnata**: il glifo centrale passa da γ (gamma) a **P** (Polaris), su tile dark con la stessa linea del gamma flip e le candele. Aggiunto un piccolo *sparkle* dorato in alto a destra del logo come riferimento alla "stella polare". Favicon coerente con la nuova identità.
+
+### Tecnico
+- Slug interno (`es_gamma_analyzer`) mantenuto per repo, cartella, default `MONGODB_DB` e progetto Vercel: rinominarli richiederebbe una migrazione coordinata delle collection Mongo esistenti.
+- 33 occorrenze utente-visibili sostituite in 11 file (6 template, app.py, 2 SVG, README, CLAUDE.md).
+
+
 ## [1.2.0] — 2026-05-17
 
 ### Aggiunto

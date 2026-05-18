@@ -11,8 +11,9 @@
   </defs>
   <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)" stroke="#2dd4bf" stroke-opacity="0.55" stroke-width="1.5"/>
   <line x1="8" y1="32" x2="56" y2="32" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.6"/>
-  <text x="32" y="46" text-anchor="middle"
+  <text x="32" y="50" text-anchor="middle"
         font-family="Georgia, 'Times New Roman', serif"
-        font-size="46" font-weight="700"
-        fill="url(#teal)">γ</text>
+        font-size="50" font-weight="700"
+        fill="url(#teal)">P</text>
+  <path d="M 48 14 L 50.2 18 L 54 20 L 50.2 22 L 48 26 L 45.8 22 L 42 20 L 45.8 18 Z" fill="#fbbf24" opacity="0.95"/>
 </svg>

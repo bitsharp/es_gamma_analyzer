@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-`es_gamma_analyzer` is a Flask web application that analyzes 0DTE/1DTE gamma exposure from broker PDF reports (e.g. `OpenInterest-*.pdf`) to assist trading the E-mini S&P 500 future (ES). It extracts strike-level gamma from PDFs, computes the gamma flip level, identifies key support/resistance strikes, and serves a dashboard that overlays real-time market data (SPX, ES, SPY, XSP, NVDA, MSFT, AAPL, GOOG, AMZN). It also hosts a trading journal and a pre-trade checklist.
+**Polaris** (internal repo/folder name: `es_gamma_analyzer`) is a Flask web application that started as a 0DTE/1DTE gamma analyzer for the E-mini S&P 500 future (ES) and grew into a trading + investing desk. It extracts strike-level gamma from broker PDF reports (e.g. `OpenInterest-*.pdf`), computes the gamma flip level, identifies key support/resistance strikes, and serves a dashboard that overlays real-time market data (SPX, ES, SPY, XSP, NVDA, MSFT, AAPL, GOOG, AMZN). It also hosts a trading journal, a pre-trade checklist, a Damodaran-strategy equity screener (US/IT/DE/IN markets + per-sector drill-down), a 13F superinvestor tracker, and a per-user portfolio.
+
+The brand "Polaris" is the user-facing name. The internal slug `es_gamma_analyzer` is kept for the repo, folder, the `MONGODB_DB` default, and the Vercel project — do not rename these without a coordinated migration (existing Mongo collections would become orphaned).
 
 The README is in Italian; comments and most user-facing strings are in Italian too. Preserve that when editing UI text or docstrings.
 

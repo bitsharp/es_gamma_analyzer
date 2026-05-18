@@ -1,6 +1,8 @@
-# ES Gamma Analyzer
+# Polaris
 
-Strumento per estrarre e analizzare i dati di gamma exposure da file PDF per il trading sul future ES (E-mini S&P 500).
+Cruscotto trading & investing: gamma 0DTE sul future ES (E-mini S&P 500), screener Damodaran su 4 mercati con drill-down per settore, trading journal, checklist pre-market e portafoglio personale.
+
+> Nome storico del progetto / cartella / repo: `es_gamma_analyzer`. Il default per `MONGODB_DB` resta `es_gamma_analyzer` per compatibilità con le installazioni esistenti.
 
 ## 🎯 Cosa fa questo tool?
 

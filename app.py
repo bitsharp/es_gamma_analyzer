@@ -6219,7 +6219,7 @@ _MONGO_STOCKS_CACHE_COLLECTION = None
 
 def _edgar_user_agent() -> str:
     # EDGAR requires a descriptive UA; override via env in production.
-    return (os.getenv("EDGAR_USER_AGENT") or "ES Gamma Analyzer contact@bitsharp.it").strip()
+    return (os.getenv("EDGAR_USER_AGENT") or "Polaris contact@bitsharp.it").strip()
 
 
 def _edgar_get(url: str, timeout: int = 10) -> bytes:
@@ -6933,7 +6933,7 @@ def _fmp_get(path: str, **params) -> Optional[Any]:
         params["apikey"] = api_key
         qs = urllib.parse.urlencode(params)
         url = f"{_FMP_BASE_URL}/{path}?{qs}"
-        req = urllib.request.Request(url, headers={"User-Agent": "es-gamma-analyzer/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "polaris/1.0"})
         with urllib.request.urlopen(req, timeout=_FMP_TIMEOUT_SECONDS) as resp:
             if resp.status != 200:
                 return None
