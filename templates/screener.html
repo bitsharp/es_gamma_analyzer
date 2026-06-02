@@ -623,7 +623,7 @@
 
         <div class="toolbar-title mb-3">
             <h4 id="viewTitle" style="color:#fff; margin-bottom:0.15rem;">
-                Top 10 <span id="marketLabel">USA</span> — Strategia Damodaran
+                Tutti i qualificati <span id="marketLabel">USA</span> — Strategia Damodaran
             </h4>
             <div class="subtitle" id="viewSubtitle">
                 Sottocuotate, growth &gt; 5%, market cap &gt; 2B. Ordinati per Zona (Affare → Sconto → Equa → Cara) e poi per Discount %.
@@ -683,7 +683,7 @@
         <div id="picksContainer">
             <div class="empty-state">
                 <div class="spinner-border" role="status"></div>
-                <div class="mt-3">Carico i top picks…</div>
+                <div class="mt-3">Carico i qualificati…</div>
             </div>
         </div>
 
@@ -727,8 +727,8 @@
                         quindi mercati IT/DE/IN ricadono di fatto sempre su YF.
                         La ricerca tipo-ahead usa l'API pubblica
                         <code>query2.finance.yahoo.com/v1/finance/search</code>.
-                        Tutti i dati sono live al momento del calcolo (cache 12h per il
-                        top 10, nessuna cache per la ricerca singolo ticker).
+                        Tutti i dati sono live al momento del calcolo (cache 12h per la
+                        lista qualificati, nessuna cache per la ricerca singolo ticker).
                     </p>
 
                     <h6>Modello di valutazione</h6>
@@ -887,7 +887,7 @@
                     document.getElementById('picksContainer').innerHTML = `
                         <div class="empty-state">
                             <div class="spinner-border" role="status"></div>
-                            <div class="mt-3">Carico top 10 ${MARKET_LABEL[activeMarket]}…</div>
+                            <div class="mt-3">Carico i qualificati ${MARKET_LABEL[activeMarket]}…</div>
                         </div>`;
                 }
                 loadTop();
@@ -910,7 +910,7 @@
 
         function updateTitleDamodaran() {
             document.getElementById('viewTitle').innerHTML =
-                `Top 10 <span id="marketLabel">${escapeHtml(MARKET_LABEL[activeMarket])}</span> — Strategia Damodaran`;
+                `Tutti i qualificati <span id="marketLabel">${escapeHtml(MARKET_LABEL[activeMarket])}</span> — Strategia Damodaran`;
             document.getElementById('viewSubtitle').textContent = DAMODARAN_SUBTITLE;
         }
 
@@ -928,7 +928,7 @@
 
         async function loadTop() {
             try {
-                const res = await fetch(`/api/screener/top?market=${activeMarket}&limit=10`);
+                const res = await fetch(`/api/screener/top?market=${activeMarket}&limit=1000`);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 renderStatus(data);

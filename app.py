@@ -7574,7 +7574,7 @@ def api_screener_top():
         limit = int(request.args.get('limit') or 5)
     except (TypeError, ValueError):
         limit = 5
-    limit = max(1, min(50, limit))
+    limit = max(1, min(1000, limit))
 
     market = (request.args.get('market') or 'US').strip().upper()
     if market not in _SCREENER_VALID_MARKETS:
