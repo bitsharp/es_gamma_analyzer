@@ -426,6 +426,48 @@
             line-height: 1;
         }
 
+        .zone-filters {
+            display: flex;
+            gap: 0.4rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .zone-filters .zone-filter-label {
+            color: #778da9;
+            font-size: 0.85rem;
+            margin-right: 0.25rem;
+        }
+        .zone-chip {
+            background: #1b263b;
+            border: 1px solid #415a77;
+            color: #adb5bd;
+            border-radius: 999px;
+            padding: 0.32rem 0.8rem;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            opacity: 0.55;
+        }
+        .zone-chip:hover { opacity: 1; }
+        .zone-chip.active { opacity: 1; }
+        .zone-chip.active[data-rank="0"] { background: rgba(74,222,128,0.18); border-color: #4ade80; color: #4ade80; }
+        .zone-chip.active[data-rank="1"] { background: rgba(134,239,172,0.16); border-color: #86efac; color: #86efac; }
+        .zone-chip.active[data-rank="2"] { background: rgba(251,191,36,0.18); border-color: #fbbf24; color: #fbbf24; }
+        .zone-chip.active[data-rank="3"] { background: rgba(248,113,113,0.18); border-color: #f87171; color: #f87171; }
+        .zone-chip .count {
+            background: rgba(255,255,255,0.1);
+            border-radius: 999px;
+            padding: 0.05rem 0.45rem;
+            font-size: 0.75rem;
+            min-width: 1.6rem;
+            text-align: center;
+        }
+
         .lookup-result-wrap {
             position: relative;
         }
@@ -680,6 +722,14 @@
             </button>
         </div>
 
+        <div class="zone-filters" id="zoneFilters" role="group" aria-label="Filtro per zona di valutazione">
+            <span class="zone-filter-label">Filtra per zona:</span>
+            <button type="button" class="zone-chip active" data-rank="0">🟢🟢 Affare <span class="count" data-count-rank="0">0</span></button>
+            <button type="button" class="zone-chip active" data-rank="1">🟢 Sconto <span class="count" data-count-rank="1">0</span></button>
+            <button type="button" class="zone-chip active" data-rank="2">🟡 Equa <span class="count" data-count-rank="2">0</span></button>
+            <button type="button" class="zone-chip active" data-rank="3">🔴 Cara <span class="count" data-count-rank="3">0</span></button>
+        </div>
+
         <div id="picksContainer">
             <div class="empty-state">
                 <div class="spinner-border" role="status"></div>
@@ -926,18 +976,63 @@
             return d > 0 ? `+${d}` : String(d);
         }
 
+        // All qualified rows from the latest fetch, kept here so the zone filter
+        // can re-render client-side without hitting the API again.
+        let allPicks = [];
+        const activeZoneRanks = new Set([0, 1, 2, 3]);
+
         async function loadTop() {
             try {
                 const res = await fetch(`/api/screener/top?market=${activeMarket}&limit=1000`);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 renderStatus(data);
-                renderPicks(data.top || []);
+                allPicks = data.top || [];
+                updateZoneCounts();
+                renderFilteredPicks();
             } catch (err) {
                 document.getElementById('statusText').textContent = 'Errore: ' + err.message;
                 document.getElementById('statusIndicator').className = 'status-stale';
             }
         }
+
+        function zoneRankOf(r) {
+            return (typeof r.zone_rank === 'number') ? r.zone_rank : 4;
+        }
+
+        function updateZoneCounts() {
+            const counts = [0, 0, 0, 0, 0];
+            for (const r of allPicks) {
+                const rk = zoneRankOf(r);
+                if (rk >= 0 && rk < counts.length) counts[rk] += 1;
+            }
+            document.querySelectorAll('#zoneFilters .count').forEach(el => {
+                const rk = Number(el.dataset.countRank);
+                el.textContent = counts[rk] ?? 0;
+            });
+        }
+
+        function renderFilteredPicks() {
+            const filtered = allPicks.filter(r => activeZoneRanks.has(zoneRankOf(r)));
+            renderPicks(filtered);
+        }
+
+        document.querySelectorAll('#zoneFilters .zone-chip').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const rk = Number(btn.dataset.rank);
+                if (activeZoneRanks.has(rk)) {
+                    // Don't allow deselecting the last active zone — would just show
+                    // an empty list with no clear way back.
+                    if (activeZoneRanks.size === 1) return;
+                    activeZoneRanks.delete(rk);
+                    btn.classList.remove('active');
+                } else {
+                    activeZoneRanks.add(rk);
+                    btn.classList.add('active');
+                }
+                renderFilteredPicks();
+            });
+        });
 
         document.querySelectorAll('.market-tab').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -1101,15 +1196,24 @@
         function renderPicks(top) {
             const container = document.getElementById('picksContainer');
             if (!top || top.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <i class="bi bi-hourglass-split" style="font-size:2rem;"></i>
-                        <div class="mt-3">Nessun titolo qualificato al momento.</div>
-                        <div class="mt-1" style="font-size:0.85rem;">
-                            Se è il primo avvio, il calcolo richiede ~1-2 minuti.
-                            Ricarica tra qualche secondo.
-                        </div>
-                    </div>`;
+                // Distinguish "no data yet" from "filters excluded everything"
+                const filtered = allPicks.length > 0;
+                container.innerHTML = filtered
+                    ? `<div class="empty-state">
+                          <i class="bi bi-funnel" style="font-size:2rem;"></i>
+                          <div class="mt-3">Nessun titolo nelle zone selezionate.</div>
+                          <div class="mt-1" style="font-size:0.85rem;">
+                              Attiva un'altra zona dal filtro qui sopra.
+                          </div>
+                       </div>`
+                    : `<div class="empty-state">
+                          <i class="bi bi-hourglass-split" style="font-size:2rem;"></i>
+                          <div class="mt-3">Nessun titolo qualificato al momento.</div>
+                          <div class="mt-1" style="font-size:0.85rem;">
+                              Se è il primo avvio, il calcolo richiede ~1-2 minuti.
+                              Ricarica tra qualche secondo.
+                          </div>
+                       </div>`;
                 return;
             }
             container.innerHTML = top.map((r, idx) =>
@@ -1505,6 +1609,7 @@
             const sect  = document.getElementById('sectorContent');
             const search = document.getElementById('searchSection');
             const scope = document.getElementById('searchScopeIndicator');
+            const zoneFilters = document.getElementById('zoneFilters');
             clearLookupResult();
             lookupInput.value = '';
             scope.style.display = 'none';
@@ -1512,12 +1617,14 @@
                 picks.style.display = 'block';
                 sect.style.display = 'none';
                 search.style.display = 'block';
+                zoneFilters.style.display = 'flex';
                 lookupInput.placeholder = 'Cerca per nome o ticker (es. apple, nvidia, ferrari)';
                 updateTitleDamodaran();
                 loadTop();
             } else {
                 picks.style.display = 'none';
                 sect.style.display = 'block';
+                zoneFilters.style.display = 'none';
                 document.getElementById('sectorGrid').style.display = 'grid';
                 document.getElementById('sectorDrillDown').style.display = 'none';
                 search.style.display = 'none';
