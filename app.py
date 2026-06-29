@@ -7984,11 +7984,12 @@ def api_insider_transactions(ticker):
 
     txns = _fetch_insider_transactions(ticker_norm)
     should_cache = txns is not None
+    limited = txns is None  # True = no source could deliver data (plan/coverage limit)
     if txns is None:
         txns = []
 
     now = _dt.datetime.utcnow()
-    result = {"ticker": ticker_norm, "transactions": txns, "computed_at": now}
+    result = {"ticker": ticker_norm, "transactions": txns, "limited": limited, "computed_at": now}
     if should_cache and coll is not None:
         try:
             coll.replace_one({"ticker": ticker_norm}, result, upsert=True)

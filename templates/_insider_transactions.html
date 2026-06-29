@@ -149,7 +149,9 @@
             const expanded = slot.getAttribute('data-expanded') === '1';
 
             var countsHtml;
-            if (txns.length === 0) {
+            if (data && data.limited) {
+                countsHtml = '<span class="is-badge none" title="Dati non disponibili per titoli non-US (richiede piano FMP)">Non disponibile</span>';
+            } else if (txns.length === 0) {
                 countsHtml = '<span class="is-badge none">Nessuna operazione</span>';
             } else {
                 countsHtml = '';
