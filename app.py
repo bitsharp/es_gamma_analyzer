@@ -7164,6 +7164,7 @@ _MONGO_PE_HISTORY_COLLECTION = None
 
 _INSIDER_CACHE_TTL_SECONDS = 24 * 3600
 _MONGO_INSIDER_COLLECTION = None
+_EDGAR_CIK_CACHE: dict = {}  # ticker -> CIK int; 0 = confirmed not found
 
 
 def _get_mongo_pe_history_collection():
@@ -7223,13 +7224,19 @@ def _get_mongo_insider_collection():
 
 
 def _fetch_insider_transactions(ticker: str) -> Optional[list]:
-    """Fetch insider transactions (last 90 days) from FMP /insider-trading.
-    Returns a list of dicts (may be empty), or None if the FMP call failed.
-    Only P-Purchase and S-Sale transaction types are returned."""
+    """Fetch insider transactions (last 90 days): SEC EDGAR first, FMP fallback.
+    Returns list (possibly empty) or None if all sources fail."""
+    cutoff = (_dt.date.today() - _dt.timedelta(days=90)).isoformat()
+
+    # SEC EDGAR: authoritative for all US public companies
+    edgar = _fetch_insider_edgar(ticker, cutoff)
+    if edgar is not None:
+        return edgar
+
+    # FMP fallback (may cover non-US stocks)
     data = _fmp_get("insider-trading", symbol=ticker, limit=50)
     if not isinstance(data, list):
         return None
-    cutoff = (_dt.date.today() - _dt.timedelta(days=90)).isoformat()
     txns = []
     for item in data:
         date_str = (item.get("transactionDate") or item.get("date") or "")[:10]
@@ -7263,6 +7270,174 @@ def _fetch_insider_transactions(ticker: str) -> Optional[list]:
             "qty": qty,
         })
     return txns
+
+
+def _get_edgar_cik(ticker: str) -> Optional[int]:
+    """Return SEC EDGAR CIK for a US ticker. Memory-cached per process.
+    Downloads /files/company_tickers.json once and populates the full map."""
+    if ticker in _EDGAR_CIK_CACHE:
+        return _EDGAR_CIK_CACHE[ticker] or None
+    try:
+        url = "https://www.sec.gov/files/company_tickers.json"
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "Polaris luca.taurisano@bitsharp.it"})
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+        for entry in raw.values():
+            t = (entry.get("ticker") or "").upper()
+            c = entry.get("cik_str")
+            if t and c is not None:
+                _EDGAR_CIK_CACHE[t] = int(c)
+    except Exception:
+        _EDGAR_CIK_CACHE[ticker] = 0
+        return None
+    cik = _EDGAR_CIK_CACHE.get(ticker)
+    if not cik:
+        _EDGAR_CIK_CACHE[ticker] = 0
+    return cik or None
+
+
+def _parse_form4_xml(xml_text: str, fallback_date: str) -> list:
+    """Parse a Form 4 XML; return one aggregated row per (date, type) pair.
+    Multiple same-day tranches by the same insider are merged into one row
+    with summed quantity and weighted-average price."""
+    try:
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(xml_text)
+    except Exception:
+        return []
+
+    name, title = "", ""
+    try:
+        n = root.find(".//rptOwnerName")
+        if n is not None and n.text:
+            name = n.text.strip().title()
+        t = root.find(".//officerTitle")
+        if t is not None and t.text:
+            title = t.text.strip()
+        if not title:
+            if root.findtext(".//isDirector") == "1":
+                title = "Director"
+            elif root.findtext(".//isOfficer") == "1":
+                title = "Officer"
+    except Exception:
+        pass
+
+    # Aggregate tranches: key = (date, type) -> {qty_sum, weighted_price_sum}
+    groups: dict = {}
+    for txn in root.findall(".//nonDerivativeTransaction"):
+        try:
+            code_el = txn.find("transactionCoding/transactionCode")
+            code = (code_el.text or "").strip() if code_el is not None else ""
+            if code == "P":
+                tx_type = "buy"
+            elif code == "S":
+                tx_type = "sell"
+            else:
+                continue
+
+            date_el = txn.find("transactionDate/value")
+            date_str = (date_el.text or fallback_date)[:10] if date_el is not None else fallback_date
+
+            shares_el = txn.find("transactionAmounts/transactionShares/value")
+            price_el = txn.find("transactionAmounts/transactionPricePerShare/value")
+            qty = float(shares_el.text) if (shares_el is not None and shares_el.text) else 0.0
+            price = float(price_el.text) if (price_el is not None and price_el.text) else 0.0
+
+            key = (date_str, tx_type)
+            if key not in groups:
+                groups[key] = {"qty": 0.0, "val": 0.0, "name": name, "title": title}
+            groups[key]["qty"] += qty
+            groups[key]["val"] += qty * price
+        except Exception:
+            continue
+
+    txns = []
+    for (date_str, tx_type), g in sorted(groups.items(), reverse=True):
+        total_qty = g["qty"]
+        avg_price = g["val"] / total_qty if total_qty > 0 else None
+        txns.append({
+            "date": date_str,
+            "type": tx_type,
+            "name": g["name"],
+            "title": g["title"],
+            "price": round(avg_price, 4) if avg_price else None,
+            "qty": total_qty,
+        })
+    return txns
+
+
+def _fetch_insider_edgar(ticker: str, cutoff: str) -> Optional[list]:
+    """Fetch Form 4 insider transactions from SEC EDGAR.
+    Returns list (possibly empty) or None if CIK lookup fails."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    cik = _get_edgar_cik(ticker)
+    if not cik:
+        return None
+
+    subs_url = f"https://data.sec.gov/submissions/CIK{cik:010d}.json"
+    try:
+        req = urllib.request.Request(
+            subs_url, headers={"User-Agent": "Polaris luca.taurisano@bitsharp.it"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            subs = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+
+    recent = subs.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    dates = recent.get("filingDate", [])
+    accessions = recent.get("accessionNumber", [])
+
+    form4s = []
+    for i, form in enumerate(forms):
+        if form not in ("4", "4/A"):
+            continue
+        d = dates[i] if i < len(dates) else ""
+        if d < cutoff:
+            break  # reverse-chronological
+        acc = (accessions[i] if i < len(accessions) else "").replace("-", "")
+        if acc:
+            form4s.append((d, acc))
+
+    if not form4s:
+        return []
+
+    form4s = form4s[:20]
+    ua = "Polaris luca.taurisano@bitsharp.it"
+
+    def fetch_one(args):
+        filing_date, acc_nd = args
+        # Form 4 raw XML is always form4.xml regardless of the styled primaryDocument
+        url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_nd}/form4.xml"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": ua})
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                if resp.status != 200:
+                    return []
+                xml_text = resp.read().decode("utf-8", errors="replace")
+            return _parse_form4_xml(xml_text, filing_date)
+        except Exception:
+            return []
+
+    all_txns = []
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        for result in ex.map(fetch_one, form4s):
+            all_txns.extend(result)
+
+    # Deduplicate (same filing may appear in 4 and 4/A)
+    seen: set = set()
+    out = []
+    for t in sorted(all_txns, key=lambda x: x["date"], reverse=True):
+        if t["date"] < cutoff:
+            continue
+        key = (t["date"], t["type"], t["name"], round(t["qty"] or 0))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(t)
+    return out
 
 
 def _percentile(sorted_vals, p):
