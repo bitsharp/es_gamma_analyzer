@@ -7162,6 +7162,9 @@ _PE_HISTORY_SAMPLE_EVERY_N_DAYS = 7
 _PE_HISTORY_CACHE_TTL_SECONDS = 7 * 24 * 3600
 _MONGO_PE_HISTORY_COLLECTION = None
 
+_INSIDER_CACHE_TTL_SECONDS = 24 * 3600
+_MONGO_INSIDER_COLLECTION = None
+
 
 def _get_mongo_pe_history_collection():
     """Lazy getter for the forward P/E history cache collection."""
@@ -7189,6 +7192,77 @@ def _get_mongo_pe_history_collection():
         return coll
     except Exception:
         return None
+
+
+def _get_mongo_insider_collection():
+    """Lazy getter for insider transactions cache collection."""
+    global _MONGO_CLIENT, _MONGO_INSIDER_COLLECTION
+    if _MONGO_INSIDER_COLLECTION is not None:
+        return _MONGO_INSIDER_COLLECTION
+    if MongoClient is None:
+        return None
+    uri = (os.getenv("MONGODB_URI") or "").strip()
+    if not uri:
+        return None
+    db_name = (os.getenv("MONGODB_DB") or "es_gamma_analyzer").strip()
+    coll_name = (os.getenv("MONGODB_INSIDER_COLLECTION") or "insider_cache").strip()
+    try:
+        if _MONGO_CLIENT is None:
+            _MONGO_CLIENT = MongoClient(uri, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+        db = _MONGO_CLIENT[db_name]
+        coll = db[coll_name]
+        try:
+            coll.create_index("ticker", unique=True)
+            coll.create_index("computed_at", expireAfterSeconds=_INSIDER_CACHE_TTL_SECONDS)
+        except Exception:
+            pass
+        _MONGO_INSIDER_COLLECTION = coll
+        return coll
+    except Exception:
+        return None
+
+
+def _fetch_insider_transactions(ticker: str) -> Optional[list]:
+    """Fetch insider transactions (last 90 days) from FMP /insider-trading.
+    Returns a list of dicts (may be empty), or None if the FMP call failed.
+    Only P-Purchase and S-Sale transaction types are returned."""
+    data = _fmp_get("insider-trading", symbol=ticker, limit=50)
+    if not isinstance(data, list):
+        return None
+    cutoff = (_dt.date.today() - _dt.timedelta(days=90)).isoformat()
+    txns = []
+    for item in data:
+        date_str = (item.get("transactionDate") or item.get("date") or "")[:10]
+        if not date_str or date_str < cutoff:
+            continue
+        tx_type = item.get("transactionType") or item.get("type") or ""
+        is_buy = tx_type.startswith("P-")
+        is_sell = tx_type.startswith("S-")
+        if not is_buy and not is_sell:
+            continue
+        name = (item.get("reportingName") or item.get("acquirorName")
+                or item.get("insiderName") or item.get("name") or "")
+        title = item.get("title") or item.get("typeOfOwner") or ""
+        price = item.get("price")
+        qty = (item.get("securitiesTransacted") or item.get("sharesTransacted")
+               or item.get("shares"))
+        try:
+            price = float(price) if price is not None else None
+        except (TypeError, ValueError):
+            price = None
+        try:
+            qty = float(qty) if qty is not None else None
+        except (TypeError, ValueError):
+            qty = None
+        txns.append({
+            "date": date_str,
+            "type": "buy" if is_buy else "sell",
+            "name": name,
+            "title": title,
+            "price": price,
+            "qty": qty,
+        })
+    return txns
 
 
 def _percentile(sorted_vals, p):
@@ -7709,6 +7783,44 @@ def api_screener_pe_history(ticker):
         "series": res.get("series", []),
         "stats": res.get("stats", {}),
     })
+
+
+@app.route('/api/insider/<ticker>', methods=['GET'])
+@login_required
+def api_insider_transactions(ticker):
+    """Insider transactions for <ticker> in the last 90 days, from FMP.
+    Mongo-cached for 24 h per ticker."""
+    ticker_norm = (ticker or "").strip().upper()
+    if not ticker_norm or not all(c.isalnum() or c in ".-" for c in ticker_norm) or len(ticker_norm) > 12:
+        return jsonify({"error": "invalid ticker", "ticker": ticker_norm}), 400
+
+    coll = _get_mongo_insider_collection()
+    if coll is not None:
+        try:
+            doc = coll.find_one({"ticker": ticker_norm})
+            if doc:
+                doc.pop("_id", None)
+                computed_at = doc.get("computed_at")
+                if hasattr(computed_at, "isoformat"):
+                    doc["computed_at"] = computed_at.isoformat() + "Z"
+                return jsonify(doc)
+        except Exception:
+            pass
+
+    txns = _fetch_insider_transactions(ticker_norm)
+    should_cache = txns is not None
+    if txns is None:
+        txns = []
+
+    now = _dt.datetime.utcnow()
+    result = {"ticker": ticker_norm, "transactions": txns, "computed_at": now}
+    if should_cache and coll is not None:
+        try:
+            coll.replace_one({"ticker": ticker_norm}, result, upsert=True)
+        except Exception:
+            pass
+    result["computed_at"] = now.isoformat() + "Z"
+    return jsonify(result)
 
 
 @app.route('/api/screener/refresh', methods=['POST'])

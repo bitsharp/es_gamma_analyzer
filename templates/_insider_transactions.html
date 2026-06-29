@@ -1,0 +1,223 @@
+{# Shared CSS + JS for insider transactions (last 90 days).
+   Included by screener.html and portfolio.html.
+
+   Card slot: <div class="insider-section" data-insider="TICKER">
+   JS entry:  hydrateInsiderWithin(rootEl)  — fetches /api/insider/<ticker>
+              and renders inside any [data-insider] slots under rootEl.
+#}
+<style>
+    .insider-section {
+        margin-top: 0.7rem;
+        background: rgba(13,27,42,0.45);
+        border-radius: 8px;
+        padding: 0.55rem 0.75rem;
+        font-size: 0.78rem;
+        color: #cbd5e1;
+    }
+    .insider-section .is-header {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        flex-wrap: wrap;
+    }
+    .insider-section .is-title {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #778da9;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    .insider-section .is-counts {
+        display: flex;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+        flex: 1;
+    }
+    .insider-section .is-badge {
+        display: inline-block;
+        padding: 0.1rem 0.45rem;
+        border-radius: 5px;
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .insider-section .is-badge.buy {
+        background: rgba(74,222,128,0.18);
+        color: #4ade80;
+        border: 1px solid rgba(74,222,128,0.4);
+    }
+    .insider-section .is-badge.sell {
+        background: rgba(248,113,113,0.18);
+        color: #f87171;
+        border: 1px solid rgba(248,113,113,0.4);
+    }
+    .insider-section .is-badge.none {
+        background: rgba(119,141,169,0.1);
+        color: #778da9;
+        border: 1px solid rgba(119,141,169,0.25);
+    }
+    .insider-section .is-toggle {
+        background: rgba(119,141,169,0.12);
+        color: #adb5bd;
+        border: 1px solid rgba(119,141,169,0.3);
+        border-radius: 6px;
+        padding: 0.1rem 0.5rem;
+        font-size: 0.85rem;
+        line-height: 1;
+        cursor: pointer;
+        transition: all 0.15s;
+        margin-left: auto;
+    }
+    .insider-section .is-toggle:hover {
+        background: rgba(119,141,169,0.25);
+        color: #fff;
+        border-color: rgba(255,255,255,0.4);
+    }
+    .insider-section .is-body {
+        margin-top: 0.5rem;
+        display: none;
+    }
+    .insider-section .is-body.open { display: block; }
+    .insider-section .is-row {
+        display: flex;
+        align-items: baseline;
+        gap: 0.45rem;
+        padding: 0.28rem 0;
+        border-bottom: 1px solid rgba(119,141,169,0.1);
+        flex-wrap: wrap;
+    }
+    .insider-section .is-row:last-child { border-bottom: none; }
+    .insider-section .is-row.buy  .is-dot { color: #4ade80; }
+    .insider-section .is-row.sell .is-dot { color: #f87171; }
+    .insider-section .is-dot   { font-weight: 700; min-width: 11px; }
+    .insider-section .is-date  { color: #778da9; min-width: 58px; font-size: 0.72rem; }
+    .insider-section .is-name  {
+        color: #e2e8f0; font-weight: 500; flex: 1; min-width: 90px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .insider-section .is-qty   { color: #cbd5e1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .insider-section .is-total { color: #adb5bd; font-size: 0.7rem; white-space: nowrap; }
+    .insider-section .is-unavailable { color: #778da9; font-style: italic; font-size: 0.72rem; }
+</style>
+
+<script>
+    (function () {
+        const _insiderCache = new Map();
+
+        function _esc(s) {
+            return String(s || '').replace(/[&<>"']/g, function (c) {
+                return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+            });
+        }
+
+        function _fmtDate(d) {
+            if (!d) return '—';
+            const months = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+            const p = d.split('-');
+            if (p.length < 3) return d;
+            const m = parseInt(p[1], 10) - 1;
+            return p[2] + ' ' + (months[m] || p[1]) + ' ' + p[0].slice(2);
+        }
+
+        function _fmtQty(n) {
+            if (n == null) return '';
+            const abs = Math.abs(n);
+            if (abs >= 1e6)  return (n / 1e6).toFixed(2) + 'M az.';
+            if (abs >= 1e3)  return (n / 1e3).toFixed(0) + 'K az.';
+            return n.toFixed(0) + ' az.';
+        }
+
+        function _fmtMoney(n) {
+            if (n == null) return '';
+            if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+            if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+            if (n >= 1e3) return '$' + (n / 1e3).toFixed(0) + 'K';
+            return '$' + n.toFixed(0);
+        }
+
+        function _fmtPrice(p) {
+            if (p == null) return '';
+            return '$' + (p >= 100 ? p.toFixed(0) : p.toFixed(2));
+        }
+
+        function _render(slot, data) {
+            const txns = (data && data.transactions) || [];
+            const buys  = txns.filter(function(t){ return t.type === 'buy';  }).length;
+            const sells = txns.filter(function(t){ return t.type === 'sell'; }).length;
+            const expanded = slot.getAttribute('data-expanded') === '1';
+
+            var countsHtml;
+            if (txns.length === 0) {
+                countsHtml = '<span class="is-badge none">Nessuna operazione</span>';
+            } else {
+                countsHtml = '';
+                if (buys  > 0) countsHtml += '<span class="is-badge buy">'  + buys  + ' acquist' + (buys  === 1 ? 'o' : 'i') + '</span>';
+                if (sells > 0) countsHtml += '<span class="is-badge sell">' + sells + ' vendit'  + (sells === 1 ? 'a' : 'e') + '</span>';
+            }
+
+            var toggleHtml = txns.length > 0
+                ? '<button type="button" class="is-toggle" data-action="toggle-insider" title="' + (expanded ? 'Comprimi' : 'Espandi') + '">' + (expanded ? '⊟' : '⊞') + '</button>'
+                : '';
+
+            var rowsHtml = '';
+            if (txns.length > 0 && expanded) {
+                txns.forEach(function(t) {
+                    var dot   = t.type === 'buy' ? '▲' : '▼';
+                    var qty   = t.qty != null ? (t.type === 'buy' ? '+' : '−') + _fmtQty(Math.abs(t.qty)) : '';
+                    var price = t.price != null ? ' @ ' + _fmtPrice(t.price) : '';
+                    var total = (t.price != null && t.qty != null) ? _fmtMoney(Math.abs(t.price * t.qty)) : '';
+                    var titleAttr = t.title ? ' title="' + _esc(t.title) + '"' : '';
+                    rowsHtml += '<div class="is-row ' + t.type + '">' +
+                        '<span class="is-dot">' + dot + '</span>' +
+                        '<span class="is-date">' + _fmtDate(t.date) + '</span>' +
+                        '<span class="is-name"' + titleAttr + '>' + _esc(t.name || '—') + '</span>' +
+                        '<span class="is-qty">' + qty + price + '</span>' +
+                        (total ? '<span class="is-total">' + total + '</span>' : '') +
+                        '</div>';
+                });
+            }
+
+            slot.innerHTML =
+                '<div class="is-header">' +
+                    '<span class="is-title">Insider 3m</span>' +
+                    '<div class="is-counts">' + countsHtml + '</div>' +
+                    toggleHtml +
+                '</div>' +
+                (txns.length > 0 ? '<div class="is-body' + (expanded ? ' open' : '') + '">' + rowsHtml + '</div>' : '');
+
+            var btn = slot.querySelector('[data-action="toggle-insider"]');
+            if (btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    slot.setAttribute('data-expanded', expanded ? '0' : '1');
+                    _render(slot, data);
+                });
+            }
+        }
+
+        window.hydrateInsiderWithin = function (rootEl) {
+            if (!rootEl) return;
+            var slots = rootEl.querySelectorAll('[data-insider]');
+            slots.forEach(function(slot) {
+                var ticker = slot.getAttribute('data-insider');
+                if (!ticker) return;
+                if (_insiderCache.has(ticker)) {
+                    _render(slot, _insiderCache.get(ticker));
+                    return;
+                }
+                slot.innerHTML = '<div class="is-header"><span class="is-title">Insider 3m</span><span class="is-unavailable">caricamento…</span></div>';
+                fetch('/api/insider/' + encodeURIComponent(ticker))
+                    .then(function(r) { return r.ok ? r.json() : Promise.reject(r); })
+                    .then(function(data) {
+                        _insiderCache.set(ticker, data);
+                        _render(slot, data);
+                    })
+                    .catch(function() {
+                        slot.innerHTML = '<div class="is-header"><span class="is-title">Insider 3m</span><span class="is-unavailable">dati non disponibili</span></div>';
+                    });
+            });
+        };
+    })();
+</script>

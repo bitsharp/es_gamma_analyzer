@@ -609,6 +609,7 @@
         }
     </style>
     {% include '_pe_history.html' %}
+    {% include '_insider_transactions.html' %}
 </head>
 <body>
     <!-- NAVBAR -->
@@ -1189,6 +1190,9 @@
                             <span class="ph-loading">caricamento…</span>
                         </div>
                     </div>
+                    <div class="insider-section" data-insider="${escapeHtml(r.ticker)}">
+                        <div class="is-header"><span class="is-title">Insider 3m</span><span class="is-unavailable">caricamento…</span></div>
+                    </div>
                     ${reasonsBlock}
                 </div>`;
         }
@@ -1220,6 +1224,7 @@
                 renderPickCardHtml(r, { rank: idx + 1 })
             ).join('');
             hydratePEHistoryWithin(container);
+            hydrateInsiderWithin(container);
         }
 
         const escapeHtml = s => String(s || '').replace(/[&<>"']/g, ch => ({
@@ -1293,6 +1298,7 @@
                     mismatchBanner + renderPickCardHtml(data, { showStrategyBadge: true }), true);
                 attachCloseHandler();
                 hydratePEHistoryWithin(result);
+                hydrateInsiderWithin(result);
             } catch (err) {
                 result.innerHTML = wrapLookupResult(`
                     <div class="empty-state" style="padding:1.2rem;color:#f87171;">
@@ -1580,6 +1586,7 @@
                 }
                 cont.innerHTML = data.top.map((r, idx) => renderPickCardHtml(r, { rank: idx + 1 })).join('');
                 hydratePEHistoryWithin(cont);
+                hydrateInsiderWithin(cont);
             } catch (err) {
                 cont.innerHTML = `<div class="empty-state" style="color:#f87171;">
                     <i class="bi bi-exclamation-triangle me-1"></i>Errore: ${escapeHtml(err.message)}
