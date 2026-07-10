@@ -182,6 +182,184 @@
             text-decoration: underline;
         }
 
+        /* ===== ES Weather meter ===== */
+        .es-weather {
+            margin-bottom: 0.6rem;
+        }
+
+        .es-weather-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.5rem;
+        }
+
+        .es-weather-title {
+            font-weight: 700;
+            font-size: 1.02rem;
+            letter-spacing: 0.2px;
+            color: #e0e1dd;
+            line-height: 1.25;
+        }
+
+        .es-weather-sub {
+            font-size: 0.72rem;
+            color: #778da9;
+            margin-bottom: 0.7rem;
+        }
+
+        .es-weather-bar-wrap {
+            position: relative;
+            padding-top: 1.7rem;
+            margin-bottom: 0.35rem;
+            cursor: help;
+        }
+
+        .es-weather-bar {
+            height: 14px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #7f1d1d 0%, #b91c1c 32%, #eab308 50%, #15803d 68%, #14532d 100%);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+        }
+
+        .es-weather-needle {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transition: left 0.4s ease;
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        .es-weather-needle-label {
+            background: #0d1b2a;
+            color: #e0e1dd;
+            border: 1px solid rgba(255, 255, 255, 0.28);
+            border-radius: 8px;
+            padding: 0.05rem 0.42rem;
+            font-weight: 700;
+            font-size: 0.82rem;
+            line-height: 1.3;
+            white-space: nowrap;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+        }
+
+        .es-weather-needle-line {
+            width: 2px;
+            height: 24px;
+            background: #e0e1dd;
+            box-shadow: 0 0 6px rgba(255, 255, 255, 0.5);
+            margin-top: 2px;
+        }
+
+        .es-weather-anchors {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 0.35rem;
+            text-align: center;
+            margin-top: 0.55rem;
+        }
+
+        .es-anchor-val {
+            font-weight: 800;
+            font-size: 1.05rem;
+            line-height: 1.1;
+        }
+
+        .es-anchor-name {
+            font-size: 0.74rem;
+            color: #e0e1dd;
+            margin-top: 0.15rem;
+            white-space: nowrap;
+        }
+
+        .es-anchor-sub {
+            font-size: 0.64rem;
+            color: #778da9;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .es-anchor-floor .es-anchor-val,
+        .es-anchor-floor .es-anchor-name i {
+            color: #34d399;
+        }
+
+        .es-anchor-flip {
+            cursor: help;
+        }
+
+        .es-anchor-flip .es-anchor-val,
+        .es-anchor-flip .es-anchor-name i {
+            color: #fbbf24;
+        }
+
+        .es-anchor-ceiling .es-anchor-val,
+        .es-anchor-ceiling .es-anchor-name i {
+            color: #fb7185;
+        }
+
+        /* Livelli da guardare oggi */
+        .es-levels-watch-head {
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #778da9;
+            margin: 0.85rem 0 0.35rem;
+            font-weight: 600;
+        }
+
+        .es-watch-item {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.5rem 0.15rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            cursor: help;
+        }
+
+        .es-watch-item:first-child {
+            border-top: none;
+        }
+
+        .es-watch-price {
+            font-weight: 800;
+            font-size: 1rem;
+            color: #e0e1dd;
+            min-width: 4rem;
+            white-space: nowrap;
+        }
+
+        .es-watch-badge {
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            padding: 0.16rem 0.42rem;
+            border-radius: 5px;
+            white-space: nowrap;
+        }
+
+        .es-watch-badge.hot {
+            background: #f59e0b;
+            color: #1a1a1a;
+        }
+
+        .es-watch-badge.note {
+            background: rgba(59, 130, 246, 0.9);
+            color: #fff;
+        }
+
+        .es-watch-desc {
+            font-size: 0.76rem;
+            color: #a9b4c2;
+            line-height: 1.25;
+        }
+
         /* Compact Market Pressure panel to free space for chart */
         #pressureCard .card-body {
             padding: 0.6rem;
@@ -836,64 +1014,80 @@
                         </div>
                     </div>
                     <div class="card-body">
-                        <div class="row g-2 mb-3 price-row">
-                            <div class="col-6">
-                                <div class="price-box text-start" id="esLiveBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                    <div class="box-label d-flex align-items-center justify-content-between">
-                                        <span>ES live</span>
-                                        <button type="button" id="esLiveEditBtn" class="es-live-edit-btn" title="Inserisci ES live manuale"><i class="bi bi-pencil-square"></i></button>
-                                    </div>
-                                    <div class="fw-bold" id="esLivePrice">--</div>
-                                    <div class="box-sub" id="esLiveTime">--</div>
-                                    <div class="es-manual-hint" id="esManualHint" style="display:none;">
-                                        <span class="text-warning"><i class="bi bi-hand-index-thumb"></i> manuale</span> · <a href="#" id="esLiveResetBtn">torna a live</a>
-                                    </div>
-                                    <div class="es-live-edit" id="esLiveEdit" style="display:none;">
-                                        <input type="number" step="0.25" inputmode="decimal" id="esLiveInput" class="es-live-input form-control form-control-sm" placeholder="ES live">
-                                        <div class="es-live-edit-actions">
-                                            <button type="button" id="esLiveApplyBtn" class="btn btn-sm btn-primary">Ricalcola</button>
-                                            <button type="button" id="esLiveCancelBtn" class="btn btn-sm btn-outline-secondary">Annulla</button>
-                                        </div>
-                                    </div>
+                        <!-- ===== Rappresentazione "meteo" dei livelli ES ===== -->
+                        <div class="es-weather" id="esWeather">
+                            <div class="es-weather-head">
+                                <div class="es-weather-title" id="esWeatherTitle">In attesa dei dati…</div>
+                                <button type="button" id="esLiveEditBtn" class="es-live-edit-btn" title="Inserisci ES live manuale"><i class="bi bi-pencil-square"></i></button>
+                            </div>
+                            <div class="es-weather-sub">Posizione del prezzo nel campo di battaglia</div>
+
+                            <div class="es-live-edit" id="esLiveEdit" style="display:none;">
+                                <input type="number" step="0.25" inputmode="decimal" id="esLiveInput" class="es-live-input form-control form-control-sm" placeholder="ES live">
+                                <div class="es-live-edit-actions">
+                                    <button type="button" id="esLiveApplyBtn" class="btn btn-sm btn-primary">Ricalcola</button>
+                                    <button type="button" id="esLiveCancelBtn" class="btn btn-sm btn-outline-secondary">Annulla</button>
+                                </div>
+                            </div>
+                            <div class="es-manual-hint" id="esManualHint" style="display:none;">
+                                <span class="text-warning"><i class="bi bi-hand-index-thumb"></i> ES live manuale</span> · <a href="#" id="esLiveResetBtn">torna a live</a>
+                            </div>
+
+                            <div class="es-weather-bar-wrap" id="esLiveBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                <div class="es-weather-bar" id="esWeatherBar"></div>
+                                <div class="es-weather-needle" id="esWeatherNeedle" style="display:none;">
+                                    <div class="es-weather-needle-label" id="esLivePrice">--</div>
+                                    <div class="es-weather-needle-line"></div>
                                 </div>
                             </div>
 
-                            <div class="col-6">
-                                <div class="price-box text-start" id="gammaFlipBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                    <div class="box-label">ES Gamma Flip</div>
-                                    <div class="fw-bold" id="gammaFlipTop">--</div>
-                                    <div class="box-sub">GAMMA FLIP LEVEL</div>
+                            <div class="es-weather-anchors">
+                                <div class="es-anchor es-anchor-floor">
+                                    <div class="es-anchor-val" id="esFloorVal">--</div>
+                                    <div class="es-anchor-name"><i class="bi bi-shield-fill"></i> Il Pavimento</div>
+                                    <div class="es-anchor-sub">Put Wall</div>
+                                </div>
+                                <div class="es-anchor es-anchor-flip" id="gammaFlipBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
+                                    <div class="es-anchor-val" id="gammaFlipTop">--</div>
+                                    <div class="es-anchor-name"><i class="bi bi-cloud-fill"></i> Linea del Meteo</div>
+                                    <div class="es-anchor-sub">Gamma Flip</div>
+                                </div>
+                                <div class="es-anchor es-anchor-ceiling">
+                                    <div class="es-anchor-val" id="esCeilingVal">--</div>
+                                    <div class="es-anchor-name"><i class="bi bi-record-circle"></i> Il Soffitto</div>
+                                    <div class="es-anchor-sub">Call Wall</div>
                                 </div>
                             </div>
                         </div>
 
-                        <div id="regimeCard" style="display: none;" class="mb-2">
-                            <div class="alert alert-warning mb-0" style="background: rgba(234, 179, 8, 0.1); border-left: 4px solid #eab308;">
-                                <div class="fw-semibold small mb-1" id="regimeType">-</div>
-                                <div class="small" id="regimeStrategy">-</div>
-                            </div>
+                        <!-- ===== Livelli da guardare oggi ===== -->
+                        <div class="es-levels-watch-head"><i class="bi bi-eye me-2"></i>I livelli da guardare oggi</div>
+                        <div class="es-levels-watch" id="esLevelsWatch">
+                            <p class="text-muted text-center py-3 mb-0">No data</p>
                         </div>
 
-                        <div class="row">
-                            <div class="col-md-6">
-                                <h6 class="text-support mb-3">
-                                    <i class="bi bi-shield-check me-2"></i>PUT Supports
-                                </h6>
-                                <p class="text-muted small" id="esSupportsModeHint">CP = current price • GF = gamma flip</p>
-                                <div id="supportsContainer">
-                                    <p class="text-muted text-center py-3">No data</p>
+                        <!-- Dettaglio tecnico (mantenuto per compatibilità, nascosto) -->
+                        <div id="esLegacyDetails" style="display:none;">
+                            <span id="esLiveTime">--</span>
+                            <div id="regimeCard" class="mb-2">
+                                <div class="alert alert-warning mb-0" style="background: rgba(234, 179, 8, 0.1); border-left: 4px solid #eab308;">
+                                    <div class="fw-semibold small mb-1" id="regimeType">-</div>
+                                    <div class="small" id="regimeStrategy">-</div>
                                 </div>
-                                <p id="supportsNote" class="text-warning mt-2 small" style="display: none;"></p>
                             </div>
-                            <div class="col-md-6">
-                                <h6 class="text-resistance mb-3">
-                                    <i class="bi bi-shield-x me-2"></i>CALL Resistances
-                                </h6>
-                                <p class="text-muted small" id="esResistancesModeHint">CP = current price • GF = gamma flip</p>
-                                <div id="resistancesContainer">
-                                    <p class="text-muted text-center py-3">No data</p>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6 class="text-support mb-3"><i class="bi bi-shield-check me-2"></i>PUT Supports</h6>
+                                    <p class="text-muted small" id="esSupportsModeHint">CP = current price • GF = gamma flip</p>
+                                    <div id="supportsContainer"><p class="text-muted text-center py-3">No data</p></div>
+                                    <p id="supportsNote" class="text-warning mt-2 small" style="display: none;"></p>
                                 </div>
-                                <p id="resistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                <div class="col-md-6">
+                                    <h6 class="text-resistance mb-3"><i class="bi bi-shield-x me-2"></i>CALL Resistances</h6>
+                                    <p class="text-muted small" id="esResistancesModeHint">CP = current price • GF = gamma flip</p>
+                                    <div id="resistancesContainer"><p class="text-muted text-center py-3">No data</p></div>
+                                    <p id="resistancesNote" class="text-warning mt-2 small" style="display: none;"></p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1549,6 +1743,7 @@
         let latestEsGammaFlip = null;
         let prevEsPrice = null;
         let esManualPriceActive = false;
+        let esWeatherState = null;
         let nvdaLoadPromise = null;
         let nvdaPollIntervalId = null;
         let latestNvdaPrice = null;
@@ -3905,6 +4100,7 @@
                     }
 
                     setTooltip(esLiveBox, `Updated: ${(when || '--')}${note}`);
+                    updateEsWeatherNeedle();
 
                     // When NY cash is open, recompute spread and update converted levels.
                     if (lastEsSpxOiConversion) {
@@ -3924,6 +4120,7 @@
                     if (esLiveTime) esLiveTime.textContent = '--';
                     latestEsPrice = null;
                     setTooltip(esLiveBox, '--');
+                    updateEsWeatherNeedle();
                     updatePressureUI();
                     return null;
                 }
@@ -5242,13 +5439,11 @@
                 esLiveInput.classList.remove('is-invalid');
             }
             esLiveEdit.style.display = 'block';
-            if (esLivePrice) esLivePrice.style.display = 'none';
             if (esLiveInput) { esLiveInput.focus(); esLiveInput.select(); }
         }
 
         function closeEsLiveEditor() {
             if (esLiveEdit) esLiveEdit.style.display = 'none';
-            if (esLivePrice) esLivePrice.style.display = '';
         }
 
         async function recalcEsLevelsWithManualPrice(price) {
@@ -5303,6 +5498,7 @@
             setTooltip(esLiveBox, `ES live (manuale): ${val.toFixed(2)}`);
             if (esManualHint) esManualHint.style.display = '';
             closeEsLiveEditor();
+            updateEsWeatherNeedle();
 
             await recalcEsLevelsWithManualPrice(val);
             updateEsNearSignals();
@@ -5326,6 +5522,180 @@
             if (e.key === 'Enter') { e.preventDefault(); applyManualEsPrice(); }
             else if (e.key === 'Escape') { e.preventDefault(); closeEsLiveEditor(); }
         });
+
+        // ===== Rappresentazione "meteo" dei livelli ES =====
+        function _esNum(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
+        function _esFmt(v) { const n = _esNum(v); return n == null ? '--' : n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }); }
+        function _esSetText(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
+
+        function _esPickWall(items, field) {
+            if (!Array.isArray(items) || !items.length) return null;
+            let best = null;
+            items.forEach((it) => {
+                const strike = _esNum(it && it.strike);
+                if (strike == null) return;
+                const w = _esNum(it[field]) || 0;
+                if (!best || w > best.w) best = { strike, w, item: it };
+            });
+            if (!best) {
+                const f = items.find((it) => _esNum(it && it.strike) != null);
+                if (f) best = { strike: _esNum(f.strike), w: 0, item: f };
+            }
+            return best;
+        }
+
+        function renderEsWeather(data, supportsMerged, resistancesMerged) {
+            const flip = _esNum(data && data.gamma_flip);
+            const putWall = _esPickWall(supportsMerged, 'put_oi');
+            const callWall = _esPickWall(resistancesMerged, 'call_oi');
+            const floor = putWall ? putWall.strike : null;
+            const ceiling = callWall ? callWall.strike : null;
+
+            _esSetText('esFloorVal', _esFmt(floor));
+            _esSetText('gammaFlipTop', _esFmt(flip));
+            _esSetText('esCeilingVal', _esFmt(ceiling));
+
+            // Dominio della barra a partire dai punti disponibili.
+            const price = _esNum(latestEsPrice);
+            const pts = [floor, ceiling, flip, price].filter((v) => v != null);
+            let lo = null, hi = null;
+            if (pts.length >= 2) {
+                lo = Math.min.apply(null, pts);
+                hi = Math.max.apply(null, pts);
+                let range = hi - lo;
+                if (!(range > 0)) range = Math.max(1, Math.abs(hi) * 0.001);
+                lo -= range * 0.10;
+                hi += range * 0.10;
+            }
+            esWeatherState = { lo, hi, flip, floor, ceiling };
+
+            // Gradiente: temporale (rosso) sotto la Linea del Meteo, sereno (verde) sopra.
+            const bar = document.getElementById('esWeatherBar');
+            if (bar) {
+                if (lo != null && hi != null && flip != null && hi > lo) {
+                    const flipPct = Math.max(8, Math.min(92, (flip - lo) / (hi - lo) * 100));
+                    const a = Math.max(0, flipPct - 12);
+                    const b = Math.min(100, flipPct + 12);
+                    bar.style.background = 'linear-gradient(90deg,'
+                        + ' rgba(185,28,28,0.9) 0%,'
+                        + ' rgba(185,28,28,0.7) ' + a + '%,'
+                        + ' rgba(234,179,8,0.6) ' + flipPct + '%,'
+                        + ' rgba(21,128,61,0.7) ' + b + '%,'
+                        + ' rgba(20,83,45,0.9) 100%)';
+                } else {
+                    bar.style.background = '';
+                }
+            }
+
+            renderEsLevelsWatch(supportsMerged, resistancesMerged, { floor, ceiling, flip });
+            updateEsWeatherNeedle();
+        }
+
+        function updateEsWeatherNeedle() {
+            const needle = document.getElementById('esWeatherNeedle');
+            const title = document.getElementById('esWeatherTitle');
+            const price = _esNum(latestEsPrice);
+            const st = esWeatherState;
+
+            if (needle) {
+                if (st && st.lo != null && st.hi != null && st.hi > st.lo && price != null) {
+                    const pct = Math.max(2, Math.min(98, (price - st.lo) / (st.hi - st.lo) * 100));
+                    needle.style.left = pct + '%';
+                    needle.style.display = '';
+                } else {
+                    needle.style.display = 'none';
+                }
+            }
+
+            if (title) {
+                const flip = st ? st.flip : null;
+                if (price == null || flip == null) {
+                    title.textContent = 'In attesa dei dati…';
+                } else {
+                    const diff = price - flip;
+                    const tol = Math.max(2, Math.abs(flip) * 0.0004);
+                    if (diff > tol) {
+                        title.innerHTML = 'Sopra la Linea del Meteo — <span style="color:#34d399">sereno</span>';
+                    } else if (diff < -tol) {
+                        title.innerHTML = 'Sotto la Linea del Meteo — <span style="color:#fb7185">temporale</span>';
+                    } else {
+                        title.innerHTML = 'Sulla Linea del Meteo — <span style="color:#fbbf24">instabile</span>';
+                    }
+                }
+            }
+        }
+
+        function renderEsLevelsWatch(supportsMerged, resistancesMerged, walls) {
+            const container = document.getElementById('esLevelsWatch');
+            if (!container) return;
+
+            const byStrike = new Map();
+            const addLevel = (strike, kind, item) => {
+                const s = _esNum(strike);
+                if (s == null) return;
+                const key = s.toFixed(2);
+                if (!byStrike.has(key)) byStrike.set(key, { strike: s, kinds: new Set(), item: item || null });
+                byStrike.get(key).kinds.add(kind);
+                if (item && !byStrike.get(key).item) byStrike.get(key).item = item;
+            };
+
+            (Array.isArray(resistancesMerged) ? resistancesMerged : []).forEach((it) => addLevel(it.strike, 'res', it));
+            (Array.isArray(supportsMerged) ? supportsMerged : []).forEach((it) => addLevel(it.strike, 'sup', it));
+            if (walls && walls.flip != null) addLevel(walls.flip, 'flip', null);
+
+            const items = Array.from(byStrike.values()).sort((a, b) => b.strike - a.strike);
+            if (!items.length) {
+                container.innerHTML = '<p class="text-muted text-center py-3 mb-0">No data</p>';
+                return;
+            }
+
+            const floor = walls ? walls.floor : null;
+            const ceiling = walls ? walls.ceiling : null;
+            const near = (a, b) => a != null && b != null && Math.abs(a - b) < 1e-6;
+
+            const html = items.map((lvl) => {
+                const isFloor = near(lvl.strike, floor);
+                const isCeiling = near(lvl.strike, ceiling);
+                const isFlip = lvl.kinds.has('flip');
+
+                let badgeClass = 'note';
+                let badgeText = 'DA NOTARE';
+                let desc;
+                if (isCeiling) {
+                    badgeClass = 'hot'; badgeText = 'ZONA CALDA';
+                    desc = 'Il Soffitto (Call Wall) — il tetto della struttura di oggi';
+                } else if (isFloor) {
+                    badgeClass = 'hot'; badgeText = 'ZONA CALDA';
+                    desc = 'Il Pavimento (Put Wall) — qui il mercato reagisce forte';
+                } else if (isFlip) {
+                    badgeText = 'LINEA METEO';
+                    desc = 'Linea del Meteo — sopra c\'è il sereno, sotto arriva il temporale';
+                } else if (lvl.kinds.has('res')) {
+                    desc = 'Resistenza call — possibile respingimento';
+                } else {
+                    desc = 'Supporto put — possibile reazione';
+                }
+
+                const it = lvl.item || {};
+                const callOi = _esNum(it.call_oi);
+                const putOi = _esNum(it.put_oi);
+                const tip = [
+                    callOi != null ? 'Call OI ' + callOi.toLocaleString() : null,
+                    putOi != null ? 'Put OI ' + putOi.toLocaleString() : null,
+                ].filter(Boolean).join(' · ');
+
+                return '<div class="es-watch-item" data-strike="' + lvl.strike + '"'
+                    + (tip ? ' data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="' + tip + '"' : '')
+                    + '>'
+                    + '<span class="es-watch-price">' + _esFmt(lvl.strike) + '</span>'
+                    + '<span class="es-watch-badge ' + badgeClass + '">' + badgeText + '</span>'
+                    + '<span class="es-watch-desc">' + desc + '</span>'
+                    + '</div>';
+            }).join('');
+
+            container.innerHTML = html;
+            if (typeof initTooltipsWithin === 'function') initTooltipsWithin(container);
+        }
 
         function displayResults(data) {
             setPutCallRatio(esPcrLabel, data && data.stats ? data.stats : null);
@@ -5543,6 +5913,9 @@
             }
             
             // Statistiche (removed)
+
+            // Aggiorna la rappresentazione "meteo" (barra, needle, àncore, livelli).
+            renderEsWeather(data, supportsMerged, resistancesMerged);
 
             updateEsNearSignals();
             updatePressureUI();
