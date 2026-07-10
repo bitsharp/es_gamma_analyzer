@@ -4665,7 +4665,22 @@ def analyze_0dte(
         'total_put_oi': int(total_puts),
         'put_call_ratio': round(total_puts / total_calls, 2) if total_calls > 0 else None
     }
-    
+
+    # Tabella strike completa: consente al client di ricalcolare i livelli (CP/GF)
+    # quando l'utente inserisce un ES live manuale, senza dover ricaricare il PDF.
+    try:
+        results['strikes_table'] = [
+            {
+                'strike': float(row['Strike']),
+                'call_oi': int(row['Call_OI']),
+                'put_oi': int(row['Put_OI']),
+                'gamma': int(row['Gamma_Exposure']),
+            }
+            for _, row in df_sorted.iterrows()
+        ]
+    except Exception:
+        results['strikes_table'] = []
+
     return results
 
 # ============================================================================
@@ -5726,6 +5741,108 @@ def gamma_stats(strike):
 # ============================================================================
 
 
+def _analyze_es_levels(df, current_price, levels_mode='price'):
+    """Esegue analyze_0dte e allega le varianti dei livelli CP (current price) e GF (gamma flip).
+
+    Condiviso tra l'endpoint /analyze (upload PDF) e /api/recalculate-levels
+    (ricalcolo con ES live manuale), così la logica dei livelli resta unica.
+    """
+    results = analyze_0dte(df, current_price, levels_mode=levels_mode)
+    results_cp = analyze_0dte(df, current_price, levels_mode='price')
+    results_gf = analyze_0dte(df, current_price, levels_mode='flip')
+
+    if isinstance(results, dict):
+        if isinstance(results_cp, dict) and not results_cp.get('error'):
+            results['supports_cp'] = results_cp.get('supports') or []
+            results['resistances_cp'] = results_cp.get('resistances') or []
+            if results_cp.get('supports_note'):
+                results['supports_note_cp'] = results_cp.get('supports_note')
+            if results_cp.get('resistances_note'):
+                results['resistances_note_cp'] = results_cp.get('resistances_note')
+        else:
+            results.setdefault('supports_cp', [])
+            results.setdefault('resistances_cp', [])
+
+        if isinstance(results_gf, dict) and not results_gf.get('error'):
+            results['supports_gf'] = results_gf.get('supports') or []
+            results['resistances_gf'] = results_gf.get('resistances') or []
+            if results_gf.get('supports_note'):
+                results['supports_note_gf'] = results_gf.get('supports_note')
+            if results_gf.get('resistances_note'):
+                results['resistances_note_gf'] = results_gf.get('resistances_note')
+        else:
+            results.setdefault('supports_gf', [])
+            results.setdefault('resistances_gf', [])
+
+    return results
+
+
+@app.route('/api/recalculate-levels', methods=['POST'])
+@login_required
+def api_recalculate_levels():
+    """Ricalcola i livelli ES (gamma flip, supporti/resistenze CP e GF) usando un
+    prezzo ES live fornito manualmente e la tabella strike dell'ultima analisi.
+
+    Payload JSON:
+        { "current_price": <float>, "strikes": [{strike, call_oi, put_oi, gamma}, ...] }
+    Non richiede di ricaricare il PDF: usa la tabella strike già estratta.
+    """
+    payload = request.get_json(silent=True) or {}
+
+    current_price = payload.get('current_price')
+    try:
+        current_price = float(current_price) if current_price is not None else None
+    except (TypeError, ValueError):
+        current_price = None
+    if current_price is None or current_price <= 0:
+        return jsonify({'error': 'Prezzo ES live mancante o non valido'}), 400
+
+    raw_strikes = payload.get('strikes')
+    if not isinstance(raw_strikes, list) or not raw_strikes:
+        return jsonify({'error': 'Dati strike mancanti: ricarica il PDF per ricalcolare'}), 400
+
+    rows = []
+    for s in raw_strikes:
+        if not isinstance(s, dict):
+            continue
+        try:
+            rows.append({
+                'Strike': float(s.get('strike')),
+                'Call_OI': int(float(s.get('call_oi') or 0)),
+                'Put_OI': int(float(s.get('put_oi') or 0)),
+                'Gamma_Exposure': int(float(s.get('gamma') or 0)),
+            })
+        except (TypeError, ValueError):
+            continue
+
+    if not rows:
+        return jsonify({'error': 'Nessuno strike valido nei dati forniti'}), 400
+
+    df = pd.DataFrame(rows)
+    levels_mode = (payload.get('levels_mode') or 'price').strip().lower()
+
+    try:
+        results = _analyze_es_levels(df, current_price, levels_mode=levels_mode)
+    except Exception as e:
+        return jsonify({'error': f'Errore durante il ricalcolo: {str(e)}'}), 500
+
+    # Aggiorna la cache prezzo ES con l'input manuale (best-effort).
+    try:
+        _seed_es_price_manual(current_price, note="manual recalc")
+    except Exception:
+        pass
+
+    # Persisti la nuova analisi ricalcolata come "ultima analisi" (best-effort).
+    try:
+        if isinstance(results, dict) and not results.get('error'):
+            filename = (payload.get('filename') or 'ES live manuale').strip() or 'ES live manuale'
+            _save_last_analysis(filename, results)
+    except Exception:
+        pass
+
+    return jsonify(results)
+
+
 @app.route('/analyze', methods=['POST'])
 def analyze():
     if 'file' not in request.files:
@@ -5788,32 +5905,7 @@ def analyze():
 
         # Analizza. Per ES vogliamo poter mostrare sia i livelli basati su current price (CP)
         # che quelli basati su gamma flip (GF) senza dover rilanciare l'analisi.
-        results = analyze_0dte(df, current_price, levels_mode=levels_mode)
-        results_cp = analyze_0dte(df, current_price, levels_mode='price')
-        results_gf = analyze_0dte(df, current_price, levels_mode='flip')
-
-        if isinstance(results, dict):
-            if isinstance(results_cp, dict) and not results_cp.get('error'):
-                results['supports_cp'] = results_cp.get('supports') or []
-                results['resistances_cp'] = results_cp.get('resistances') or []
-                if results_cp.get('supports_note'):
-                    results['supports_note_cp'] = results_cp.get('supports_note')
-                if results_cp.get('resistances_note'):
-                    results['resistances_note_cp'] = results_cp.get('resistances_note')
-            else:
-                results.setdefault('supports_cp', [])
-                results.setdefault('resistances_cp', [])
-
-            if isinstance(results_gf, dict) and not results_gf.get('error'):
-                results['supports_gf'] = results_gf.get('supports') or []
-                results['resistances_gf'] = results_gf.get('resistances') or []
-                if results_gf.get('supports_note'):
-                    results['supports_note_gf'] = results_gf.get('supports_note')
-                if results_gf.get('resistances_note'):
-                    results['resistances_note_gf'] = results_gf.get('resistances_note')
-            else:
-                results.setdefault('supports_gf', [])
-                results.setdefault('resistances_gf', [])
+        results = _analyze_es_levels(df, current_price, levels_mode=levels_mode)
 
         # Attach extraction details to help explain "no data" situations.
         if isinstance(results, dict):

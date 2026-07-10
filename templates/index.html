@@ -124,6 +124,64 @@
             cursor: help;
         }
 
+        /* ES live manual input */
+        .es-live-edit-btn {
+            background: transparent;
+            border: none;
+            color: #778da9;
+            padding: 0;
+            font-size: 0.85rem;
+            line-height: 1;
+            cursor: pointer;
+        }
+
+        .es-live-edit-btn:hover {
+            color: #2dd4bf;
+        }
+
+        .es-live-edit {
+            margin-top: 0.45rem;
+        }
+
+        .es-live-input {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #e0e1dd;
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+        }
+
+        .es-live-input:focus {
+            background: rgba(255, 255, 255, 0.08);
+            color: #e0e1dd;
+            border-color: #2dd4bf;
+            box-shadow: none;
+        }
+
+        .es-live-edit-actions {
+            display: flex;
+            gap: 0.35rem;
+        }
+
+        .es-live-edit-actions .btn {
+            padding: 0.15rem 0.55rem;
+            font-size: 0.78rem;
+        }
+
+        .es-manual-hint {
+            font-size: 0.72rem;
+            margin-top: 0.25rem;
+        }
+
+        .es-manual-hint a {
+            color: #2dd4bf;
+            text-decoration: none;
+        }
+
+        .es-manual-hint a:hover {
+            text-decoration: underline;
+        }
+
         /* Compact Market Pressure panel to free space for chart */
         #pressureCard .card-body {
             padding: 0.6rem;
@@ -781,9 +839,22 @@
                         <div class="row g-2 mb-3 price-row">
                             <div class="col-6">
                                 <div class="price-box text-start" id="esLiveBox" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="--">
-                                    <div class="box-label">ES live</div>
+                                    <div class="box-label d-flex align-items-center justify-content-between">
+                                        <span>ES live</span>
+                                        <button type="button" id="esLiveEditBtn" class="es-live-edit-btn" title="Inserisci ES live manuale"><i class="bi bi-pencil-square"></i></button>
+                                    </div>
                                     <div class="fw-bold" id="esLivePrice">--</div>
                                     <div class="box-sub" id="esLiveTime">--</div>
+                                    <div class="es-manual-hint" id="esManualHint" style="display:none;">
+                                        <span class="text-warning"><i class="bi bi-hand-index-thumb"></i> manuale</span> · <a href="#" id="esLiveResetBtn">torna a live</a>
+                                    </div>
+                                    <div class="es-live-edit" id="esLiveEdit" style="display:none;">
+                                        <input type="number" step="0.25" inputmode="decimal" id="esLiveInput" class="es-live-input form-control form-control-sm" placeholder="ES live">
+                                        <div class="es-live-edit-actions">
+                                            <button type="button" id="esLiveApplyBtn" class="btn btn-sm btn-primary">Ricalcola</button>
+                                            <button type="button" id="esLiveCancelBtn" class="btn btn-sm btn-outline-secondary">Annulla</button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1477,6 +1548,7 @@
         let latestEsPrice = null;
         let latestEsGammaFlip = null;
         let prevEsPrice = null;
+        let esManualPriceActive = false;
         let nvdaLoadPromise = null;
         let nvdaPollIntervalId = null;
         let latestNvdaPrice = null;
@@ -1536,6 +1608,13 @@
         const esLivePrice = document.getElementById('esLivePrice');
         const esLiveTime = document.getElementById('esLiveTime');
         const esLiveBox = document.getElementById('esLiveBox');
+        const esLiveEditBtn = document.getElementById('esLiveEditBtn');
+        const esLiveEdit = document.getElementById('esLiveEdit');
+        const esLiveInput = document.getElementById('esLiveInput');
+        const esLiveApplyBtn = document.getElementById('esLiveApplyBtn');
+        const esLiveCancelBtn = document.getElementById('esLiveCancelBtn');
+        const esManualHint = document.getElementById('esManualHint');
+        const esLiveResetBtn = document.getElementById('esLiveResetBtn');
         const gammaFlipBox = document.getElementById('gammaFlipBox');
         const gammaFlipTop = document.getElementById('gammaFlipTop');
         const esSupportsModeHint = document.getElementById('esSupportsModeHint');
@@ -3796,6 +3875,8 @@
             if (esLoadPromise) return esLoadPromise;
 
             esLoadPromise = (async () => {
+                // Override manuale attivo: non sovrascrivere il prezzo/livelli con il dato live.
+                if (esManualPriceActive) return latestEsPrice;
                 try {
                     const response = await fetch('/api/es-price');
                     const data = await response.json();
@@ -5151,7 +5232,101 @@
         });
         
         analyzeBtn.addEventListener('click', runAnalysis);
-        
+
+        // ===== ES live manuale + ricalcolo livelli =====
+        function openEsLiveEditor() {
+            if (!esLiveEdit) return;
+            if (esLiveInput) {
+                const cur = Number.isFinite(latestEsPrice) ? latestEsPrice : null;
+                esLiveInput.value = cur != null ? cur.toFixed(2) : '';
+                esLiveInput.classList.remove('is-invalid');
+            }
+            esLiveEdit.style.display = 'block';
+            if (esLivePrice) esLivePrice.style.display = 'none';
+            if (esLiveInput) { esLiveInput.focus(); esLiveInput.select(); }
+        }
+
+        function closeEsLiveEditor() {
+            if (esLiveEdit) esLiveEdit.style.display = 'none';
+            if (esLivePrice) esLivePrice.style.display = '';
+        }
+
+        async function recalcEsLevelsWithManualPrice(price) {
+            const strikes = (lastEsAnalysisData && Array.isArray(lastEsAnalysisData.strikes_table))
+                ? lastEsAnalysisData.strikes_table
+                : null;
+
+            if (strikes && strikes.length) {
+                try {
+                    const res = await fetch('/api/recalculate-levels', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ strikes, current_price: price }),
+                    });
+                    const data = await res.json();
+                    if (res.ok && data && !data.error) {
+                        lastEsAnalysisData = data;
+                        displayResults(data);
+                        return true;
+                    }
+                } catch (e) {
+                    // fall through to file-based fallback
+                }
+            }
+
+            // Fallback: se il PDF è ancora selezionato, rilancia l'analisi completa.
+            if (selectedFile) {
+                await runAnalysis();
+                return true;
+            }
+
+            return false;
+        }
+
+        async function applyManualEsPrice() {
+            const raw = esLiveInput ? String(esLiveInput.value).replace(',', '.') : '';
+            const val = parseFloat(raw);
+            if (!Number.isFinite(val) || val <= 0) {
+                if (esLiveInput) esLiveInput.classList.add('is-invalid');
+                return;
+            }
+            if (esLiveInput) esLiveInput.classList.remove('is-invalid');
+
+            esManualPriceActive = true;
+            stopEsPricePolling();
+
+            if (Number.isFinite(latestEsPrice)) prevEsPrice = latestEsPrice;
+            latestEsPrice = val;
+            if (prevEsPrice == null) prevEsPrice = latestEsPrice;
+
+            if (esLivePrice) esLivePrice.textContent = val.toFixed(2);
+            setTooltip(esLiveBox, `ES live (manuale): ${val.toFixed(2)}`);
+            if (esManualHint) esManualHint.style.display = '';
+            closeEsLiveEditor();
+
+            await recalcEsLevelsWithManualPrice(val);
+            updateEsNearSignals();
+            updatePressureUI();
+        }
+
+        function resetEsLiveToLive(e) {
+            if (e) e.preventDefault();
+            esManualPriceActive = false;
+            if (esManualHint) esManualHint.style.display = 'none';
+            setTooltip(esLiveBox, '--');
+            startEsPricePolling();
+            refreshEsPrice();
+        }
+
+        if (esLiveEditBtn) esLiveEditBtn.addEventListener('click', (e) => { e.stopPropagation(); openEsLiveEditor(); });
+        if (esLiveApplyBtn) esLiveApplyBtn.addEventListener('click', applyManualEsPrice);
+        if (esLiveCancelBtn) esLiveCancelBtn.addEventListener('click', closeEsLiveEditor);
+        if (esLiveResetBtn) esLiveResetBtn.addEventListener('click', resetEsLiveToLive);
+        if (esLiveInput) esLiveInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); applyManualEsPrice(); }
+            else if (e.key === 'Escape') { e.preventDefault(); closeEsLiveEditor(); }
+        });
+
         function displayResults(data) {
             setPutCallRatio(esPcrLabel, data && data.stats ? data.stats : null);
 
