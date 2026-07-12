@@ -1051,6 +1051,7 @@
                                     <div class="es-anchor-val" id="gammaFlipTop">--</div>
                                     <div class="es-anchor-name"><i class="bi bi-cloud-fill"></i> Linea del Meteo</div>
                                     <div class="es-anchor-sub">Gamma Flip</div>
+                                    <div class="es-anchor-sub" id="gammaFlipAtr" style="margin-top:3px; font-weight:600; display:none;"></div>
                                 </div>
                                 <div class="es-anchor es-anchor-ceiling">
                                     <div class="es-anchor-val" id="esCeilingVal">--</div>
@@ -5544,6 +5545,53 @@
             return best;
         }
 
+        // Badge distanza prezzo↔gamma flip in ATR (domanda 2 del processo "Argo").
+        // La distanza viene ricalcolata live dal prezzo ES corrente quando
+        // disponibile, così resta fresca durante il polling; altrimenti usa i
+        // valori calcolati lato server.
+        function renderFlipAtrBadge(data, flip) {
+            const el = document.getElementById('gammaFlipAtr');
+            if (!el) return;
+
+            const atr = _esNum(data && data.atr);
+            const flipNum = _esNum(flip);
+            if (!(atr > 0) || flipNum == null) {
+                el.style.display = 'none';
+                return;
+            }
+
+            const live = _esNum(latestEsPrice);
+            const price = (live != null) ? live : _esNum(data && data.current_price);
+
+            let distAtr;
+            if (price != null) {
+                distAtr = (price - flipNum) / atr;
+            } else if (data && data.flip_distance_atr != null) {
+                distAtr = Number(data.flip_distance_atr);
+            } else {
+                el.style.display = 'none';
+                return;
+            }
+
+            const side = distAtr > 0 ? 'sopra' : 'sotto';
+            const mag = Math.abs(distAtr);
+            let label, color;
+            if (mag <= 0.3) {
+                label = 'sul flip';
+                color = '#ef4444';               // rosso: transizione
+            } else if (mag <= 1.0) {
+                label = 'vicino ' + side;
+                color = '#eab308';               // ambra: raggiungibile
+            } else {
+                label = 'lontano ' + side;
+                color = '#22c55e';               // verde: calmo
+            }
+
+            el.textContent = mag.toFixed(1) + ' ATR ' + label + ' · ATR ' + _esFmt(Math.round(atr));
+            el.style.color = color;
+            el.style.display = 'block';
+        }
+
         function renderEsWeather(data, supportsMerged, resistancesMerged) {
             const flip = _esNum(data && data.gamma_flip);
             const putWall = _esPickWall(supportsMerged, 'put_oi');
@@ -5554,6 +5602,8 @@
             _esSetText('esFloorVal', _esFmt(floor));
             _esSetText('gammaFlipTop', _esFmt(flip));
             _esSetText('esCeilingVal', _esFmt(ceiling));
+
+            renderFlipAtrBadge(data, flip);
 
             // Dominio della barra a partire dai punti disponibili.
             const price = _esNum(latestEsPrice);
@@ -5715,7 +5765,9 @@
 
             setTooltip(
                 gammaFlipBox,
-                `Gamma Flip: ${data && data.gamma_flip ? Number(data.gamma_flip).toFixed(2) : '--'}${data && data.regime ? `\nRegime: ${data.regime}` : ''}`
+                `Gamma Flip: ${data && data.gamma_flip ? Number(data.gamma_flip).toFixed(2) : '--'}`
+                + `${data && data.regime ? `\nRegime: ${data.regime}` : ''}`
+                + `${data && data.flip_distance_atr != null ? `\nDistanza: ${Number(data.flip_distance_atr).toFixed(2)} ATR (${data.flip_distance_label || ''})` : ''}`
             );
 
             latestEsGammaFlip = (data && Number.isFinite(Number(data.gamma_flip))) ? Number(data.gamma_flip) : null;

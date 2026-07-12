@@ -5,6 +5,17 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.4.0] — 2026-07-12
+
+### Aggiunto
+- **Distanza dal Gamma Flip in ATR** (domanda 2 del processo "Argo"). Sotto la "Linea del Meteo" della card ES Key Levels compare un badge che misura quanto il prezzo è lontano dal gamma flip **in unità di ATR** invece che in punti, con etichetta e colore: `sul flip` (rosso, entro 0.3 ATR), `vicino sopra/sotto` (ambra, entro 1 ATR), `lontano sopra/sotto` (verde). La distanza si aggiorna live sul prezzo ES corrente; il tooltip del flip riporta lo stesso dato.
+- La banda **±0.3 ATR** dà finalmente larghezza allo stato di regime "At Gamma Flip", che con il solo confronto d'uguaglianza prezzo/flip non scattava mai.
+
+### Tecnico
+- Nuovo helper `_compute_atr_cached()`: Wilder ATR(14) su OHLC giornaliero via yfinance (`ES=F`), cache per-simbolo con TTL 30 min e fallback silenzioso a `None` se yfinance non è disponibile.
+- `analyze_0dte()` accetta un parametro opzionale `atr` e restituisce `atr`, `flip_distance_points`, `flip_distance_atr`, `flip_distance_label`. `_analyze_es_levels()` calcola l'ATR ES e lo inoltra. Le altre chiamate (SPX, NVDA, …) restano invariate (default `atr=None`).
+
+
 ## [1.3.0] — 2026-05-18
 
 ### Modificato

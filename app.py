@@ -1389,6 +1389,59 @@ _ES_PRICE_CACHE = {
 }
 
 
+# ATR (Average True Range) per-simbolo. L'ATR giornaliero non cambia dentro
+# la seduta, quindi la cache ha un TTL generoso.
+_ES_ATR_CACHE = {
+    "value": {},  # {symbol: {"atr": float, "fetched_at": float}}
+}
+
+
+def _compute_atr_cached(symbol: str = "ES=F", period: int = 14, max_age_seconds: int = 30 * 60) -> Optional[float]:
+    """Wilder ATR(period) del simbolo, espresso nei punti del sottostante.
+
+    Usa l'OHLC giornaliero via yfinance. Cache per-simbolo con TTL. Ritorna
+    None quando i dati non sono disponibili: il chiamante deve degradare senza
+    rompere il request handler (convenzione "silent failures").
+
+    NB: l'unità dell'ATR deve combaciare con quella di prezzo/flip. Per la card
+    ES usare "ES=F" (punti ES); per SPX un simbolo indice (^GSPC).
+    """
+    if yf is None:
+        return None
+
+    store = _ES_ATR_CACHE.setdefault("value", {})
+    entry = store.get(symbol)
+    now = time.time()
+    if entry and (now - entry.get("fetched_at", 0.0)) < max_age_seconds and entry.get("atr"):
+        return entry["atr"]
+
+    try:
+        hist = yf.Ticker(symbol).history(period="3mo", interval="1d", auto_adjust=False)
+        if hist is None or hist.empty or len(hist) < period + 1:
+            return entry["atr"] if entry else None
+
+        high = hist["High"].astype(float)
+        low = hist["Low"].astype(float)
+        prev_close = hist["Close"].astype(float).shift(1)
+
+        true_range = pd.concat([
+            (high - low),
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ], axis=1).max(axis=1)
+
+        # Smoothing di Wilder ≈ EMA con alpha = 1/period (adjust=False).
+        atr_series = true_range.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+        atr = float(atr_series.iloc[-1])
+        if not (atr > 0):
+            return entry["atr"] if entry else None
+
+        store[symbol] = {"atr": round(atr, 2), "fetched_at": now}
+        return store[symbol]["atr"]
+    except Exception:
+        return entry["atr"] if entry else None
+
+
 def _seed_es_price_manual(price: float, note: str = "manual") -> None:
     """Seed the ES price cache from a user-provided value.
 
@@ -4454,11 +4507,29 @@ def _find_dte_column_mapping(pdf_path: str) -> Dict[int, tuple[int, int]]:
 # ============================================================================
 
 
+def _flip_distance_label(dist_atr: Optional[float]) -> Optional[str]:
+    """Etichetta qualitativa della distanza prezzo↔gamma flip, in ATR.
+
+    Soglie del processo "Argo": |d| <= 0.3 → sul flip, 0.3 < |d| <= 1 → vicino,
+    > 1 → lontano. Ritorna None se la distanza in ATR non è calcolabile.
+    """
+    if dist_atr is None:
+        return None
+    side = 'sopra' if dist_atr > 0 else 'sotto'
+    mag = abs(dist_atr)
+    if mag <= 0.3:
+        return 'sul flip'
+    if mag <= 1.0:
+        return f'vicino {side}'
+    return f'lontano {side}'
+
+
 def analyze_0dte(
     df: pd.DataFrame,
     current_price: float = None,
     levels_mode: str = "price",
     prefer_strike_multiple: Optional[float] = 25.0,
+    atr: Optional[float] = None,
 ):
     """Analizza i dati 0DTE e restituisce risultati strutturati.
 
@@ -4571,8 +4642,29 @@ def analyze_0dte(
         gamma_flip = (zone_low + zone_high) / 2
         results['gamma_flip'] = round(gamma_flip, 2)
 
-        # Regime (same semantics, using flip midpoint)
-        if current_price is not None and current_price > gamma_flip:
+        # Distanza prezzo↔flip in ATR (domanda 2 del processo "Argo").
+        # atr è opzionale: se assente i campi distanza restano None e il regime
+        # torna a essere deciso dal semplice confronto prezzo vs flip.
+        dist_points = None
+        dist_atr = None
+        on_flip = False
+        if current_price is not None:
+            dist_points = round(float(current_price) - gamma_flip, 2)
+            if atr and atr > 0:
+                dist_atr = round(dist_points / float(atr), 2)
+                on_flip = abs(dist_atr) <= 0.3
+
+        results['atr'] = round(float(atr), 2) if (atr and atr > 0) else None
+        results['flip_distance_points'] = dist_points
+        results['flip_distance_atr'] = dist_atr
+        results['flip_distance_label'] = _flip_distance_label(dist_atr)
+
+        # Regime: la banda ±0.3 ATR dà larghezza allo stato "sul flip", che con
+        # il solo confronto d'uguaglianza non scattava mai.
+        if on_flip:
+            results['regime'] = 'At Gamma Flip'
+            results['strategy'] = 'Cautela - punto di transizione (prezzo entro 0.3 ATR dal flip)'
+        elif current_price is not None and current_price > gamma_flip:
             results['regime'] = 'Positive Gamma (Low Volatility)'
             results['strategy'] = 'Mean reversion - vendere breakout, comprare pullback'
         elif current_price is not None and current_price < gamma_flip:
@@ -5747,7 +5839,11 @@ def _analyze_es_levels(df, current_price, levels_mode='price'):
     Condiviso tra l'endpoint /analyze (upload PDF) e /api/recalculate-levels
     (ricalcolo con ES live manuale), così la logica dei livelli resta unica.
     """
-    results = analyze_0dte(df, current_price, levels_mode=levels_mode)
+    # ATR su ES=F (stessa unità di prezzo/flip): alimenta la distanza in ATR
+    # dal gamma flip. None se yfinance non è disponibile → degrada senza errori.
+    es_atr = _compute_atr_cached("ES=F") if current_price else None
+
+    results = analyze_0dte(df, current_price, levels_mode=levels_mode, atr=es_atr)
     results_cp = analyze_0dte(df, current_price, levels_mode='price')
     results_gf = analyze_0dte(df, current_price, levels_mode='flip')
 
