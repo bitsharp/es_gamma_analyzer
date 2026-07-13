@@ -5,6 +5,17 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.5.0] — 2026-07-13
+
+### Aggiunto
+- **Net GEX SPX live da CBOE, senza PDF** (domanda 1 del processo "Argo"). Nuova card "Net GEX — SPX live" alimentata dal feed CBOE *delayed quotes*, che fornisce open interest **e gamma reali per strike**: niente più upload del PDF e niente stima Black-Scholes. Mostra il **Net GEX in $B per punto** con **badge di regime a bande** (Bivio / debole / moderato / estremo, colorato per segno), gamma flip, Put/Call Wall, distanza dal flip in ATR e un **profilo Gamma per-strike** (barre verdi long-gamma / rosse short-gamma).
+- **Doppia vista 0DTE ↔ Aggregato**: toggle che passa tra la sola scadenza 0DTE (intraday) e l'aggregato su tutte le scadenze, senza rifetch.
+
+### Tecnico
+- `get_spx_gamma_cboe_cached()`: scarica `cdn.cboe.com/.../_SPX.json`, filtra/aggrega per scope (0DTE = scadenza più vicina, All = tutte), cache TTL 8 min, fallback silenzioso. `_compute_gex_profile()` calcola Net GEX (scala **per-punto** e soglie del video: 0.5/1/3), flip proxy (zero-crossing del gamma netto per-strike) e profilo. Nuova route `GET /api/spx-gamma?scope=0dte|all|both`.
+- ATR SPX via `^GSPC` riusa `_compute_atr_cached()`. Il gamma flip preferisce il proxy da GEX, con fallback all'euristica OI di `analyze_0dte` (invariata).
+
+
 ## [1.4.0] — 2026-07-12
 
 ### Aggiunto

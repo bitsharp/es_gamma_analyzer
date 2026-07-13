@@ -1442,6 +1442,195 @@ def _compute_atr_cached(symbol: str = "ES=F", period: int = 14, max_age_seconds:
         return entry["atr"] if entry else None
 
 
+# ============================================================================
+# CBOE delayed quotes — GEX SPX reale (OI + gamma + IV per strike, no PDF)
+# ============================================================================
+# Fonte: https://cdn.cboe.com/api/global/delayed_quotes/options/_SPX.json
+# Gratis, ~15 min di ritardo, OI a chiusura precedente. Contiene per ogni
+# contratto open_interest, gamma, iv e le greche — quindi il Net GEX si calcola
+# direttamente, senza Black-Scholes. Vedi memory/argo-roadmap.
+
+_SPX_GAMMA_CBOE_CACHE = {
+    "value": None,
+    "fetched_at": 0.0,
+}
+
+_CBOE_OCC_RE = re.compile(r'^([A-Z]+?)(\d{6})([CP])(\d{8})$')
+
+# Soglie regime Net GEX in $B PER PUNTO di SPX, come nel processo "Argo" del
+# video: |x| <= 0.5 bivio, 0.5-1 debole, 1-3 moderato, >3 estremo.
+_GEX_T_BIVIO = 0.5
+_GEX_T_MODERATE = 1.0
+_GEX_T_EXTREME = 3.0
+
+
+def _fetch_cboe_json(url: str) -> Optional[Dict[str, Any]]:
+    """GET del JSON 'delayed quotes' di CBOE. None su qualsiasi errore."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.cboe.com/delayed_quotes/",
+    }
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=20) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+def _parse_cboe_occ(sym: str):
+    """('SPXW', date, 'C', 7575.0) da un simbolo OCC CBOE, o None."""
+    m = _CBOE_OCC_RE.match(sym or "")
+    if not m:
+        return None
+    yymmdd, cp, strike_milli = m.group(2), m.group(3), m.group(4)
+    try:
+        exp = _dt.date(2000 + int(yymmdd[0:2]), int(yymmdd[2:4]), int(yymmdd[4:6]))
+    except ValueError:
+        return None
+    return m.group(1), exp, cp, int(strike_milli) / 1000.0
+
+
+def get_spx_gamma_cboe_cached(max_age_seconds: int = 8 * 60) -> Optional[Dict[str, Any]]:
+    """Chain SPX con OI + gamma reali da CBOE, aggregata per due scope.
+
+    Ritorna: {"spot", "nearest_expiry", "source", "scopes": {"0dte": [rows],
+    "all": [rows]}} dove ogni row è {strike, call_oi, put_oi, call_gamma_oi,
+    put_gamma_oi}. `*_gamma_oi` = Σ(gamma·OI) già pesato, pronto per il GEX.
+    None (o l'ultimo valido) se CBOE non è raggiungibile.
+    """
+    now = time.time()
+    cached = _SPX_GAMMA_CBOE_CACHE.get("value")
+    if cached and (now - _SPX_GAMMA_CBOE_CACHE.get("fetched_at", 0.0)) < max_age_seconds:
+        return cached
+
+    payload = _fetch_cboe_json("https://cdn.cboe.com/api/global/delayed_quotes/options/_SPX.json")
+    if not payload:
+        return cached  # stale-if-error
+
+    data = payload.get("data") or {}
+    spot = data.get("current_price")
+    options = data.get("options") or []
+    if not spot or not options:
+        return cached
+
+    today = _dt.date.today()
+
+    parsed = []
+    nearest_exp = None
+    for o in options:
+        p = _parse_cboe_occ(o.get("option", ""))
+        if not p:
+            continue
+        _root, exp, cp, strike = p
+        parsed.append((exp, cp, strike, o))
+        if exp >= today and (nearest_exp is None or exp < nearest_exp):
+            nearest_exp = exp
+
+    def _blank():
+        return {"call_oi": 0.0, "put_oi": 0.0, "call_gamma_oi": 0.0, "put_gamma_oi": 0.0}
+
+    agg_all: Dict[float, dict] = {}
+    agg_0dte: Dict[float, dict] = {}
+
+    for exp, cp, strike, o in parsed:
+        oi = float(o.get("open_interest") or 0.0)
+        if oi <= 0:
+            continue
+        gamma = float(o.get("gamma") or 0.0)
+        targets = [agg_all]
+        if nearest_exp is not None and exp == nearest_exp:
+            targets.append(agg_0dte)
+        for store in targets:
+            row = store.setdefault(strike, _blank())
+            if cp == "C":
+                row["call_oi"] += oi
+                row["call_gamma_oi"] += gamma * oi
+            else:
+                row["put_oi"] += oi
+                row["put_gamma_oi"] += gamma * oi
+
+    def _rows(store):
+        return [
+            {
+                "strike": float(k),
+                "call_oi": float(store[k]["call_oi"]),
+                "put_oi": float(store[k]["put_oi"]),
+                "call_gamma_oi": float(store[k]["call_gamma_oi"]),
+                "put_gamma_oi": float(store[k]["put_gamma_oi"]),
+            }
+            for k in sorted(store.keys())
+        ]
+
+    result = {
+        "spot": float(spot),
+        "nearest_expiry": nearest_exp.isoformat() if nearest_exp else None,
+        "source": "cboe_delayed",
+        "scopes": {"0dte": _rows(agg_0dte), "all": _rows(agg_all)},
+    }
+    _SPX_GAMMA_CBOE_CACHE["value"] = result
+    _SPX_GAMMA_CBOE_CACHE["fetched_at"] = now
+    return result
+
+
+def _gex_regime_band(net_gex_b: float) -> str:
+    """Etichetta di regime dal Net GEX in $B/punto, soglie del video (0.5/1/3)."""
+    a = abs(net_gex_b)
+    if a <= _GEX_T_BIVIO:
+        return "Bivio"
+    sign = "Positivo" if net_gex_b > 0 else "Negativo"
+    if a < _GEX_T_MODERATE:
+        return f"{sign} debole"
+    if a < _GEX_T_EXTREME:
+        return f"{sign} moderato"
+    return f"{sign} estremo"
+
+
+def _compute_gex_profile(rows: list, spot: float) -> Optional[dict]:
+    """Net GEX ($B), regime, flip proxy e profilo per-strike da righe con gamma.
+
+    GEX per strike = (call_gamma_oi - put_gamma_oi) · 100 · spot
+    ($ di hedging per 1 PUNTO di SPX, scala del video; dealer long-call/short-put).
+    Il flip proxy è lo strike (più vicino allo spot) dove il gamma netto per-strike
+    cambia segno; l'upgrade rigoroso (ricalcolo su griglia di spot con l'IV CBOE)
+    è documentato in roadmap.
+    """
+    if not rows or not spot or spot <= 0:
+        return None
+
+    scale = 100.0 * float(spot)
+    gex_by_strike = []
+    net = 0.0
+    for r in rows:
+        g = (r["call_gamma_oi"] - r["put_gamma_oi"]) * scale
+        net += g
+        gex_by_strike.append({"strike": r["strike"], "gex": g})
+
+    # Flip proxy: cambio di segno del gamma netto per-strike più vicino allo spot.
+    flip = None
+    best_dist = None
+    for i in range(1, len(rows)):
+        a = rows[i - 1]["call_gamma_oi"] - rows[i - 1]["put_gamma_oi"]
+        b = rows[i]["call_gamma_oi"] - rows[i]["put_gamma_oi"]
+        if (a < 0 <= b) or (a > 0 >= b) or a == 0:
+            mid = (rows[i - 1]["strike"] + rows[i]["strike"]) / 2.0
+            d = abs(mid - spot)
+            if best_dist is None or d < best_dist:
+                best_dist, flip = d, mid
+
+    net_b = net / 1e9
+    return {
+        "net_gex_b": round(net_b, 3),
+        "regime_band": _gex_regime_band(net_b),
+        "gamma_flip_gex": round(flip, 2) if flip is not None else None,
+        "gex_by_strike": [
+            {"strike": g["strike"], "gex_b": round(g["gex"] / 1e9, 5)} for g in gex_by_strike
+        ],
+    }
+
+
 def _seed_es_price_manual(price: float, note: str = "manual") -> None:
     """Seed the ES price cache from a user-provided value.
 
@@ -5827,6 +6016,95 @@ def gamma_stats(strike):
         "days": days,
         "stats": stats
     })
+
+def _build_spx_gamma_scope(rows: list, spot: float, atr: Optional[float]) -> Optional[dict]:
+    """Compone Net GEX (profilo) + walls/livelli (analyze_0dte su OI) per uno scope."""
+    if not rows:
+        return None
+
+    gex = _compute_gex_profile(rows, spot)
+
+    df = pd.DataFrame([
+        {
+            "Strike": r["strike"],
+            "Call_OI": r["call_oi"],
+            "Put_OI": r["put_oi"],
+            # Gamma_Exposure = GEX per-strike in $/punto (solo per display; la
+            # logica dei livelli in analyze_0dte usa gli OI).
+            "Gamma_Exposure": int((r["call_gamma_oi"] - r["put_gamma_oi"]) * 100 * spot),
+        }
+        for r in rows
+    ])
+    # SPX: strike a 5 punti → nessun bias ai multipli di 25.
+    analysis = analyze_0dte(df, current_price=spot, atr=atr, prefer_strike_multiple=None)
+
+    # Flip: preferisci il proxy da GEX, fallback all'euristica OI di analyze_0dte.
+    flip = (gex or {}).get("gamma_flip_gex")
+    if flip is None:
+        flip = analysis.get("gamma_flip")
+
+    dist_atr = None
+    dist_label = None
+    if flip and atr and atr > 0:
+        dist_atr = round((spot - flip) / atr, 2)
+        dist_label = _flip_distance_label(dist_atr)
+
+    supports = analysis.get("supports") or []
+    resistances = analysis.get("resistances") or []
+    return {
+        "net_gex_b": (gex or {}).get("net_gex_b"),
+        "regime_band": (gex or {}).get("regime_band"),
+        "gamma_flip": round(flip, 2) if flip else None,
+        "put_wall": supports[0]["strike"] if supports else None,
+        "call_wall": resistances[0]["strike"] if resistances else None,
+        "supports": supports,
+        "resistances": resistances,
+        "regime": analysis.get("regime"),
+        "strategy": analysis.get("strategy"),
+        "flip_distance_atr": dist_atr,
+        "flip_distance_label": dist_label,
+        "gex_by_strike": (gex or {}).get("gex_by_strike") or [],
+        "stats": analysis.get("stats"),
+    }
+
+
+@app.route('/api/spx-gamma', methods=['GET'])
+@login_required
+def api_spx_gamma():
+    """GEX SPX live da CBOE (no-PDF), in due scope: 0DTE e aggregato.
+
+    Query: ?scope=0dte|all|both (default both). Ritorna Net GEX in $B, regime,
+    gamma flip, put/call wall, distanza in ATR e profilo gamma-per-strike.
+    """
+    snap = get_spx_gamma_cboe_cached()
+    if not snap or not snap.get("spot"):
+        return jsonify({"error": "Dati CBOE non disponibili", "source": None}), 503
+
+    spot = float(snap["spot"])
+    atr = _compute_atr_cached("^GSPC")
+
+    scope_req = (request.args.get("scope") or "both").strip().lower()
+    wanted = ["0dte", "all"] if scope_req in {"both", ""} else [scope_req]
+
+    out = {
+        "spot": round(spot, 2),
+        "source": snap.get("source"),
+        "nearest_expiry": snap.get("nearest_expiry"),
+        "delayed_note": "CBOE delayed ~15 min · OI a chiusura precedente",
+        "atr": round(atr, 2) if (atr and atr > 0) else None,
+        "scopes": {},
+    }
+    for scope in wanted:
+        rows = (snap.get("scopes") or {}).get(scope)
+        built = _build_spx_gamma_scope(rows, spot, atr) if rows else None
+        if built:
+            out["scopes"][scope] = built
+
+    if not out["scopes"]:
+        return jsonify({"error": "Nessuno strike valido nei dati CBOE", "source": snap.get("source")}), 503
+
+    return jsonify(out)
+
 
 # ============================================================================
 # WEB ROUTES - Main Application (PDF Analysis)

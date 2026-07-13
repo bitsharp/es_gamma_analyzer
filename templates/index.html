@@ -1158,6 +1158,68 @@
                 </div>
             </div>
 
+            <!-- Net GEX SPX (CBOE, no-PDF) -->
+            <style>
+                .spx-gex-chart{max-height:340px;overflow-y:auto;padding-right:4px;}
+                .spx-gex-row{display:flex;align-items:center;gap:6px;height:15px;margin:1px 0;}
+                .spx-gex-row.near{background:rgba(148,163,184,0.14);border-radius:3px;}
+                .spx-gex-k{flex:0 0 104px;font-size:11px;font-variant-numeric:tabular-nums;color:#cbd5e1;text-align:right;white-space:nowrap;}
+                .spx-gex-tag{color:#eab308;font-weight:700;}
+                .spx-gex-bar{position:relative;flex:1 1 auto;height:11px;background:rgba(148,163,184,0.08);border-radius:2px;}
+                .spx-gex-zero{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:rgba(148,163,184,0.55);}
+                #spxGexScopeToggle .btn.active{background:#3b82f6;border-color:#3b82f6;color:#fff;}
+            </style>
+            <div class="col-12 col-md-6">
+                <div class="card" id="spxGexCard">
+                    <div class="card-header">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div><i class="bi bi-activity me-2"></i>Net GEX — SPX live <span class="text-muted small">(CBOE · no-PDF)</span></div>
+                            <div class="btn-group btn-group-sm" role="group" id="spxGexScopeToggle">
+                                <button type="button" class="btn btn-outline-secondary active" data-scope="0dte">0DTE</button>
+                                <button type="button" class="btn btn-outline-secondary" data-scope="all">Aggregato</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="spxGexEmpty" class="text-muted small text-center py-4">In attesa dei dati CBOE…</div>
+                        <div id="spxGexContent" style="display:none;">
+                            <div class="d-flex align-items-start justify-content-between mb-1">
+                                <div>
+                                    <div class="box-label">Net GEX <span class="text-muted">($B / punto)</span></div>
+                                    <div class="fw-bold" style="font-size:1.7rem;line-height:1.1;" id="spxGexValue">--</div>
+                                </div>
+                                <div class="text-end">
+                                    <span id="spxGexRegimeBadge" class="badge">--</span>
+                                    <div class="box-sub" id="spxGexFlipDist" style="margin-top:5px;"></div>
+                                </div>
+                            </div>
+                            <div class="box-sub text-muted mb-2" id="spxGexMeta">--</div>
+
+                            <div class="es-weather-anchors mb-2">
+                                <div class="es-anchor es-anchor-floor">
+                                    <div class="es-anchor-val" id="spxGexPutWall">--</div>
+                                    <div class="es-anchor-name"><i class="bi bi-shield-fill"></i> Il Pavimento</div>
+                                    <div class="es-anchor-sub">Put Wall</div>
+                                </div>
+                                <div class="es-anchor es-anchor-flip">
+                                    <div class="es-anchor-val" id="spxGexFlip">--</div>
+                                    <div class="es-anchor-name"><i class="bi bi-cloud-fill"></i> Gamma Flip</div>
+                                    <div class="es-anchor-sub" id="spxGexFlipAtr" style="margin-top:3px;font-weight:600;display:none;"></div>
+                                </div>
+                                <div class="es-anchor es-anchor-ceiling">
+                                    <div class="es-anchor-val" id="spxGexCallWall">--</div>
+                                    <div class="es-anchor-name"><i class="bi bi-record-circle"></i> Il Soffitto</div>
+                                    <div class="es-anchor-sub">Call Wall</div>
+                                </div>
+                            </div>
+
+                            <div class="box-label mb-1">Profilo Gamma per strike <span class="text-muted small">(verde = long gamma · rosso = short)</span></div>
+                            <div id="spxGexChart" class="spx-gex-chart"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- SPX OI→ES Levels -->
             <div class="col-12 col-md-3" style="display:none;">
                 <div class="card" id="esSpxOiKeyLevelsCard">
@@ -6157,6 +6219,99 @@
                 chart.applyOptions({ width: chartContainer.offsetWidth });
             });
         }
+
+        // ================= Net GEX SPX (CBOE, no-PDF) =================
+        (function initSpxGex(){
+            const card = document.getElementById('spxGexCard');
+            if(!card) return;
+            const $ = (id)=>document.getElementById(id);
+            let gexData = null;
+            let scope = '0dte';
+
+            function bandColor(band){
+                if(!band) return '#94a3b8';
+                if(band.indexOf('Positivo')===0) return band.indexOf('estremo')>=0 ? '#16a34a' : (band.indexOf('moderato')>=0 ? '#22c55e' : '#4ade80');
+                if(band.indexOf('Negativo')===0) return band.indexOf('estremo')>=0 ? '#dc2626' : (band.indexOf('moderato')>=0 ? '#ef4444' : '#f87171');
+                return '#eab308'; // Bivio
+            }
+            function atrColor(d){ d=Math.abs(d); return d<=0.3?'#ef4444':(d<=1?'#eab308':'#22c55e'); }
+            function fmt(n,dec){ return (n==null||isNaN(n))?'--':Number(n).toLocaleString('it-IT',{minimumFractionDigits:dec,maximumFractionDigits:dec}); }
+
+            function renderChart(s, spot){
+                const host = $('spxGexChart'); host.innerHTML='';
+                let rows = (s.gex_by_strike||[]).filter(r=>r && r.gex_b!=null);
+                if(!rows.length){ host.innerHTML='<div class="text-muted small">Nessun dato</div>'; return; }
+                // finestra: 41 strike più vicini allo spot, ordinati dall'alto (strike alto in cima)
+                rows = rows.slice().sort((a,b)=>Math.abs(a.strike-spot)-Math.abs(b.strike-spot)).slice(0,41);
+                rows.sort((a,b)=>b.strike-a.strike);
+                const maxAbs = Math.max.apply(null, rows.map(r=>Math.abs(r.gex_b))) || 1;
+                const flip=s.gamma_flip, pw=s.put_wall, cw=s.call_wall;
+                host.innerHTML = rows.map(function(r){
+                    const pct = Math.min(50, Math.abs(r.gex_b)/maxAbs*50);
+                    const pos = r.gex_b>=0;
+                    const color = pos ? '#22c55e' : '#ef4444';
+                    const near = Math.abs(r.strike-spot) < 2.5;
+                    let tag='';
+                    if(flip!=null && Math.abs(r.strike-flip)<2.5) tag='flip';
+                    else if(pw!=null && Math.abs(r.strike-pw)<0.01) tag='put wall';
+                    else if(cw!=null && Math.abs(r.strike-cw)<0.01) tag='call wall';
+                    const bar = pos
+                        ? '<div style="position:absolute;left:50%;width:'+pct+'%;height:100%;background:'+color+';border-radius:0 2px 2px 0;"></div>'
+                        : '<div style="position:absolute;right:50%;width:'+pct+'%;height:100%;background:'+color+';border-radius:2px 0 0 2px;"></div>';
+                    return '<div class="spx-gex-row'+(near?' near':'')+'">'
+                        + '<div class="spx-gex-k">'+r.strike.toFixed(0)+(tag?' <span class="spx-gex-tag">'+tag+'</span>':'')+'</div>'
+                        + '<div class="spx-gex-bar"><div class="spx-gex-zero"></div>'+bar+'</div>'
+                        + '</div>';
+                }).join('');
+            }
+
+            function render(){
+                const empty=$('spxGexEmpty'), content=$('spxGexContent');
+                if(!gexData || !gexData.scopes || !gexData.scopes[scope]){ empty.style.display='block'; content.style.display='none'; return; }
+                empty.style.display='none'; content.style.display='block';
+                const s = gexData.scopes[scope];
+                const spot = gexData.spot;
+                const v=$('spxGexValue');
+                v.textContent = (s.net_gex_b>0?'+':'') + fmt(s.net_gex_b,3);
+                v.style.color = bandColor(s.regime_band);
+                const badge=$('spxGexRegimeBadge');
+                badge.textContent = s.regime_band || '--';
+                badge.style.background = bandColor(s.regime_band);
+                badge.style.color = '#0b1220';
+                $('spxGexMeta').textContent = 'SPX ' + fmt(spot,2) + ' · scad. ' + (gexData.nearest_expiry||'--') + ' · ' + (gexData.delayed_note||'');
+                $('spxGexPutWall').textContent = fmt(s.put_wall,0);
+                $('spxGexFlip').textContent = fmt(s.gamma_flip,2);
+                $('spxGexCallWall').textContent = fmt(s.call_wall,0);
+                const atrEl=$('spxGexFlipAtr');
+                if(s.flip_distance_atr!=null){
+                    atrEl.textContent = Math.abs(s.flip_distance_atr).toFixed(1)+' ATR '+(s.flip_distance_label||'');
+                    atrEl.style.color = atrColor(s.flip_distance_atr);
+                    atrEl.style.display='block';
+                } else { atrEl.style.display='none'; }
+                $('spxGexFlipDist').textContent = (s.flip_distance_atr!=null) ? ('flip '+(s.flip_distance_atr>0?'+':'')+s.flip_distance_atr+' ATR') : '';
+                renderChart(s, spot);
+            }
+
+            async function load(){
+                try{
+                    const res = await fetch('/api/spx-gamma');
+                    if(!res.ok) return;
+                    gexData = await res.json();
+                    render();
+                }catch(e){ /* silent, come da convenzione */ }
+            }
+
+            Array.prototype.forEach.call(document.querySelectorAll('#spxGexScopeToggle button'), function(btn){
+                btn.addEventListener('click', function(){
+                    scope = btn.getAttribute('data-scope');
+                    Array.prototype.forEach.call(document.querySelectorAll('#spxGexScopeToggle button'), function(b){ b.classList.toggle('active', b===btn); });
+                    render();
+                });
+            });
+
+            load();
+            setInterval(load, 5*60*1000); // dato differito ~15 min → refresh 5 min
+        })();
     </script>
     {% include '_release_notes_modal.html' %}
 </body>
