@@ -2090,6 +2090,121 @@ def _fetch_yahoo_quote_snapshot(symbols: List[str]) -> Optional[Dict[str, Any]]:
         return None
 
 
+# ============================================================================
+# VIX — volatilità (domanda 3 del processo "Argo")
+# ============================================================================
+# Livello VIX (soglie del video: 20/25/30) + struttura a termine VIX/VIX3M
+# (contango = calmo, backwardation = stress). Fonte: Yahoo quote (^VIX, ^VIX3M,
+# ^VIX9D). Vedi memory/argo-roadmap.
+
+_VIX_SNAPSHOT_CACHE = {
+    "value": None,
+    "fetched_at": 0.0,
+}
+
+
+def _vix_band(vix: float) -> str:
+    """Banda di volatilità dalle soglie del video (20/25/30), + 'Calmo' <15."""
+    if vix < 15:
+        return "Calmo"
+    if vix < 20:
+        return "Normale"
+    if vix < 25:
+        return "Elevato"
+    if vix < 30:
+        return "Alto"
+    return "Estremo"
+
+
+def _vix_term_structure(vix: float, vix3m: float):
+    """('Contango'|'Piatta'|'Backwardation', ratio) da VIX vs VIX3M.
+
+    ratio = VIX/VIX3M: <0.98 contango (mercato calmo), >1.02 backwardation
+    (stress, tipico dei giorni di gamma negativo/cascata).
+    """
+    if not vix or not vix3m or vix3m <= 0:
+        return None, None
+    ratio = vix / vix3m
+    if ratio <= 0.98:
+        term = "Contango"
+    elif ratio <= 1.02:
+        term = "Piatta"
+    else:
+        term = "Backwardation"
+    return term, round(ratio, 3)
+
+
+def _cboe_index_level(symbol_root: str) -> Optional[float]:
+    """Livello di un indice CBOE (VIX, VIX3M, VIX9D) da /quotes/_SYMBOL.json."""
+    payload = _fetch_cboe_json(
+        f"https://cdn.cboe.com/api/global/delayed_quotes/quotes/_{symbol_root}.json"
+    )
+    data = (payload or {}).get("data") or {}
+    v = data.get("current_price")
+    if not v:
+        v = data.get("close")
+    try:
+        v = float(v)
+        return v if v > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def get_vix_snapshot_cached(max_age_seconds: int = 3 * 60) -> Optional[Dict[str, Any]]:
+    """Snapshot volatilità: VIX + banda + struttura a termine (VIX/VIX3M).
+
+    Fonte: indici CBOE delayed (VIX, VIX3M, VIX9D). Ritorna {vix, vix9d, vix3m,
+    band, term_structure, term_ratio, note} o l'ultimo valore valido/None se
+    CBOE non risponde (silent failure). Yahoo v7/quote non è affidabile (richiede
+    auth/crumb → 401), per questo usiamo CBOE come per il GEX.
+    """
+    now = time.time()
+    cached = _VIX_SNAPSHOT_CACHE.get("value")
+    if cached and (now - _VIX_SNAPSHOT_CACHE.get("fetched_at", 0.0)) < max_age_seconds:
+        return cached
+
+    vix = _cboe_index_level("VIX")
+    vix3m = _cboe_index_level("VIX3M")
+    vix9d = _cboe_index_level("VIX9D")
+
+    # Fallback livello VIX via yfinance se CBOE non risponde.
+    if vix is None and yf is not None:
+        try:
+            h = yf.Ticker("^VIX").history(period="5d", interval="1d")
+            if h is not None and not h.empty:
+                vix = float(h["Close"].iloc[-1])
+        except Exception:
+            vix = None
+
+    if vix is None:
+        return cached  # stale-if-error
+
+    band = _vix_band(vix)
+    term, ratio = _vix_term_structure(vix, vix3m)
+
+    # Nota interpretativa: lega volatilità e regime gamma atteso.
+    if band in {"Alto", "Estremo"} or term == "Backwardation":
+        note = "Stress di volatilità: favorisce gamma negativo / cascata"
+    elif band in {"Calmo", "Normale"} and term == "Contango":
+        note = "Volatilità benigna: coerente con pinning / gamma positivo"
+    else:
+        note = "Volatilità di transizione"
+
+    result = {
+        "vix": round(vix, 2),
+        "vix9d": round(vix9d, 2) if vix9d is not None else None,
+        "vix3m": round(vix3m, 2) if vix3m is not None else None,
+        "band": band,
+        "term_structure": term,
+        "term_ratio": ratio,
+        "note": note,
+        "source": "cboe_delayed",
+    }
+    _VIX_SNAPSHOT_CACHE["value"] = result
+    _VIX_SNAPSHOT_CACHE["fetched_at"] = now
+    return result
+
+
 def get_es_spx_overnight_basis_cached(max_age_seconds: int = 10 * 60) -> Optional[Dict[str, Any]]:
     """Return stable ES/SPX basis prices for after-hours.
 
@@ -6104,6 +6219,16 @@ def api_spx_gamma():
         return jsonify({"error": "Nessuno strike valido nei dati CBOE", "source": snap.get("source")}), 503
 
     return jsonify(out)
+
+
+@app.route('/api/vix-regime', methods=['GET'])
+@login_required
+def api_vix_regime():
+    """Volatilità (domanda 3 di "Argo"): livello VIX a bande + struttura a termine."""
+    snap = get_vix_snapshot_cached()
+    if not snap or snap.get("vix") is None:
+        return jsonify({"error": "Dati VIX non disponibili"}), 503
+    return jsonify(snap)
 
 
 # ============================================================================

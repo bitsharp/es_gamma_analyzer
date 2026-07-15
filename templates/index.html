@@ -1220,6 +1220,37 @@
                 </div>
             </div>
 
+            <!-- Volatilità VIX (Argo domanda 3) -->
+            <div class="col-12 col-md-3">
+                <div class="card" id="vixCard">
+                    <div class="card-header">
+                        <div><i class="bi bi-soundwave me-2"></i>Volatilità <span class="text-muted small">(VIX)</span></div>
+                    </div>
+                    <div class="card-body">
+                        <div id="vixEmpty" class="text-muted small text-center py-4">In attesa dei dati VIX…</div>
+                        <div id="vixContent" style="display:none;">
+                            <div class="d-flex align-items-start justify-content-between mb-2">
+                                <div>
+                                    <div class="box-label">VIX</div>
+                                    <div class="fw-bold" style="font-size:1.7rem;line-height:1.1;" id="vixValue">--</div>
+                                </div>
+                                <span id="vixBandBadge" class="badge">--</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="box-sub text-muted">Struttura a termine</span>
+                                <span id="vixTermBadge" class="badge">--</span>
+                            </div>
+                            <div class="d-flex justify-content-around text-center mb-1" style="font-variant-numeric:tabular-nums;">
+                                <div><div class="box-sub text-muted">9D</div><div id="vixV9d">--</div></div>
+                                <div><div class="box-sub text-muted">30D</div><div id="vixV30d">--</div></div>
+                                <div><div class="box-sub text-muted">3M</div><div id="vixV3m">--</div></div>
+                            </div>
+                            <div class="box-sub text-muted mt-2" id="vixNote"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- SPX OI→ES Levels -->
             <div class="col-12 col-md-3" style="display:none;">
                 <div class="card" id="esSpxOiKeyLevelsCard">
@@ -6311,6 +6342,38 @@
 
             load();
             setInterval(load, 5*60*1000); // dato differito ~15 min → refresh 5 min
+        })();
+
+        // ================= Volatilità VIX (Argo domanda 3) =================
+        (function initVix(){
+            const card = document.getElementById('vixCard');
+            if(!card) return;
+            const $ = (id)=>document.getElementById(id);
+            const BAND = {Calmo:'#22c55e', Normale:'#84cc16', Elevato:'#eab308', Alto:'#f97316', Estremo:'#dc2626'};
+            function bandColor(b){ return BAND[b] || '#94a3b8'; }
+            function termColor(t){ return t==='Contango' ? '#22c55e' : (t==='Backwardation' ? '#dc2626' : '#eab308'); }
+            function fmt(n){ return (n==null||isNaN(n)) ? '--' : Number(n).toFixed(2); }
+
+            async function load(){
+                try{
+                    const res = await fetch('/api/vix-regime');
+                    if(!res.ok) return;
+                    const d = await res.json();
+                    if(!d || d.vix==null) return;
+                    $('vixEmpty').style.display='none'; $('vixContent').style.display='block';
+                    const v=$('vixValue'); v.textContent=fmt(d.vix); v.style.color=bandColor(d.band);
+                    const bb=$('vixBandBadge'); bb.textContent=d.band||'--'; bb.style.background=bandColor(d.band); bb.style.color='#0b1220';
+                    const tb=$('vixTermBadge');
+                    tb.textContent=(d.term_structure||'--') + (d.term_ratio!=null ? (' · '+d.term_ratio) : '');
+                    tb.style.background=termColor(d.term_structure); tb.style.color='#0b1220';
+                    $('vixV9d').textContent=fmt(d.vix9d);
+                    $('vixV30d').textContent=fmt(d.vix);
+                    $('vixV3m').textContent=fmt(d.vix3m);
+                    $('vixNote').textContent=d.note||'';
+                }catch(e){ /* silent */ }
+            }
+            load();
+            setInterval(load, 3*60*1000);
         })();
     </script>
     {% include '_release_notes_modal.html' %}

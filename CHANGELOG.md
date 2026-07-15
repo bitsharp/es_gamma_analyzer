@@ -5,6 +5,15 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.6.0] — 2026-07-15
+
+### Aggiunto
+- **Volatilità VIX** (domanda 3 del processo "Argo"). Nuova card "Volatilità (VIX)" che mostra il livello VIX con **bande** (Calmo <15 · Normale · Elevato · Alto · Estremo, soglie 20/25/30 del video), la **struttura a termine** VIX/VIX3M (Contango = mercato calmo · Backwardation = stress) e i tre punti della curva (9D / 30D / 3M). Una nota lega la volatilità al regime gamma atteso (es. "Backwardation → favorisce gamma negativo / cascata").
+
+### Tecnico
+- `get_vix_snapshot_cached()` con banda, term structure e nota; fonte **indici CBOE delayed** (`quotes/_VIX`, `_VIX3M`, `_VIX9D`) con fallback yfinance per il livello VIX. Nuova route `GET /api/vix-regime`. Scelta CBOE perché l'endpoint Yahoo `v7/quote` ora richiede auth/crumb (401) e non è affidabile.
+
+
 ## [1.5.0] — 2026-07-13
 
 ### Aggiunto
