@@ -5,6 +5,18 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.7.0] — 2026-07-30
+
+### Aggiunto
+- **Nuova pagina Macro** (`/macro`), raggiungibile dalla voce "Macro" nella navbar di tutte le pagine. Ospita i dati macro/di posizionamento, a partire dal box **COT S&P 500** (Non-Commercial, CFTC Legacy) con bias narrativo, variazioni WoW e storico settimanale del net.
+
+### Modificato
+- Il box COT S&P 500 è stato **spostato dalla dashboard Gamma alla pagina Macro**. La card Market Pressure si allarga per occupare lo spazio liberato nella riga dei key levels.
+
+### Tecnico
+- Nuova route `/macro` (`macro_page`, protetta da `login_required`) e template `templates/macro.html`; il polling COT (30 min, con pausa quando la tab è nascosta) e il refresh manuale vivono ora solo lì. L'endpoint `/api/cot-sp500` è invariato.
+
+
 ## [1.6.0] — 2026-07-15
 
 ### Aggiunto

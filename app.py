@@ -6441,6 +6441,18 @@ def analyze():
         return jsonify({'error': f'Errore durante l\'analisi: {str(e)}'}), 500
 
 # ============================================================================
+# WEB ROUTES - Macro
+# ============================================================================
+
+
+@app.route('/macro')
+@login_required
+def macro_page():
+    """Pagina Macro: dati macro/posizionamento (COT S&P 500)."""
+    return render_template('macro.html')
+
+
+# ============================================================================
 # WEB ROUTES - Trading Checklist
 # ============================================================================
 
