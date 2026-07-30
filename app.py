@@ -1696,10 +1696,8 @@ _ES_SPX_OVERNIGHT_BASIS_CACHE = {
 }
 
 
-_COT_SP500_CACHE = {
-    "value": None,
-    "fetched_at": 0.0,
-}
+# Cache COT per simbolo: {symbol: {"value": ..., "fetched_at": ...}}
+_COT_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
 _NVDA_SNAPSHOT_CACHE = {
@@ -2288,21 +2286,28 @@ def get_es_spx_overnight_basis_cached(max_age_seconds: int = 10 * 60) -> Optiona
     return payload
 
 
-def get_cot_sp500_cached(max_age_seconds: int = 60 * 60) -> Optional[Dict[str, Any]]:
-    """Fetch COT (Commitment of Traders) data for S&P 500 with caching.
+COT_API_BASE_URL = os.environ.get("COT_API_BASE_URL", "http://178.104.133.41:8080")
+
+# Simboli supportati dal servizio COT esterno (CFTC Legacy Futures Only).
+_COT_SYMBOLS = {"sp500", "nasdaq100", "eurofx"}
+
+
+def get_cot_cached(symbol: str, max_age_seconds: int = 60 * 60) -> Optional[Dict[str, Any]]:
+    """Fetch COT (Commitment of Traders) data for a symbol with caching.
 
     Source: CFTC Legacy Futures Only Report, exposed by an external service
-    at http://178.104.133.41:8080/cot/sp500. The report is published weekly,
-    so a 1h cache is generous.
+    at {COT_API_BASE_URL}/cot/{symbol} (sp500 / nasdaq100 / eurofx). The
+    report is published weekly, so a 1h cache is generous.
     """
 
     now = time.time()
-    cached = _COT_SP500_CACHE.get("value")
-    fetched_at = float(_COT_SP500_CACHE.get("fetched_at") or 0.0)
+    entry = _COT_CACHE.setdefault(symbol, {"value": None, "fetched_at": 0.0})
+    cached = entry.get("value")
+    fetched_at = float(entry.get("fetched_at") or 0.0)
     if cached and (now - fetched_at) <= max_age_seconds:
         return cached
 
-    url = "http://178.104.133.41:8080/cot/sp500"
+    url = f"{COT_API_BASE_URL}/cot/{symbol}"
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; ESGammaAnalyzer/1.0)",
         "Accept": "application/json",
@@ -2336,8 +2341,8 @@ def get_cot_sp500_cached(max_age_seconds: int = 60 * 60) -> Optional[Dict[str, A
     if not isinstance(data, dict):
         return {"error": "Invalid COT response"}
 
-    _COT_SP500_CACHE["value"] = data
-    _COT_SP500_CACHE["fetched_at"] = now
+    entry["value"] = data
+    entry["fetched_at"] = now
     return data
 
 
@@ -5491,21 +5496,20 @@ def es_spx_overnight_basis():
     return jsonify(data)
 
 
-@app.route('/api/cot-sp500', methods=['GET'])
-def api_cot_sp500():
-    """Return weekly COT report for S&P 500 (non-commercial focus)."""
+def _cot_json_response(symbol: str):
+    """Shared handler: COT report for a symbol as JSON (non-commercial focus)."""
 
     force = (request.args.get('force') or '').strip() == '1'
     try:
-        data = get_cot_sp500_cached(max_age_seconds=0 if force else 60 * 60)
+        data = get_cot_cached(symbol, max_age_seconds=0 if force else 60 * 60)
     except Exception as e:
-        return jsonify({"error": f"Impossibile recuperare il COT S&P 500: {e}"})
+        return jsonify({"error": f"Impossibile recuperare il COT {symbol}: {e}"})
 
     if not data:
-        return jsonify({"error": "Impossibile recuperare il COT S&P 500 in questo momento"})
+        return jsonify({"error": f"Impossibile recuperare il COT {symbol} in questo momento"})
 
     try:
-        fetched_at = float(_COT_SP500_CACHE.get('fetched_at') or 0.0)
+        fetched_at = float((_COT_CACHE.get(symbol) or {}).get('fetched_at') or 0.0)
         if fetched_at:
             data = dict(data)
             data['cache_age_seconds'] = int(max(0.0, time.time() - fetched_at))
@@ -5513,6 +5517,25 @@ def api_cot_sp500():
         pass
 
     return jsonify(data)
+
+
+@app.route('/api/cot/<symbol>', methods=['GET'])
+def api_cot(symbol):
+    """Return weekly COT report for a supported symbol (sp500/nasdaq100/eurofx)."""
+
+    sym = (symbol or '').strip().lower()
+    if sym not in _COT_SYMBOLS:
+        return jsonify({
+            "error": f"Simbolo COT non supportato: {symbol}",
+            "available_symbols": sorted(_COT_SYMBOLS),
+        }), 404
+    return _cot_json_response(sym)
+
+
+@app.route('/api/cot-sp500', methods=['GET'])
+def api_cot_sp500():
+    """Alias storico di /api/cot/sp500."""
+    return _cot_json_response('sp500')
 
 
 @app.route('/api/release-notes', methods=['GET'], endpoint='api_release_notes')

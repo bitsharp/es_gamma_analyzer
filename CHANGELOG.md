@@ -5,6 +5,16 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.8.0] — 2026-07-30
+
+### Aggiunto
+- **Box COT NASDAQ-100 (NQ) e Euro FX (6E)** nella pagina Macro, accanto al COT S&P 500: stessi contenuti (bias narrativo, NC Long/Short/Net con variazioni WoW, % OI, traders, storico settimanale del net) per i tre contratti CFTC.
+
+### Tecnico
+- Nuovo endpoint generico `GET /api/cot/<symbol>` (sp500 / nasdaq100 / eurofx) che proxya il servizio COT esterno via backend — necessario perché l'upstream è HTTP in chiaro e dal sito in HTTPS il browser lo bloccherebbe come mixed content. Cache in-memory per simbolo (TTL 1h, stale-while-error), `?force=1` per il bypass. `/api/cot-sp500` resta come alias. Base URL configurabile via `COT_API_BASE_URL`.
+- `macro.html` rifattorizzato: le card COT sono generate da una config (`COT_CONTRACTS`) con markup, fetch e render generici sul prefix — aggiungere un contratto = una riga di config.
+
+
 ## [1.7.0] — 2026-07-30
 
 ### Aggiunto

@@ -147,49 +147,65 @@
     </nav>
 
     <div class="container-fluid px-2 px-lg-3">
-        <div class="row g-2 mb-4">
+        <!-- COT cards (S&P 500 / NASDAQ-100 / Euro FX), generate da COT_CONTRACTS -->
+        <div class="row g-2 mb-4" id="cotRow"></div>
+    </div>
 
-            <!-- COT Non-Commercial (S&P 500) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // ---- COT (Non-Commercial) — CFTC Legacy Futures Only ----
+        // Un box per contratto; markup, fetch e render sono generici sul prefix.
+        const COT_CONTRACTS = [
+            { symbol: 'sp500',     prefix: 'cotSp500', title: 'COT S&amp;P 500',    ticker: 'ES' },
+            { symbol: 'nasdaq100', prefix: 'cotNq',    title: 'COT NASDAQ-100',     ticker: 'NQ' },
+            { symbol: 'eurofx',    prefix: 'cotEur',   title: 'COT Euro FX',        ticker: '6E' },
+        ];
+
+        let cotPollIntervalId = null;
+
+        function cotCardHtml(c) {
+            const p = c.prefix;
+            return `
             <div class="col-12 col-md-6 col-lg-4">
-                <div class="card" id="cotSp500Card">
+                <div class="card" id="${p}Card">
                     <div class="card-header">
                         <div class="d-flex align-items-center justify-content-between">
                             <div>
-                                <i class="bi bi-people me-2"></i>COT S&amp;P 500 <span class="text-muted small" id="cotSp500ReportDate"></span>
+                                <i class="bi bi-people me-2"></i>${c.title} <span class="text-muted small">(${c.ticker})</span> <span class="text-muted small" id="${p}ReportDate"></span>
                             </div>
-                            <button type="button" class="btn btn-sm btn-outline-light" id="cotSp500RefreshBtn" aria-label="Refresh COT" title="Refresh">
+                            <button type="button" class="btn btn-sm btn-outline-light" id="${p}RefreshBtn" aria-label="Refresh COT ${c.ticker}" title="Refresh">
                                 <i class="bi bi-arrow-clockwise"></i>
                             </button>
                         </div>
                     </div>
                     <div class="card-body">
-                        <div class="text-muted small mb-2" id="cotSp500Subtitle">Non-Commercial (Large Speculators) — CFTC Legacy</div>
+                        <div class="text-muted small mb-2">Non-Commercial (Large Speculators) — CFTC Legacy</div>
 
-                        <div id="cotSp500Bias" class="alert mb-2 py-2 px-2" style="display:none; font-size: 0.85rem;"></div>
+                        <div id="${p}Bias" class="alert mb-2 py-2 px-2" style="display:none; font-size: 0.85rem;"></div>
 
                         <div class="row g-2 mb-2">
                             <div class="col-6">
-                                <div class="price-box text-start" id="cotNcLongBox">
+                                <div class="price-box text-start">
                                     <div class="box-label">NC Long</div>
-                                    <div class="fw-bold text-success" id="cotNcLong">--</div>
-                                    <div class="box-sub" id="cotNcLongChange">--</div>
+                                    <div class="fw-bold text-success" id="${p}NcLong">--</div>
+                                    <div class="box-sub" id="${p}NcLongChange">--</div>
                                 </div>
                             </div>
                             <div class="col-6">
-                                <div class="price-box text-start" id="cotNcShortBox">
+                                <div class="price-box text-start">
                                     <div class="box-label">NC Short</div>
-                                    <div class="fw-bold text-danger" id="cotNcShort">--</div>
-                                    <div class="box-sub" id="cotNcShortChange">--</div>
+                                    <div class="fw-bold text-danger" id="${p}NcShort">--</div>
+                                    <div class="box-sub" id="${p}NcShortChange">--</div>
                                 </div>
                             </div>
                         </div>
 
                         <div class="row g-2 mb-2">
                             <div class="col-12">
-                                <div class="price-box text-start" id="cotNcNetBox">
+                                <div class="price-box text-start">
                                     <div class="box-label">NC Net (Long − Short)</div>
-                                    <div class="fw-bold" id="cotNcNet">--</div>
-                                    <div class="box-sub" id="cotNcNetChange">--</div>
+                                    <div class="fw-bold" id="${p}NcNet">--</div>
+                                    <div class="box-sub" id="${p}NcNetChange">--</div>
                                 </div>
                             </div>
                         </div>
@@ -198,15 +214,15 @@
                             <div class="col-6">
                                 <div class="price-box text-start">
                                     <div class="box-label">% OI Long</div>
-                                    <div class="fw-bold" id="cotNcPctLong">--</div>
-                                    <div class="box-sub" id="cotNcTradersLong">-- traders</div>
+                                    <div class="fw-bold" id="${p}NcPctLong">--</div>
+                                    <div class="box-sub" id="${p}NcTradersLong">-- traders</div>
                                 </div>
                             </div>
                             <div class="col-6">
                                 <div class="price-box text-start">
                                     <div class="box-label">% OI Short</div>
-                                    <div class="fw-bold" id="cotNcPctShort">--</div>
-                                    <div class="box-sub" id="cotNcTradersShort">-- traders</div>
+                                    <div class="fw-bold" id="${p}NcPctShort">--</div>
+                                    <div class="box-sub" id="${p}NcTradersShort">-- traders</div>
                                 </div>
                             </div>
                         </div>
@@ -221,24 +237,17 @@
                                         <th class="text-end">Δ</th>
                                     </tr>
                                 </thead>
-                                <tbody id="cotNcHistoryBody">
+                                <tbody id="${p}NcHistoryBody">
                                     <tr><td colspan="3" class="text-center text-muted py-2">Loading…</td></tr>
                                 </tbody>
                             </table>
                         </div>
 
-                        <div class="text-muted small mt-2" id="cotSp500Footer">--</div>
+                        <div class="text-muted small mt-2" id="${p}Footer">--</div>
                     </div>
                 </div>
-            </div>
-
-        </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        // ---- COT S&P 500 (Non-Commercial) ----
-        let cotSp500PollIntervalId = null;
+            </div>`;
+        }
 
         function fmtCotInt(n) {
             const v = Number(n);
@@ -261,21 +270,22 @@
             return { text: 'Δ ' + sign + v.toLocaleString('en-US'), cls };
         }
 
-        function renderCotSp500(data) {
-            const reportDateEl = document.getElementById('cotSp500ReportDate');
-            const biasEl = document.getElementById('cotSp500Bias');
-            const ncLong = document.getElementById('cotNcLong');
-            const ncShort = document.getElementById('cotNcShort');
-            const ncNet = document.getElementById('cotNcNet');
-            const ncLongChange = document.getElementById('cotNcLongChange');
-            const ncShortChange = document.getElementById('cotNcShortChange');
-            const ncNetChange = document.getElementById('cotNcNetChange');
-            const ncPctLong = document.getElementById('cotNcPctLong');
-            const ncPctShort = document.getElementById('cotNcPctShort');
-            const ncTradersLong = document.getElementById('cotNcTradersLong');
-            const ncTradersShort = document.getElementById('cotNcTradersShort');
-            const historyBody = document.getElementById('cotNcHistoryBody');
-            const footerEl = document.getElementById('cotSp500Footer');
+        function renderCot(prefix, data) {
+            const el = (suffix) => document.getElementById(prefix + suffix);
+            const reportDateEl = el('ReportDate');
+            const biasEl = el('Bias');
+            const ncLong = el('NcLong');
+            const ncShort = el('NcShort');
+            const ncNet = el('NcNet');
+            const ncLongChange = el('NcLongChange');
+            const ncShortChange = el('NcShortChange');
+            const ncNetChange = el('NcNetChange');
+            const ncPctLong = el('NcPctLong');
+            const ncPctShort = el('NcPctShort');
+            const ncTradersLong = el('NcTradersLong');
+            const ncTradersShort = el('NcTradersShort');
+            const historyBody = el('NcHistoryBody');
+            const footerEl = el('Footer');
 
             if (!data || data.error) {
                 if (reportDateEl) reportDateEl.textContent = '';
@@ -364,7 +374,7 @@
                 biasEl.innerHTML = '<i class="bi ' + icon + ' me-2"></i><strong>' + label + '</strong>' + trend;
             }
 
-            // History (skip the latest row, since it is shown above)
+            // History: gli elementi non hanno i campi net → li calcoliamo (long − short).
             if (historyBody) {
                 const history = Array.isArray(data.history) ? data.history.slice(0, 6) : [];
                 if (!history.length) {
@@ -398,55 +408,63 @@
                     else if (ageSec < 3600) ageStr = Math.round(ageSec / 60) + 'm ago';
                     else ageStr = Math.round(ageSec / 3600) + 'h ago';
                 }
-                const fetchedShort = fetchedAt ? fetchedAt.replace('T', ' ').slice(0, 16) : '';
+                const fetchedShort = fetchedAt ? String(fetchedAt).replace('T', ' ').slice(0, 16) : '';
                 footerEl.textContent = 'Source: CFTC Legacy Futures Only Report' + (fetchedShort ? ' • Fetched ' + fetchedShort : '') + (ageStr ? ' (' + ageStr + ')' : '');
             }
         }
 
-        async function loadCotSp500(opts) {
+        async function loadCot(contract, opts) {
             const force = !!(opts && opts.force);
             try {
-                const url = '/api/cot-sp500' + (force ? '?force=1' : '');
+                const url = '/api/cot/' + contract.symbol + (force ? '?force=1' : '');
                 const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
                 const ctype = (res.headers.get('content-type') || '').toLowerCase();
                 if (!ctype.includes('application/json')) {
                     const snippet = (await res.text()).slice(0, 120).replace(/\s+/g, ' ').trim();
                     const reason = res.status === 504 ? 'timeout upstream' : ('HTTP ' + res.status);
-                    renderCotSp500({ error: 'COT non disponibile (' + reason + ')' + (snippet ? ' — ' + snippet : '') });
+                    renderCot(contract.prefix, { error: 'COT non disponibile (' + reason + ')' + (snippet ? ' — ' + snippet : '') });
                     return;
                 }
                 const data = await res.json();
-                renderCotSp500(data);
+                renderCot(contract.prefix, data);
             } catch (e) {
-                renderCotSp500({ error: 'Errore di rete: ' + (e && e.message ? e.message : e) });
+                renderCot(contract.prefix, { error: 'Errore di rete: ' + (e && e.message ? e.message : e) });
             }
         }
 
-        function startCotSp500Polling() {
-            if (cotSp500PollIntervalId) return;
-            loadCotSp500();
-            // COT report is weekly. Poll every 30 min to catch new releases.
-            cotSp500PollIntervalId = setInterval(() => loadCotSp500(), 30 * 60 * 1000);
+        function loadAllCot(opts) {
+            COT_CONTRACTS.forEach((c) => loadCot(c, opts));
         }
+
+        function startCotPolling() {
+            if (cotPollIntervalId) return;
+            loadAllCot();
+            // COT report is weekly. Poll every 30 min to catch new releases.
+            cotPollIntervalId = setInterval(() => loadAllCot(), 30 * 60 * 1000);
+        }
+
+        // Build the cards, bind per-card refresh, start polling.
+        (function initCotCards() {
+            const row = document.getElementById('cotRow');
+            if (!row) return;
+            row.innerHTML = COT_CONTRACTS.map(cotCardHtml).join('');
+            COT_CONTRACTS.forEach((c) => {
+                const btn = document.getElementById(c.prefix + 'RefreshBtn');
+                if (btn) btn.addEventListener('click', () => loadCot(c, { force: true }));
+            });
+            startCotPolling();
+        })();
 
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
-                if (cotSp500PollIntervalId) {
-                    clearInterval(cotSp500PollIntervalId);
-                    cotSp500PollIntervalId = null;
+                if (cotPollIntervalId) {
+                    clearInterval(cotPollIntervalId);
+                    cotPollIntervalId = null;
                 }
             } else {
-                startCotSp500Polling();
+                startCotPolling();
             }
         });
-
-        startCotSp500Polling();
-
-        // Refresh button for COT card
-        (function bindCotRefresh() {
-            const btn = document.getElementById('cotSp500RefreshBtn');
-            if (btn) btn.addEventListener('click', () => loadCotSp500({ force: true }));
-        })();
     </script>
 
     {% include '_release_notes_modal.html' %}
