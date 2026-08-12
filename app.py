@@ -12,6 +12,7 @@ import time
 import csv
 import io
 import json
+import html as _html
 import urllib.request
 import urllib.parse
 from typing import Any, Dict, List, Optional
@@ -2288,16 +2289,261 @@ def get_es_spx_overnight_basis_cached(max_age_seconds: int = 10 * 60) -> Optiona
 
 COT_API_BASE_URL = os.environ.get("COT_API_BASE_URL", "http://178.104.133.41:8080")
 
-# Simboli supportati dal servizio COT esterno (CFTC Legacy Futures Only).
-_COT_SYMBOLS = {"sp500", "nasdaq100", "eurofx"}
+TRADINGSTER_COT_BASE_URL = "https://www.tradingster.com/cot/legacy-futures"
+
+# Contratti COT esposti dall'app (CFTC Legacy Futures Only).
+#   upstream="api"         → servizio esterno {COT_API_BASE_URL}/cot/{symbol}
+#   upstream="tradingster" → scraping diretto di tradingster.com (contratti che
+#                            il servizio esterno non espone: oro e bitcoin)
+_COT_CONTRACTS: Dict[str, Dict[str, str]] = {
+    "sp500":     {"contract_code": "13874+", "ticker": "ES",  "label": "S&P 500 (Consolidated)", "upstream": "api"},
+    "nasdaq100": {"contract_code": "20974+", "ticker": "NQ",  "label": "NASDAQ-100 (Consolidated)", "upstream": "api"},
+    "eurofx":    {"contract_code": "099741", "ticker": "6E",  "label": "EURO FX", "upstream": "api"},
+    "gold":      {"contract_code": "088691", "ticker": "GC",  "label": "GOLD", "upstream": "tradingster"},
+    "bitcoin":   {"contract_code": "133741", "ticker": "BTC", "label": "BITCOIN", "upstream": "tradingster"},
+}
+
+# Simboli supportati (retrocompatibilità: era il set dei soli contratti del servizio esterno).
+_COT_SYMBOLS = set(_COT_CONTRACTS)
+
+
+def _tradingster_text(fragment: str) -> str:
+    """Strip tag HTML e normalizza gli spazi di un frammento tradingster."""
+    return re.sub(r"\s+", " ", _html.unescape(re.sub(r"<[^>]+>", "", fragment))).strip()
+
+
+def _tradingster_number(fragment: str) -> Optional[float]:
+    """Converte una cella tradingster ("+1,987", "13.0%", "&nbsp;") in numero."""
+    text = _tradingster_text(fragment).replace(",", "").replace("%", "").replace("+", "")
+    if not text or text == "-":
+        return None
+    try:
+        return float(text) if "." in text else int(text)
+    except Exception:
+        return None
+
+
+def _parse_tradingster_cot_history(raw: str, weeks: int = 12) -> List[Dict[str, Any]]:
+    """Estrae lo storico settimanale dagli array JS `dataLong`/`dataShort`.
+
+    La pagina tradingster incorpora le serie dei grafici (dal 2018 a oggi) come
+    letterali JavaScript: sono la sola fonte di storico senza fare una request
+    per ogni settimana. Le variazioni sono ricalcolate come differenza rispetto
+    alla settimana precedente (stessa definizione della colonna "Changes" CFTC).
+    """
+
+    def _series(var_name: str) -> Dict[str, Dict[str, int]]:
+        match = re.search(r"var\s+" + var_name + r"\s*=\s*\[(.*?)\];", raw, re.S)
+        if not match:
+            return {}
+        out: Dict[str, Dict[str, int]] = {}
+        pattern = (
+            r"new Date\('(\d{4}-\d{2}-\d{2})'\),\s*Commercial:\s*(-?\d+),"
+            r"\s*NonCommercial:\s*(-?\d+),\s*NonRept:\s*(-?\d+)"
+        )
+        for row in re.finditer(pattern, match.group(1)):
+            out[row.group(1)] = {
+                "commercial": int(row.group(2)),
+                "non_commercial": int(row.group(3)),
+                "non_reportable": int(row.group(4)),
+            }
+        return out
+
+    longs = _series("dataLong")
+    shorts = _series("dataShort")
+    dates = sorted(set(longs) & set(shorts))
+    if not dates:
+        return []
+
+    # +1 settimana per poter calcolare la variazione della più vecchia mostrata.
+    window = dates[-(weeks + 1):]
+    history: List[Dict[str, Any]] = []
+    for idx in range(len(window) - 1, 0, -1):
+        date = window[idx]
+        prev = window[idx - 1]
+        cur_l, cur_s = longs[date], shorts[date]
+        prev_l, prev_s = longs[prev], shorts[prev]
+        history.append({
+            "report_date": date,
+            "non_commercial": {
+                "long": cur_l["non_commercial"],
+                "short": cur_s["non_commercial"],
+                "change_long": cur_l["non_commercial"] - prev_l["non_commercial"],
+                "change_short": cur_s["non_commercial"] - prev_s["non_commercial"],
+            },
+            "commercial": {
+                "long": cur_l["commercial"],
+                "short": cur_s["commercial"],
+                "change_long": cur_l["commercial"] - prev_l["commercial"],
+                "change_short": cur_s["commercial"] - prev_s["commercial"],
+            },
+            "non_reportable": {
+                "long": cur_l["non_reportable"],
+                "short": cur_s["non_reportable"],
+                "change_long": cur_l["non_reportable"] - prev_l["non_reportable"],
+                "change_short": cur_s["non_reportable"] - prev_s["non_reportable"],
+            },
+        })
+    return history
+
+
+def _parse_tradingster_cot(raw: str, symbol: str, meta: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    """Traduce la pagina tradingster nello stesso payload del servizio COT esterno.
+
+    La tabella ha quattro righe di dati (posizioni, variazioni, % di open
+    interest, numero di traders), ognuna preceduta da una riga-etichetta:
+    ci si aggancia alle etichette perché l'ultima riga (traders) ha due celle
+    vuote e non avrebbe 9 celle numeriche come le altre.
+    """
+
+    body = re.search(r"<tbody>(.*?)</tbody>", raw, re.S)
+    if not body:
+        return None
+
+    sections: Dict[str, List[Optional[float]]] = {}
+    pending = "positions"  # la prima riga numerica sono le posizioni correnti
+    for row in re.findall(r"<tr>(.*?)</tr>", body.group(1), re.S):
+        cells = re.findall(r"<td[^>]*class=\"number\"[^>]*>(.*?)</td>", row, re.S)
+        if len(cells) >= 7:
+            if pending:
+                sections[pending] = [_tradingster_number(c) for c in cells]
+                pending = None
+            continue
+        label = _tradingster_text(row).lower()
+        if "changes" in label:
+            pending = "changes"
+        elif "percent of open interest" in label:
+            pending = "percent"
+        elif "number of traders" in label:
+            pending = "traders"
+
+    positions = sections.get("positions")
+    if not positions or len(positions) < 9:
+        return None
+
+    changes = sections.get("changes") or [None] * 9
+    percent = sections.get("percent") or [None] * 9
+    traders = sections.get("traders") or [None] * 9
+
+    def _at(values: List[Optional[float]], idx: int) -> Optional[float]:
+        return values[idx] if idx < len(values) else None
+
+    report_date = None
+    match = re.search(r"AS OF:\s*(\d{4}-\d{2}-\d{2})", raw)
+    if match:
+        report_date = match.group(1)
+
+    market = meta.get("label")
+    match = re.search(r"<strong>([^<]+?)</strong>\s*<br\s*/?>\s*<strong>\s*FUTURES ONLY POSITIONS", raw)
+    if match:
+        market = _tradingster_text(match.group(1))
+
+    open_interest = None
+    match = re.search(r"Open Interest:\s*<span class=\"number\">(.*?)</span>", raw, re.S)
+    if match:
+        open_interest = _tradingster_number(match.group(1))
+
+    change_in_oi = None
+    match = re.search(r"Change In Open Interest:\s*<span class=\"number\">(.*?)</span>\s*</span>", raw, re.S)
+    if match:
+        change_in_oi = _tradingster_number(match.group(1))
+
+    nc_long, nc_short = _at(positions, 0), _at(positions, 1)
+    nc_net = None
+    if nc_long is not None and nc_short is not None:
+        nc_net = int(nc_long - nc_short)
+
+    nc_net_change = None
+    ch_long, ch_short = _at(changes, 0), _at(changes, 1)
+    if ch_long is not None and ch_short is not None:
+        nc_net_change = int(ch_long - ch_short)
+
+    latest = {
+        "report_date": report_date,
+        "market": market,
+        "contract_code": meta.get("contract_code"),
+        "open_interest": open_interest,
+        "change_in_open_interest": change_in_oi,
+        "non_commercial": {
+            "long": nc_long,
+            "short": nc_short,
+            "spread": _at(positions, 2),
+            "change_long": ch_long,
+            "change_short": ch_short,
+            "change_spread": _at(changes, 2),
+            "pct_oi_long": _at(percent, 0),
+            "pct_oi_short": _at(percent, 1),
+            "traders_long": _at(traders, 0),
+            "traders_short": _at(traders, 1),
+        },
+        "commercial": {
+            "long": _at(positions, 3),
+            "short": _at(positions, 4),
+            "change_long": _at(changes, 3),
+            "change_short": _at(changes, 4),
+        },
+        "non_reportable": {
+            "long": _at(positions, 7),
+            "short": _at(positions, 8),
+            "change_long": _at(changes, 7),
+            "change_short": _at(changes, 8),
+        },
+        "non_commercial_net": nc_net,
+        "non_commercial_net_change": nc_net_change,
+    }
+
+    history = _parse_tradingster_cot_history(raw)
+    # La settimana corrente arriva dalla tabella (dato ufficiale, non ricalcolato).
+    if history and latest.get("report_date") and history[0].get("report_date") == latest.get("report_date"):
+        history[0] = {k: v for k, v in latest.items() if k != "non_commercial_net" and k != "non_commercial_net_change"}
+
+    return {
+        "source": "CFTC Legacy Futures Only Report",
+        "source_page": f"{TRADINGSTER_COT_BASE_URL}/{meta.get('contract_code')}",
+        "symbol": symbol,
+        "ticker": meta.get("ticker"),
+        "label": meta.get("label"),
+        "contract_code": meta.get("contract_code"),
+        "market": market,
+        "fetched_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+        "latest": latest,
+        "history": history,
+    }
+
+
+def _fetch_tradingster_cot(symbol: str, meta: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    """Scarica e parsa la pagina COT tradingster per un contratto (oro, bitcoin)."""
+
+    url = f"{TRADINGSTER_COT_BASE_URL}/{meta.get('contract_code')}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=6) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        return {"error": f"COT fetch error: {e}"}
+
+    try:
+        parsed = _parse_tradingster_cot(raw, symbol, meta)
+    except Exception as e:
+        return {"error": f"COT parse error: {e}"}
+
+    if not parsed:
+        return {"error": "Tradingster: tabella COT non riconosciuta"}
+    return parsed
 
 
 def get_cot_cached(symbol: str, max_age_seconds: int = 60 * 60) -> Optional[Dict[str, Any]]:
     """Fetch COT (Commitment of Traders) data for a symbol with caching.
 
-    Source: CFTC Legacy Futures Only Report, exposed by an external service
-    at {COT_API_BASE_URL}/cot/{symbol} (sp500 / nasdaq100 / eurofx). The
-    report is published weekly, so a 1h cache is generous.
+    Source: CFTC Legacy Futures Only Report, letto dal servizio esterno
+    {COT_API_BASE_URL}/cot/{symbol} (sp500 / nasdaq100 / eurofx) oppure da
+    tradingster.com per i contratti che quel servizio non espone (gold,
+    bitcoin). Il report è settimanale, quindi 1h di cache è abbondante.
     """
 
     now = time.time()
@@ -2306,6 +2552,16 @@ def get_cot_cached(symbol: str, max_age_seconds: int = 60 * 60) -> Optional[Dict
     fetched_at = float(entry.get("fetched_at") or 0.0)
     if cached and (now - fetched_at) <= max_age_seconds:
         return cached
+
+    meta = _COT_CONTRACTS.get(symbol) or {}
+    if meta.get("upstream") == "tradingster":
+        data = _fetch_tradingster_cot(symbol, meta)
+        if not isinstance(data, dict) or data.get("error"):
+            # stale-while-error, come per il servizio esterno.
+            return cached or data
+        entry["value"] = data
+        entry["fetched_at"] = now
+        return data
 
     url = f"{COT_API_BASE_URL}/cot/{symbol}"
     headers = {
@@ -5521,7 +5777,7 @@ def _cot_json_response(symbol: str):
 
 @app.route('/api/cot/<symbol>', methods=['GET'])
 def api_cot(symbol):
-    """Return weekly COT report for a supported symbol (sp500/nasdaq100/eurofx)."""
+    """Return weekly COT report for a supported symbol (vedi _COT_CONTRACTS)."""
 
     sym = (symbol or '').strip().lower()
     if sym not in _COT_SYMBOLS:

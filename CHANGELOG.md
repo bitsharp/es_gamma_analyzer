@@ -5,6 +5,16 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.9.0] — 2026-08-12
+
+### Aggiunto
+- **Box COT Oro (GC) e Bitcoin (BTC)** nella pagina Macro, accanto a S&P 500, NASDAQ-100 ed Euro FX: stessi contenuti (bias narrativo, NC Long/Short/Net con variazioni WoW, % OI, traders, storico settimanale del net).
+
+### Tecnico
+- Il servizio COT esterno espone solo sp500/nasdaq100/eurofx: per oro e bitcoin il backend legge direttamente **tradingster.com** (`/cot/legacy-futures/088691` e `/133741`) e traduce la pagina nello stesso payload JSON, così il render delle card resta invariato. Lo storico settimanale (12 settimane) è estratto dalle serie dei grafici incorporate nella pagina, con le variazioni ricalcolate settimana su settimana.
+- Nuovo registro `_COT_CONTRACTS` (codice contratto, ticker, label, upstream `api` o `tradingster`): `GET /api/cot/<symbol>` valida i simboli da lì e `get_cot_cached` smista la fetch. Cache 1h e stale-while-error identici per entrambe le sorgenti.
+
+
 ## [1.8.0] — 2026-07-30
 
 ### Aggiunto
