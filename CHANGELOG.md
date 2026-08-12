@@ -5,6 +5,12 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.9.1] — 2026-08-12
+
+### Modificato
+- **Card COT più compatte nella pagina Macro**: fino a **6 per riga** su schermi larghi (≥1200px), poi 4 / 3 / 2 / 1 scendendo di breakpoint. Font, padding e bordi ridotti in proporzione; nell'header il ticker e la data del report vanno su una seconda riga (prima il titolo lungo veniva troncato), e il footer usa la forma breve "CFTC Legacy" invece del nome completo del report, che da solo occupava tre righe.
+
+
 ## [1.9.0] — 2026-08-12
 
 ### Aggiunto
