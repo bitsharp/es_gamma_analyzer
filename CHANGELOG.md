@@ -5,6 +5,12 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.10.0] — 2026-08-12
+
+### Aggiunto
+- **Box COT Petrolio (CL)** nella pagina Macro: sesto contratto, accanto a S&P 500, NASDAQ-100, Euro FX, Oro e Bitcoin. Fonte tradingster, contratto `067651` — WTI-PHYSICAL NYMEX, cioè il CL (nel report Legacy la CFTC ha rinominato "CRUDE OIL, LIGHT SWEET"); il `067411` è l'ICE Europe ed è un altro contratto.
+
+
 ## [1.9.1] — 2026-08-12
 
 ### Modificato

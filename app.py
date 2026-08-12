@@ -2301,6 +2301,9 @@ _COT_CONTRACTS: Dict[str, Dict[str, str]] = {
     "eurofx":    {"contract_code": "099741", "ticker": "6E",  "label": "EURO FX", "upstream": "api"},
     "gold":      {"contract_code": "088691", "ticker": "GC",  "label": "GOLD", "upstream": "tradingster"},
     "bitcoin":   {"contract_code": "133741", "ticker": "BTC", "label": "BITCOIN", "upstream": "tradingster"},
+    # 067651 = WTI-PHYSICAL NYMEX, cioè il contratto CL (nel report Legacy la CFTC
+    # ha rinominato "CRUDE OIL, LIGHT SWEET"); 067411 è l'ICE Europe, non il CL.
+    "crudeoil":  {"contract_code": "067651", "ticker": "CL",  "label": "WTI CRUDE OIL", "upstream": "tradingster"},
 }
 
 # Simboli supportati (retrocompatibilità: era il set dei soli contratti del servizio esterno).
