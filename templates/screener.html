@@ -426,12 +426,53 @@
             line-height: 1;
         }
 
+        /* Riga controlli lista: filtro zone a sinistra, densità schede a destra */
+        .list-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+
         .zone-filters {
             display: flex;
             gap: 0.4rem;
-            margin-bottom: 1rem;
             flex-wrap: wrap;
             align-items: center;
+        }
+
+        .density-toggle {
+            display: flex;
+            gap: 0.35rem;
+            align-items: center;
+            margin-left: auto;
+        }
+        .density-toggle .dt-label {
+            color: #778da9;
+            font-size: 0.85rem;
+            margin-right: 0.15rem;
+        }
+        .density-btn {
+            background: #1b263b;
+            border: 1px solid #415a77;
+            color: #adb5bd;
+            border-radius: 8px;
+            padding: 0.32rem 0.75rem;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .density-btn:hover { background: rgba(96,165,250,0.15); color: #fff; }
+        .density-btn.active {
+            background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+            border-color: #60a5fa;
+            color: #fff;
         }
         .zone-filters .zone-filter-label {
             color: #778da9;
@@ -724,12 +765,25 @@
             </button>
         </div>
 
-        <div class="zone-filters" id="zoneFilters" role="group" aria-label="Filtro per zona di valutazione">
-            <span class="zone-filter-label">Filtra per zona:</span>
-            <button type="button" class="zone-chip active" data-rank="0">🟢🟢 Affare <span class="count" data-count-rank="0">0</span></button>
-            <button type="button" class="zone-chip active" data-rank="1">🟢 Sconto <span class="count" data-count-rank="1">0</span></button>
-            <button type="button" class="zone-chip active" data-rank="2">🟡 Equa <span class="count" data-count-rank="2">0</span></button>
-            <button type="button" class="zone-chip active" data-rank="3">🔴 Cara <span class="count" data-count-rank="3">0</span></button>
+        <div class="list-controls" id="listControls">
+            <div class="zone-filters" id="zoneFilters" role="group" aria-label="Filtro per zona di valutazione">
+                <span class="zone-filter-label">Filtra per zona:</span>
+                <button type="button" class="zone-chip active" data-rank="0">🟢🟢 Affare <span class="count" data-count-rank="0">0</span></button>
+                <button type="button" class="zone-chip active" data-rank="1">🟢 Sconto <span class="count" data-count-rank="1">0</span></button>
+                <button type="button" class="zone-chip active" data-rank="2">🟡 Equa <span class="count" data-count-rank="2">0</span></button>
+                <button type="button" class="zone-chip active" data-rank="3">🔴 Cara <span class="count" data-count-rank="3">0</span></button>
+            </div>
+            <div class="density-toggle" id="densityToggle" role="group" aria-label="Densità delle schede">
+                <span class="dt-label">Vista:</span>
+                <button type="button" class="density-btn active" data-density="compact"
+                        title="Solo valutazione: metriche e zona">
+                    <i class="bi bi-list-ul"></i> Compatta
+                </button>
+                <button type="button" class="density-btn" data-density="full"
+                        title="Aggiunge P/E storico 5y e transazioni insider">
+                    <i class="bi bi-card-text"></i> Completa
+                </button>
+            </div>
         </div>
 
         <div id="picksContainer">
@@ -1110,9 +1164,23 @@
             };
         }
 
+        // ---- Densità schede (compatta / completa) ----
+        // 'compact' = solo intestazione, metriche e spiegazione della zona.
+        // 'full'    = aggiunge P/E storico 5y e insider (le due sezioni che
+        //             richiedono una chiamata API per ciascun titolo).
+        // La scheda del lookup singolo è sempre completa: è un'analisi mirata.
+        const DENSITY_STORAGE_KEY = 'polaris.screener.cardDensity';
+        let cardDensity = 'compact';
+        try {
+            const saved = localStorage.getItem(DENSITY_STORAGE_KEY);
+            if (saved === 'compact' || saved === 'full') cardDensity = saved;
+        } catch (e) { /* storage non disponibile: resta il default compatto */ }
+
         function renderPickCardHtml(r, opts) {
             opts = opts || {};
             const rank = opts.rank;          // number for top picks, null for lookup
+            // Le liste seguono il toggle; il lookup passa compact: false esplicito.
+            const compact = (opts.compact != null) ? !!opts.compact : (cardDensity === 'compact');
             const showStrategyBadge = !!opts.showStrategyBadge;
             const passes = !!r.passes_strategy;
             const rankBadge = rank ? `<div class="rank-badge">${rank}</div>` : '';
@@ -1129,6 +1197,16 @@
                    </div>`
                 : '';
             const zone = computeZone(r);
+            const detailBlocks = compact ? '' : `
+                    <div class="pe-history" data-pe-history="${escapeHtml(r.ticker)}">
+                        <div class="ph-header">
+                            <span class="ph-title">P/E forward storico 5y</span>
+                            <span class="ph-loading">caricamento…</span>
+                        </div>
+                    </div>
+                    <div class="insider-section" data-insider="${escapeHtml(r.ticker)}">
+                        <div class="is-header"><span class="is-title">Insider 3m</span><span class="is-unavailable">caricamento…</span></div>
+                    </div>`;
             return `
                 <div class="pick-card">
                     ${rankBadge}
@@ -1185,15 +1263,7 @@
                         <span class="zone-headline">${zone.label} — ${escapeHtml(zone.headline)}.</span>
                         ${escapeHtml(zone.explanation)}
                     </div>
-                    <div class="pe-history" data-pe-history="${escapeHtml(r.ticker)}">
-                        <div class="ph-header">
-                            <span class="ph-title">P/E forward storico 5y</span>
-                            <span class="ph-loading">caricamento…</span>
-                        </div>
-                    </div>
-                    <div class="insider-section" data-insider="${escapeHtml(r.ticker)}">
-                        <div class="is-header"><span class="is-title">Insider 3m</span><span class="is-unavailable">caricamento…</span></div>
-                    </div>
+                    ${detailBlocks}
                     ${reasonsBlock}
                 </div>`;
         }
@@ -1296,7 +1366,7 @@
                     </div>`;
                 }
                 result.innerHTML = wrapLookupResult(
-                    mismatchBanner + renderPickCardHtml(data, { showStrategyBadge: true }), true);
+                    mismatchBanner + renderPickCardHtml(data, { showStrategyBadge: true, compact: false }), true);
                 attachCloseHandler();
                 hydratePEHistoryWithin(result);
                 hydrateInsiderWithin(result);
@@ -1527,9 +1597,12 @@
 
         async function drillIntoSector(bucket) {
             activeSector = bucket;
+            lastSectorTop = [];
             const meta = sectorMeta[bucket];
             document.getElementById('sectorGrid').style.display = 'none';
             document.getElementById('sectorDrillDown').style.display = 'block';
+            // Solo il toggle densità: il filtro zone resta nascosto fuori da Damodaran.
+            document.getElementById('listControls').style.display = 'flex';
 
             const scope = document.getElementById('searchScopeIndicator');
             document.getElementById('searchSection').style.display = 'block';
@@ -1559,6 +1632,17 @@
             await loadSectorTop(bucket);
         }
 
+        // Ultime top 5 del settore, tenute qui per poter ri-renderizzare al
+        // cambio di densità senza rifare la chiamata API.
+        let lastSectorTop = [];
+
+        function renderSectorTop(top) {
+            const cont = document.getElementById('drillTopPicks');
+            cont.innerHTML = top.map((r, idx) => renderPickCardHtml(r, { rank: idx + 1 })).join('');
+            hydratePEHistoryWithin(cont);
+            hydrateInsiderWithin(cont);
+        }
+
         async function loadSectorTop(bucket) {
             const cont = document.getElementById('drillTopPicks');
             cont.innerHTML = `<div class="empty-state">
@@ -1573,6 +1657,7 @@
                 document.getElementById('drillSectorCounts').textContent =
                     `${data.qualified_count} qualificate / ${data.evaluated_count} valutate`;
                 if (!data.top || !data.top.length) {
+                    lastSectorTop = [];
                     cont.innerHTML = `<div class="empty-state">
                         <i class="bi bi-search" style="font-size:2rem;"></i>
                         <div class="mt-3">Nessun titolo qualificato in questo settore per ${MARKET_LABEL[activeMarket]}.</div>
@@ -1585,9 +1670,8 @@
                     </div>`;
                     return;
                 }
-                cont.innerHTML = data.top.map((r, idx) => renderPickCardHtml(r, { rank: idx + 1 })).join('');
-                hydratePEHistoryWithin(cont);
-                hydrateInsiderWithin(cont);
+                lastSectorTop = data.top;
+                renderSectorTop(data.top);
             } catch (err) {
                 cont.innerHTML = `<div class="empty-state" style="color:#f87171;">
                     <i class="bi bi-exclamation-triangle me-1"></i>Errore: ${escapeHtml(err.message)}
@@ -1597,8 +1681,10 @@
 
         function backToSectorGrid() {
             activeSector = null;
+            lastSectorTop = [];
             document.getElementById('sectorGrid').style.display = 'grid';
             document.getElementById('sectorDrillDown').style.display = 'none';
+            document.getElementById('listControls').style.display = 'none';
             document.getElementById('searchSection').style.display = 'none';
             document.getElementById('searchScopeIndicator').style.display = 'none';
             clearLookupResult();
@@ -1618,6 +1704,7 @@
             const search = document.getElementById('searchSection');
             const scope = document.getElementById('searchScopeIndicator');
             const zoneFilters = document.getElementById('zoneFilters');
+            const listControls = document.getElementById('listControls');
             clearLookupResult();
             lookupInput.value = '';
             scope.style.display = 'none';
@@ -1625,6 +1712,7 @@
                 picks.style.display = 'block';
                 sect.style.display = 'none';
                 search.style.display = 'block';
+                listControls.style.display = 'flex';
                 zoneFilters.style.display = 'flex';
                 lookupInput.placeholder = 'Cerca per nome o ticker (es. apple, nvidia, ferrari)';
                 updateTitleDamodaran();
@@ -1633,6 +1721,9 @@
                 picks.style.display = 'none';
                 sect.style.display = 'block';
                 zoneFilters.style.display = 'none';
+                // Nella griglia settori non ci sono schede: nascondo tutta la riga
+                // controlli; torna visibile (solo toggle densità) nel drill-down.
+                listControls.style.display = 'none';
                 document.getElementById('sectorGrid').style.display = 'grid';
                 document.getElementById('sectorDrillDown').style.display = 'none';
                 search.style.display = 'none';
@@ -1640,6 +1731,32 @@
                 loadSectors();
             }
         }
+
+        function syncDensityButtons() {
+            document.querySelectorAll('#densityToggle .density-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.density === cardDensity);
+            });
+        }
+
+        function setCardDensity(density) {
+            if (density !== 'compact' && density !== 'full') return;
+            if (density === cardDensity) return;
+            cardDensity = density;
+            try { localStorage.setItem(DENSITY_STORAGE_KEY, density); } catch (e) { /* noop */ }
+            syncDensityButtons();
+            // Ri-render dai dati già in memoria: nessuna nuova chiamata API.
+            if (activeView === 'damodaran') {
+                renderFilteredPicks();
+            } else if (activeSector) {
+                if (lastSectorTop.length) renderSectorTop(lastSectorTop);
+                else loadSectorTop(activeSector);
+            }
+        }
+
+        document.querySelectorAll('#densityToggle .density-btn').forEach(btn => {
+            btn.addEventListener('click', () => setCardDensity(btn.dataset.density));
+        });
+        syncDensityButtons();
 
         document.querySelectorAll('.view-tab').forEach(btn => {
             btn.addEventListener('click', () => setActiveView(btn.dataset.view));

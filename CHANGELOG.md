@@ -5,7 +5,12 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
-## [1.10.0] — 2026-08-12
+## [1.11.0] — 2026-08-20
+
+### Aggiunto
+- **Vista compatta / completa nella lista dello screener**: nuovo toggle "Vista" accanto al filtro per zona. In **Compatta** (default) la scheda mostra intestazione, pill, badge Zona, griglia metriche e spiegazione della zona; in **Completa** si aggiungono il grafico del **P/E forward storico 5y** e le **transazioni insider 3m**. La scelta vale per la lista Damodaran e per la drill-down di settore, viene ricordata tra le sessioni (localStorage) e il cambio vista ri-renderizza dai dati già in memoria, senza nuove chiamate API. La scheda del singolo titolo cercato resta sempre completa.
+
+
 
 ### Aggiunto
 - **Box COT Petrolio (CL)** nella pagina Macro: sesto contratto, accanto a S&P 500, NASDAQ-100, Euro FX, Oro e Bitcoin. Fonte tradingster, contratto `067651` — WTI-PHYSICAL NYMEX, cioè il CL (nel report Legacy la CFTC ha rinominato "CRUDE OIL, LIGHT SWEET"); il `067411` è l'ICE Europe ed è un altro contratto.
