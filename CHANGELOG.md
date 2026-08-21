@@ -5,6 +5,19 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.12.0] — 2026-08-21
+
+### Aggiunto
+- **Fondamentali FMP anche per i mercati europei e indiani.** Con il passaggio al piano **FMP Ultimate** (Global Coverage) le analyst-estimates, il profilo e lo storico prezzi rispondono anche su Borsa Italiana (`.MI`), XETRA (`.DE`) e NSE (`.NS`): lo screener IT/DE/IN non ricade più sistematicamente su Yahoo Finance, che resta come fallback per i singoli titoli senza consenso EPS.
+
+### Modificato
+- **Sconto-paese Damodaran corretto per i titoli non-US cercati a mano.** FMP espone il paese come codice ISO-2 (`IT`), yfinance come nome esteso (`Italy`): `_map_country_to_bucket()` ora accetta entrambe le grafie. Senza questa modifica, con FMP che inizia a rispondere sui ticker europei, un titolo di Piazza Affari sarebbe finito nel bucket `US` (sconto 0 invece di −5) nella ricerca singolo titolo e nel portafoglio.
+- **P/E forward storico costruito sull'EPS diluito.** L'API `stable` espone `epsDiluted` in camelCase, mentre il codice leggeva `epsdiluted` (grafia della v3) e ricadeva quindi sempre sull'EPS basic. Cache invalidata (`schema_version` 2 → 3): le serie vengono ricalcolate alla prima apertura.
+- **Tooltip insider più preciso**: per i titoli non-US il dato manca perché i Form 4 sono un deposito SEC che le società europee non compilano — non è una limitazione del piano FMP, e non si sblocca con l'upgrade.
+
+### Tecnico
+- `historical-price-eod/light` per il calcolo della volatilità ora passa un `from` esplicito (550 giorni). Su Ultimate lo storico arriva a 30+ anni e senza filtro si scaricavano migliaia di righe per usarne 260, a spese della banda (cap 150 GB/30gg) e del budget di 60s di Vercel.
+
 ## [1.11.0] — 2026-08-20
 
 ### Aggiunto

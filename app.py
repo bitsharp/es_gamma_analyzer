@@ -7626,14 +7626,40 @@ _SCREENER_COUNTRY_TO_BUCKET = {
 }
 
 
+# FMP restituisce il codice ISO-2 in profile["country"] ("IT", "DE"), non il
+# nome esteso. Col piano Ultimate FMP risponde anche sui ticker non-US, quindi
+# entrambe le grafie devono risolvere allo stesso bucket: senza questa mappa
+# un ticker .MI finirebbe nel bucket "US" (sconto_paese 0 invece di -5).
+_SCREENER_ISO_TO_BUCKET = {
+    "US": "US",
+    "IT": "IT",
+    "DE": "EU", "FR": "EU", "ES": "EU", "NL": "EU", "CH": "EU", "GB": "EU",
+    "UK": "EU", "IE": "EU", "SE": "EU", "DK": "EU", "FI": "EU", "BE": "EU",
+    "AT": "EU", "NO": "EU", "PT": "EU", "LU": "EU",
+    "JP": "JP",
+    "CN": "CN", "HK": "CN", "TW": "CN",
+    "IN": "EM", "BR": "EM", "MX": "EM", "ZA": "EM", "RU": "EM", "TR": "EM",
+    "ID": "EM",
+}
+
+
 def _map_country_to_bucket(country_name: Optional[str]) -> str:
-    return _SCREENER_COUNTRY_TO_BUCKET.get((country_name or "").strip(), "US")
+    """Bucket paese per lo sconto Damodaran. Accetta sia il nome esteso
+    (yfinance: "Italy") sia il codice ISO-2 (FMP: "IT"). Default: US."""
+    name = (country_name or "").strip()
+    if not name:
+        return "US"
+    bucket = _SCREENER_COUNTRY_TO_BUCKET.get(name)
+    if bucket:
+        return bucket
+    return _SCREENER_ISO_TO_BUCKET.get(name.upper(), "US")
 
 
 def _screener_universe_for(market: str) -> list:
     """Universe for a given market code. US always uses the full ~95-ticker
     universe — Vercel can handle it within the 60s budget thanks to FMP
-    Starter (no rate-limit fallbacks) + 8 parallel workers."""
+    (nessun fallback per rate-limit) + 8 worker paralleli. Dal piano Ultimate
+    anche IT/DE/IN passano da FMP, non più solo da yfinance."""
     if market == "US":
         return _SCREENER_US_UNIVERSE
     if market == "IT":
@@ -7878,9 +7904,13 @@ def _fetch_ticker_fundamentals_fmp(ticker: str) -> Optional[dict]:
         return None
 
     # 1y annualized stdev of daily returns (volatility for ratio).
+    # `from` esplicito: col piano Ultimate lo storico arriva a 30+ anni e senza
+    # filtro scaricheremmo migliaia di righe per usarne 260 (banda + latenza).
     dev_st_pct = None
     try:
-        hist = _fmp_get("historical-price-eod/light", symbol=ticker)
+        vol_from = (_dt.date.today() - _dt.timedelta(days=550)).isoformat()
+        hist = _fmp_get("historical-price-eod/light", symbol=ticker,
+                        **{"from": vol_from})
         if hist and isinstance(hist, list):
             prices = [h.get("price") for h in hist if h.get("price")]
             if len(prices) > 30:
@@ -7906,7 +7936,7 @@ def _fetch_ticker_fundamentals_fmp(ticker: str) -> Optional[dict]:
         "yf_sector": sector,
         "bucket": bucket,
         "country_iso": country_iso,
-        "country": "US",
+        "country": _map_country_to_bucket(country_iso),
         "market_cap": float(market_cap) if market_cap else None,
         "beta": float(beta) if beta is not None else None,
         "current_price": float(current_price),
@@ -8019,7 +8049,7 @@ def _fetch_ticker_fundamentals_yf(ticker: str) -> Optional[dict]:
             "yf_sector": yf_sector,
             "bucket": bucket,
             "country_iso": country_iso,
-            "country": "US",
+            "country": _map_country_to_bucket(country_iso),
             "market_cap": float(market_cap) if market_cap else None,
             "beta": float(beta) if beta is not None else None,
             "current_price": float(current_price),
@@ -8357,8 +8387,11 @@ def _compute_forward_pe_history_fmp(ticker: str) -> Optional[dict]:
     eps_quarters = []
     for q in quarters:
         d = (q.get("date") or "")[:10]
-        # FMP uses epsdiluted (preferred) or eps (basic).
-        eps = q.get("epsdiluted")
+        # L'API `stable` espone epsDiluted (camelCase); "epsdiluted" era la
+        # grafia della v3. Fallback finale su eps (basic).
+        eps = q.get("epsDiluted")
+        if eps is None:
+            eps = q.get("epsdiluted")
         if eps is None:
             eps = q.get("eps")
         if d and eps is not None:
@@ -8435,7 +8468,9 @@ def _compute_forward_pe_history_fmp(ticker: str) -> Optional[dict]:
 
     return {
         "ticker": ticker,
-        "schema_version": 2,
+        # v3: EPS diluito letto dal campo corretto (epsDiluted) — le serie v2
+        # erano costruite sull'EPS basic, quindi vanno ricalcolate.
+        "schema_version": 3,
         "computed_at": _dt.datetime.utcnow(),
         "series": series,
         "stats": {
@@ -8469,7 +8504,7 @@ def _get_forward_pe_history(ticker: str) -> Optional[dict]:
     if coll is not None:
         try:
             doc = coll.find_one({"ticker": ticker})
-            if doc and doc.get("schema_version") == 2:
+            if doc and doc.get("schema_version") == 3:
                 doc.pop("_id", None)
                 return doc
         except Exception:
