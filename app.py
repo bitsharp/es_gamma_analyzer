@@ -7526,6 +7526,33 @@ _SCREENER_SECTOR_LABELS = {
 }
 
 # Mapping from yfinance GICS sector strings to our internal bucket.
+# Il lusso non è un settore GICS, quindi partendo dal solo `sector` il bucket
+# "Lusso" (premio +5 sul P/E teorico) non veniva mai assegnato a nessuno e
+# questi titoli finivano in "Discretionary" (sconto 0). Si recupera dal campo
+# `industry`, che sia FMP sia yfinance espongono.
+#
+# 1) Industry che identificano il lusso senza ambiguità.
+_SCREENER_LUXURY_INDUSTRIES = {
+    "Luxury Goods",
+}
+
+# 2) Override per ticker: aziende che il modello tratta come lusso ma la cui
+#    `industry` dice altro — Ferrari è "Auto - Manufacturers", Moncler e
+#    Cucinelli sono "Apparel - Manufacturers", indistinguibili dall'abbigliamento
+#    di massa. Lista curata a mano: allargarla o restringerla è una scelta di
+#    metodo sulla strategia, non un dettaglio tecnico.
+_SCREENER_LUXURY_TICKERS = {
+    "RACE.MI",   # Ferrari
+    "MONC.MI",   # Moncler
+    "BC.MI",     # Brunello Cucinelli
+    "TOD.MI",    # Tod's
+    "CFR.SW",    # Richemont (Cartier)
+    "MC.PA",     # LVMH
+    "RMS.PA",    # Hermès
+    "KER.PA",    # Kering
+    "1913.HK",   # Prada
+}
+
 _SCREENER_GICS_TO_BUCKET = {
     "Technology": "Tech",
     "Communication Services": "Comms",
@@ -7539,6 +7566,21 @@ _SCREENER_GICS_TO_BUCKET = {
     "Real Estate": "RealEstate",
     "Utilities": "Utilities",
 }
+
+
+def _resolve_bucket(sector: Optional[str], industry: Optional[str] = None,
+                    ticker: Optional[str] = None) -> str:
+    """Bucket settoriale per lo sconto Damodaran.
+
+    Il lusso viene prima del settore: un titolo lusso è sempre "Consumer
+    Cyclical" per GICS, quindi controllando solo il settore il premio +5 non
+    scatterebbe mai. Fallback su Tech come prima, per i settori sconosciuti."""
+    if ticker and ticker.strip().upper() in _SCREENER_LUXURY_TICKERS:
+        return "Lusso"
+    if (industry or "").strip() in _SCREENER_LUXURY_INDUSTRIES:
+        return "Lusso"
+    return _SCREENER_GICS_TO_BUCKET.get(sector, "Tech")
+
 
 # Top 30 US mega caps by market cap. Used on Vercel where serverless 60s
 # timeout requires a tighter universe + parallel fetching.
@@ -7600,16 +7642,43 @@ _SCREENER_IN_UNIVERSE = [
     "TRENT.NS", "SHRIRAMFIN.NS", "TATACONSUM.NS", "HINDALCO.NS",
 ]
 
+# Euronext Amsterdam (.AS) — prime 30 per capitalizzazione sopra i 2B,
+# dallo stock screener FMP (exchange=AMS). Quotano tutte in EUR, quindi i
+# filtri della strategia valgono senza conversioni. Alcune sono domiciliate
+# fuori dai Paesi Bassi (Shell e Unilever GB, ArcelorMittal LU): resta
+# corretto trattarle come mercato NL, il bucket paese lo impone il mercato.
+_SCREENER_NL_UNIVERSE = [
+    "ASML.AS", "SHELL.AS", "UNA.AS", "INGA.AS", "PRX.AS", "REN.AS",
+    "MT.AS", "CCEP.AS", "ASM.AS", "HEIA.AS", "FER.AS", "ADYEN.AS",
+    "ABN.AS", "AD.AS", "UMG.AS", "EXO.AS", "PHIA.AS", "DSFIR.AS",
+    "NN.AS", "HEIO.AS", "CSG.AS", "BESI.AS", "WKL.AS", "KPN.AS",
+    "CVC.AS", "HAL.AS", "ASRNL.AS", "AGN.AS", "MICC.AS", "AKZA.AS",
+]
+
+# Borsa di Madrid (.MC) — stesso criterio (exchange=BME, mcap > 2B).
+# Esclusi i cross-listing latinoamericani col prefisso X (XVALO.MC = Vale,
+# XBBDC.MC = Bradesco): sono titoli brasiliani, prenderebbero lo sconto
+# paese europeo che non gli compete.
+_SCREENER_ES_UNIVERSE = [
+    "SAN.MC", "ITX.MC", "BBVA.MC", "IBE.MC", "CABK.MC", "MTS.MC",
+    "ELE.MC", "AENA.MC", "FER.MC", "REP.MC", "ACS.MC", "NTGY.MC",
+    "AMS.MC", "IAG.MC", "TEF.MC", "SAB.MC", "CLNX.MC", "BKT.MC",
+    "MAP.MC", "ANA.MC", "IDR.MC", "PUIG.MC", "UNI.MC", "MRL.MC",
+    "RED.MC", "ANE.MC", "GRF.MC", "FCC.MC", "LOG.MC", "ENG.MC",
+]
+
 # Maps a screener market code to the country bucket used by the Damodaran
 # discount table (controls country_disc).
 _SCREENER_MARKET_TO_COUNTRY = {
     "US": "US",
     "IT": "IT",
     "DE": "EU",
+    "NL": "EU",
+    "ES": "EU",
     "IN": "EM",
 }
 
-_SCREENER_VALID_MARKETS = ("US", "IT", "DE", "IN")
+_SCREENER_VALID_MARKETS = ("US", "IT", "DE", "NL", "ES", "IN")
 
 # Map yfinance info["country"] (full country names) to our bucket codes.
 # Used by the on-demand lookup endpoint where the user can enter any ticker.
@@ -7667,6 +7736,10 @@ def _screener_universe_for(market: str) -> list:
         return _SCREENER_IT_UNIVERSE
     if market == "DE":
         return _SCREENER_DE_UNIVERSE
+    if market == "NL":
+        return _SCREENER_NL_UNIVERSE
+    if market == "ES":
+        return _SCREENER_ES_UNIVERSE
     if market == "IN":
         return _SCREENER_IN_UNIVERSE
     return []
@@ -7915,6 +7988,7 @@ def _fetch_ticker_fundamentals_fmp(ticker: str) -> Optional[dict]:
     market_cap = p.get("marketCap")
     beta = p.get("beta")
     sector = p.get("sector") or ""
+    industry = p.get("industry") or ""
     country_iso = p.get("country") or ""
     long_name = p.get("companyName") or ticker
 
@@ -7973,12 +8047,13 @@ def _fetch_ticker_fundamentals_fmp(ticker: str) -> Optional[dict]:
     except Exception:
         dev_st_pct = None
 
-    bucket = _SCREENER_GICS_TO_BUCKET.get(sector, "Tech")
+    bucket = _resolve_bucket(sector, industry, ticker)
 
     return {
         "ticker": ticker,
         "name": long_name,
         "yf_sector": sector,
+        "industry": industry,
         "bucket": bucket,
         "country_iso": country_iso,
         "country": _map_country_to_bucket(country_iso),
@@ -8027,6 +8102,7 @@ def _fetch_ticker_fundamentals_yf(ticker: str) -> Optional[dict]:
         forward_eps = info.get("forwardEps")
         current_price = info.get("currentPrice") or info.get("regularMarketPrice")
         yf_sector = info.get("sector") or ""
+        yf_industry = info.get("industry") or ""
         country_iso = info.get("country") or ""
         market_cap = info.get("marketCap")
         beta = info.get("beta")
@@ -8093,12 +8169,13 @@ def _fetch_ticker_fundamentals_yf(ticker: str) -> Optional[dict]:
         except Exception:
             dev_st_pct = None
 
-        bucket = _SCREENER_GICS_TO_BUCKET.get(yf_sector, "Tech")
+        bucket = _resolve_bucket(yf_sector, yf_industry, ticker)
 
         return {
             "ticker": ticker,
             "name": long_name,
             "yf_sector": yf_sector,
+            "industry": yf_industry,
             "bucket": bucket,
             "country_iso": country_iso,
             "country": _map_country_to_bucket(country_iso),

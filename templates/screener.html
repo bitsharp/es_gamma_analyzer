@@ -760,6 +760,12 @@
             <button class="market-tab" data-market="DE" type="button" role="tab">
                 <span class="flag">🇩🇪</span> Germania
             </button>
+            <button class="market-tab" data-market="NL" type="button" role="tab">
+                <span class="flag">🇳🇱</span> Paesi Bassi
+            </button>
+            <button class="market-tab" data-market="ES" type="button" role="tab">
+                <span class="flag">🇪🇸</span> Spagna
+            </button>
             <button class="market-tab" data-market="IN" type="button" role="tab">
                 <span class="flag">🇮🇳</span> India
             </button>
@@ -830,9 +836,10 @@
                         via libreria <code>yfinance</code>
                         (badge <span class="sector-pill source-pill source-yf">YF</span>).
                         Con il piano FMP Ultimate le analyst-estimates coprono anche
-                        i mercati non-US (Borsa Italiana, XETRA, NSE), quindi IT/DE/IN
-                        passano da FMP; YF resta come fallback quando il consenso EPS
-                        di un singolo titolo non è disponibile.
+                        i mercati non-US (Borsa Italiana, XETRA, Euronext Amsterdam,
+                        Madrid, NSE), quindi tutte le schede passano da FMP; YF resta
+                        come fallback quando il consenso EPS di un singolo titolo non
+                        è disponibile.
                         La ricerca tipo-ahead usa l'API pubblica
                         <code>query2.finance.yahoo.com/v1/finance/search</code>.
                         Tutti i dati sono live al momento del calcolo (cache 12h per la
@@ -975,7 +982,10 @@
         let activeSector = null;        // bucket name when drilled into a sector
         let activeMarket = 'US';
         let sectorMeta = {};            // bucket -> {label, icon, color, sector_disc}
-        const MARKET_LABEL = { US: 'USA', IT: 'Italia', DE: 'Germania', IN: 'India' };
+        const MARKET_LABEL = {
+            US: 'USA', IT: 'Italia', DE: 'Germania',
+            NL: 'Paesi Bassi', ES: 'Spagna', IN: 'India'
+        };
         const DAMODARAN_SUBTITLE = 'Sottocuotate, growth > 5%, market cap > 2B. Ordinati per Zona (Affare → Sconto → Equa → Cara) e poi per Discount %.';
 
         function setActiveMarket(m) {

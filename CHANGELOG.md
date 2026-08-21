@@ -5,6 +5,18 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.14.0] — 2026-08-21
+
+### Aggiunto
+- **Due nuovi mercati nello screener: Paesi Bassi e Spagna.** Schede 🇳🇱 Euronext Amsterdam (`.AS`) e 🇪🇸 Borsa di Madrid (`.MC`), 30 titoli ciascuna. Gli universi non sono compilati a memoria: vengono dallo stock screener FMP filtrato per borsa e capitalizzazione > 2B, presi in ordine di market cap. Entrambi quotano in euro, quindi i filtri della strategia (mcap ≥ 2B, guard sull'EPS) valgono senza conversioni di valuta. Sconto-paese `EU` (−5) come la Germania.
+  - Esclusi da Madrid i cross-listing latinoamericani col prefisso `X` (`XVALO.MC` = Vale, `XBBDC.MC` = Bradesco): sono titoli brasiliani e avrebbero preso lo sconto-paese europeo.
+  - Amsterdam porta in dote Shell in euro (`SHELL.AS`) evitando la linea di Londra, che quota in pence e falserebbe il P/E.
+- **Il bucket "Lusso" viene finalmente assegnato.** Il premio di +5 sul P/E teorico era definito nella tabella degli sconti e aveva già icona e colore nella UI, ma nessun titolo poteva riceverlo: la classificazione partiva dal solo settore GICS, e il lusso non è un settore GICS — quei titoli finivano tutti in "Discretionary" (sconto 0). Ora il bucket si risolve prima dall'`industry` (FMP la espone: LVMH è `Luxury Goods`) e poi da una lista curata di ticker per i casi che l'industry non cattura — Ferrari è `Auto - Manufacturers`, Moncler e Cucinelli sono `Apparel - Manufacturers`, indistinguibili dall'abbigliamento di massa. Zara resta correttamente "Discretionary".
+
+### Tecnico
+- Nuova `_resolve_bucket(sector, industry, ticker)` usata da entrambi i fetcher (FMP e yfinance) al posto della lettura diretta di `_SCREENER_GICS_TO_BUCKET`. Il campo `industry` viene ora salvato nella riga dello screener.
+- La lista `_SCREENER_LUXURY_TICKERS` è una scelta di metodo sulla strategia, non un dettaglio tecnico: contiene Ferrari, Moncler, Cucinelli, Tod's, Richemont, LVMH, Hermès, Kering e Prada, ed è pensata per essere modificata a mano.
+
 ## [1.13.0] — 2026-08-21
 
 ### Corretto
