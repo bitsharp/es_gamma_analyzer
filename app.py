@@ -15,6 +15,7 @@ import json
 import html as _html
 import urllib.request
 import urllib.parse
+import urllib.error
 from typing import Any, Dict, List, Optional
 import datetime as _dt
 import tempfile
@@ -7856,6 +7857,50 @@ def _fmp_get(path: str, **params) -> Optional[Any]:
         return None
 
 
+def _fmp_probe(path: str, **params) -> dict:
+    """Come _fmp_get, ma restituisce l'esito invece di ingoiarlo.
+
+    Usato solo dalla rotta di diagnostica: il percorso normale resta
+    silenzioso per non far mai fallire una request per colpa di FMP. Serve
+    perché un titolo che compare con badge YF può dipendere da tre cause
+    diverse (chiave assente, endpoint negato dal piano, risposta vuota) che
+    dal risultato finale sono indistinguibili."""
+    api_key = (os.getenv("FMP_API_KEY") or "").strip()
+    out = {"endpoint": path, "ok": False}
+    if not api_key:
+        out["error"] = "FMP_API_KEY non configurata"
+        return out
+    try:
+        params["apikey"] = api_key
+        url = f"{_FMP_BASE_URL}/{path}?{urllib.parse.urlencode(params)}"
+        req = urllib.request.Request(url, headers={"User-Agent": "polaris/1.0"})
+        with urllib.request.urlopen(req, timeout=_FMP_TIMEOUT_SECONDS) as resp:
+            out["http_status"] = resp.status
+            data = json.loads(resp.read().decode("utf-8"))
+        if isinstance(data, dict) and (data.get("Error Message") or data.get("error")):
+            out["error"] = str(data.get("Error Message") or data.get("error"))[:300]
+            return out
+        rows = len(data) if isinstance(data, list) else 1
+        out["rows"] = rows
+        if not data:
+            out["error"] = ("risposta vuota — il piano non copre questo mercato "
+                            "oppure il simbolo non esiste su FMP")
+            return out
+        out["ok"] = True
+        return out
+    except urllib.error.HTTPError as e:
+        out["http_status"] = e.code
+        try:
+            # 402/403 arrivano col messaggio "requires higher plan" nel body.
+            out["error"] = e.read().decode("utf-8")[:300]
+        except Exception:
+            out["error"] = str(e)
+        return out
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+        return out
+
+
 def _fetch_ticker_fundamentals_fmp(ticker: str) -> Optional[dict]:
     """Fetch fundamentals for a single ticker via FinancialModelingPrep
     `stable` API. Returns the same dict shape as _fetch_ticker_fundamentals_yf,
@@ -7951,10 +7996,17 @@ def _fetch_ticker_fundamentals(ticker: str) -> Optional[dict]:
     """Fundamentals for a ticker — FMP first, yfinance fallback.
 
     Returns None when neither source has the required fields (forward EPS,
-    price, growth)."""
+    price, growth).
+
+    Con SCREENER_DISABLE_YF_FALLBACK=1 il fallback viene disattivato: i ticker
+    su cui FMP non risponde spariscono dalla lista invece di comparire con dati
+    Yahoo. Serve a verificare la copertura reale del piano FMP — da lasciare
+    spento in esercizio, altrimenti un problema su FMP svuota lo screener."""
     fmp_res = _fetch_ticker_fundamentals_fmp(ticker)
     if fmp_res is not None:
         return fmp_res
+    if (os.getenv("SCREENER_DISABLE_YF_FALLBACK") or "").strip() in ("1", "true", "yes"):
+        return None
     return _fetch_ticker_fundamentals_yf(ticker)
 
 
@@ -8962,6 +9014,61 @@ def api_screener_refresh():
         return jsonify({"status": "started", "market": market})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/screener/fmp-status', methods=['GET'])
+@login_required
+def api_screener_fmp_status():
+    """Diagnostica FMP (admin). Dice se la chiave è configurata in questo
+    ambiente e cosa risponde davvero l'API sui tre endpoint che alimentano lo
+    screener, per un ticker a scelta (default ENI.MI, cioè un non-US).
+
+    Serve a distinguere le tre cause di un badge YF: cache vecchia, chiave
+    mancante/di un altro account, oppure mercato non coperto dal piano.
+    """
+    if not _is_admin():
+        return jsonify({"error": "admin only"}), 403
+
+    ticker = (request.args.get('ticker') or 'ENI.MI').strip().upper()
+    api_key = (os.getenv("FMP_API_KEY") or "").strip()
+    out = {
+        "ticker": ticker,
+        "key_configured": bool(api_key),
+        # Ultimi 4 caratteri: bastano a capire SE la chiave deployata è quella
+        # dell'account aggiornato, senza esporre il segreto.
+        "key_suffix": api_key[-4:] if api_key else None,
+        "yf_fallback_disabled": (os.getenv("SCREENER_DISABLE_YF_FALLBACK") or "").strip()
+                                in ("1", "true", "yes"),
+    }
+    if not api_key:
+        out["checks"] = []
+        out["verdict"] = ("FMP_API_KEY non è configurata in questo ambiente: "
+                          "lo screener sta usando solo yfinance.")
+        return jsonify(out)
+
+    vol_from = (_dt.date.today() - _dt.timedelta(days=550)).isoformat()
+    out["checks"] = [
+        _fmp_probe("profile", symbol=ticker),
+        _fmp_probe("analyst-estimates", symbol=ticker, period="annual", limit=10),
+        _fmp_probe("historical-price-eod/light", symbol=ticker, **{"from": vol_from}),
+    ]
+
+    fund = _fetch_ticker_fundamentals_fmp(ticker)
+    out["fundamentals_ok"] = fund is not None
+    out["fundamentals"] = fund
+
+    failed = [c for c in out["checks"] if not c.get("ok")]
+    if not failed and fund is not None:
+        out["verdict"] = (f"FMP risponde correttamente su {ticker}. Se la lista mostra "
+                          "ancora YF è cache: usa 'Forza ricalcolo' sul mercato aperto.")
+    elif failed:
+        out["verdict"] = ("FMP non risponde su questi endpoint: "
+                          + ", ".join(f"{c['endpoint']} ({c.get('error') or 'errore'})"
+                                      for c in failed))
+    else:
+        out["verdict"] = (f"Gli endpoint rispondono ma {ticker} non ha i campi minimi "
+                          "(EPS forward futuro positivo + growth): lo screener ricade su yfinance.")
+    return jsonify(out)
 
 
 # ============================================================================

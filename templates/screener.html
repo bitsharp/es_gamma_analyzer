@@ -1515,13 +1515,27 @@
             const btn = document.getElementById('refreshBtn');
             btn.disabled = true;
             try {
-                const res = await fetch('/api/screener/refresh', { method: 'POST' });
+                // market= è obbligatorio: senza, l'endpoint ricalcola sempre gli
+                // USA e il mercato aperto a video resta con i dati vecchi in cache.
+                // force=1 sblocca un in_progress lasciato appeso da un run morto.
+                document.getElementById('statusText').textContent =
+                    `Ricalcolo ${MARKET_LABEL[activeMarket]} in corso…`;
+                document.getElementById('statusIndicator').className = 'status-loading';
+                const res = await fetch(
+                    `/api/screener/refresh?market=${encodeURIComponent(activeMarket)}&force=1`,
+                    { method: 'POST' }
+                );
                 const data = await res.json();
                 if (data.error) {
                     alert(data.error);
+                } else if (data.status === 'completed') {
+                    // Su Vercel il refresh è sincrono: i dati sono già pronti.
+                    document.getElementById('statusText').textContent =
+                        `Ricalcolati ${data.count} titoli` +
+                        (data.errors_count ? ` (${data.errors_count} senza dati)` : '');
+                    loadTop();
                 } else {
                     document.getElementById('statusText').textContent = 'Refresh avviato…';
-                    document.getElementById('statusIndicator').className = 'status-loading';
                     setTimeout(loadTop, 3000);
                 }
             } catch (err) {

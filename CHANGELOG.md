@@ -5,6 +5,18 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.13.0] — 2026-08-21
+
+### Corretto
+- **"Forza ricalcolo" ignorava il mercato selezionato.** Il pulsante chiamava `POST /api/screener/refresh` senza `market=`, e l'endpoint in quel caso ricade sul default `US`: aprendo la scheda Italia o Germania e forzando il ricalcolo si rigeneravano i titoli americani, mentre quelli europei restavano in cache con i vecchi dati Yahoo (badge YF) fino alla scadenza naturale delle 12h. Ora passa il mercato attivo e `force=1`, così un `in_progress` rimasto appeso da un run interrotto non blocca più il ricalcolo. Su Vercel, dove il refresh è sincrono, la lista si ricarica appena finito e mostra quanti titoli sono stati ricalcolati invece del generico "Refresh avviato…".
+
+### Aggiunto
+- **`GET /api/screener/fmp-status` (admin)**: diagnostica FMP. Dice se `FMP_API_KEY` è configurata nell'ambiente (con le ultime 4 cifre, per capire *quale* chiave è deployata senza esporla) e interroga live i tre endpoint che alimentano lo screener — `profile`, `analyst-estimates`, `historical-price-eod/light` — su un ticker a scelta, default `ENI.MI`. Riporta HTTP status e messaggio d'errore vero di FMP. Serve a distinguere le tre cause di un badge YF, indistinguibili dal risultato finale: cache vecchia, chiave mancante o di un altro account, mercato non coperto dal piano.
+
+### Tecnico
+- `SCREENER_DISABLE_YF_FALLBACK=1` disattiva il fallback yfinance: i ticker su cui FMP non risponde spariscono dalla lista invece di comparire con dati Yahoo. Utile per misurare la copertura reale del piano FMP; da lasciare spento in esercizio, perché un disservizio FMP svuoterebbe lo screener.
+- `_fmp_probe()` affianca `_fmp_get()` per la sola diagnostica: restituisce l'esito (status, righe, errore) invece di ingoiarlo. Il percorso normale resta silenzioso.
+
 ## [1.12.0] — 2026-08-21
 
 ### Aggiunto
