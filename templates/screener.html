@@ -830,18 +830,19 @@
                     <h6>Fonte dati</h6>
                     <p class="mb-2">
                         Fondamentali (prezzo, EPS forward, growth, beta, settore, paese)
-                        forniti in primis da <strong>Financial Modeling Prep</strong>
-                        (badge <span class="sector-pill source-pill source-fmp">FMP</span>
-                        sulla card), con fallback a <strong>Yahoo Finance</strong>
-                        via libreria <code>yfinance</code>
-                        (badge <span class="sector-pill source-pill source-yf">YF</span>).
-                        Con il piano FMP Ultimate le analyst-estimates coprono anche
-                        i mercati non-US (Borsa Italiana, XETRA, Euronext Amsterdam,
-                        Madrid, NSE), quindi tutte le schede passano da FMP; YF resta
-                        come fallback quando il consenso EPS di un singolo titolo non
-                        è disponibile.
-                        La ricerca tipo-ahead usa l'API pubblica
-                        <code>query2.finance.yahoo.com/v1/finance/search</code>.
+                        forniti da <strong>Financial Modeling Prep</strong>, piano
+                        Ultimate (badge <span class="sector-pill source-pill source-fmp">FMP</span>
+                        sulla card). <strong>Fonte unica</strong>: il fallback su Yahoo
+                        Finance è stato rimosso, perché mescolava nella stessa lista due
+                        growth calcolate in modo diverso e faceva comparire titoli che
+                        FMP non sa analizzare. Un titolo senza consenso EPS su FMP ora
+                        non compare, invece di comparire con numeri di altra provenienza.
+                        Il badge <span class="sector-pill source-pill source-yf">YF</span>
+                        resta visibile solo sulle righe calcolate prima del cambio,
+                        finché non vengono ricalcolate.
+                        Anche la ricerca tipo-ahead interroga FMP
+                        (<code>search-symbol</code> + <code>search-name</code>), quindi
+                        propone solo simboli effettivamente analizzabili.
                         Tutti i dati sono live al momento del calcolo (cache 12h per la
                         lista qualificati, nessuna cache per la ricerca singolo ticker).
                     </p>

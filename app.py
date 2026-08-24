@@ -7908,9 +7908,12 @@ _FMP_BASE_URL = "https://financialmodelingprep.com/stable"
 _FMP_TIMEOUT_SECONDS = 8
 
 
-def _fmp_get(path: str, **params) -> Optional[Any]:
+def _fmp_get(path: str, _timeout: Optional[float] = None, **params) -> Optional[Any]:
     """GET wrapper for FMP `stable` API. Returns parsed JSON, or None on any
-    failure (missing key, network error, non-200, error payload). Never raises."""
+    failure (missing key, network error, non-200, error payload). Never raises.
+
+    `_timeout` ha l'underscore per non collidere con gli eventuali parametri
+    di query di FMP, che arrivano tutti da **params."""
     api_key = (os.getenv("FMP_API_KEY") or "").strip()
     if not api_key:
         return None
@@ -7919,7 +7922,7 @@ def _fmp_get(path: str, **params) -> Optional[Any]:
         qs = urllib.parse.urlencode(params)
         url = f"{_FMP_BASE_URL}/{path}?{qs}"
         req = urllib.request.Request(url, headers={"User-Agent": "polaris/1.0"})
-        with urllib.request.urlopen(req, timeout=_FMP_TIMEOUT_SECONDS) as resp:
+        with urllib.request.urlopen(req, timeout=_timeout or _FMP_TIMEOUT_SECONDS) as resp:
             if resp.status != 200:
                 return None
             data = json.loads(resp.read().decode("utf-8"))
@@ -7976,8 +7979,8 @@ def _fmp_probe(path: str, **params) -> dict:
 
 def _fetch_ticker_fundamentals_fmp(ticker: str) -> Optional[dict]:
     """Fetch fundamentals for a single ticker via FinancialModelingPrep
-    `stable` API. Returns the same dict shape as _fetch_ticker_fundamentals_yf,
-    or None when required fields are missing or FMP is unavailable.
+    `stable` API. Unica fonte dei fondamentali dello screener.
+    Returns None when required fields are missing or FMP is unavailable.
     """
     profile_data = _fmp_get("profile", symbol=ticker)
     if not profile_data or not isinstance(profile_data, list) or not profile_data:
@@ -8068,127 +8071,17 @@ def _fetch_ticker_fundamentals_fmp(ticker: str) -> Optional[dict]:
 
 
 def _fetch_ticker_fundamentals(ticker: str) -> Optional[dict]:
-    """Fundamentals for a ticker — FMP first, yfinance fallback.
+    """Fondamentali di un ticker. Fonte unica: FMP.
 
-    Returns None when neither source has the required fields (forward EPS,
-    price, growth).
-
-    Con SCREENER_DISABLE_YF_FALLBACK=1 il fallback viene disattivato: i ticker
-    su cui FMP non risponde spariscono dalla lista invece di comparire con dati
-    Yahoo. Serve a verificare la copertura reale del piano FMP — da lasciare
-    spento in esercizio, altrimenti un problema su FMP svuota lo screener."""
-    fmp_res = _fetch_ticker_fundamentals_fmp(ticker)
-    if fmp_res is not None:
-        return fmp_res
-    if (os.getenv("SCREENER_DISABLE_YF_FALLBACK") or "").strip() in ("1", "true", "yes"):
-        return None
-    return _fetch_ticker_fundamentals_yf(ticker)
-
-
-def _fetch_ticker_fundamentals_yf(ticker: str) -> Optional[dict]:
-    """Fetch fundamentals for a single ticker via yfinance.
-
-    Returns None when required fields (forward EPS, price, growth) are missing.
-    """
-    if yf is None:
-        return None
-    try:
-        t = yf.Ticker(ticker)
-        try:
-            info = t.info or {}
-        except Exception:
-            info = {}
-
-        forward_eps = info.get("forwardEps")
-        current_price = info.get("currentPrice") or info.get("regularMarketPrice")
-        yf_sector = info.get("sector") or ""
-        yf_industry = info.get("industry") or ""
-        country_iso = info.get("country") or ""
-        market_cap = info.get("marketCap")
-        beta = info.get("beta")
-        long_name = info.get("shortName") or info.get("longName") or ticker
-
-        if not forward_eps or forward_eps <= 0:
-            return None
-        if not current_price or current_price <= 0:
-            return None
-
-        # Forward EPS growth estimate. Source priority (analyst consensus, all forward):
-        #   1. LTG (Long Term Growth, ~5y CAGR) from growth_estimates
-        #   2. +1y (next fiscal year) from growth_estimates
-        #   3. computed (forwardEps - trailingEps) / trailingEps
-        # We deliberately avoid info["earningsGrowth"] because it is TRAILING.
-        growth = None
-
-        def _read_growth_row(ge_df, row_label):
-            """Read the per-stock growth value for a row of growth_estimates.
-            Only stockTrend / stock_trend / growth columns are valid:
-            indexTrend would return the market index growth (e.g. 12% for S&P).
-            """
-            try:
-                if ge_df is None or ge_df.empty or row_label not in ge_df.index:
-                    return None
-                row = ge_df.loc[row_label]
-                for col in ("stockTrend", "stock_trend", "growth"):
-                    try:
-                        v = row[col]
-                        if v is not None and v == v:  # NaN check
-                            return float(v)
-                    except (KeyError, TypeError):
-                        continue
-            except Exception:
-                pass
-            return None
-
-        try:
-            ge = t.growth_estimates
-            for label in ("LTG", "+5y", "5y", "longTerm", "+1y", "1y"):
-                growth = _read_growth_row(ge, label)
-                if growth is not None:
-                    break
-        except Exception:
-            growth = None
-
-        if growth is None:
-            trailing_eps = info.get("trailingEps")
-            if trailing_eps and trailing_eps > 0 and forward_eps > 0:
-                growth = (forward_eps - trailing_eps) / trailing_eps
-
-        if growth is None:
-            return None
-
-        # Annualized stdev of daily returns over the last year (volatility for ratio).
-        dev_st_pct = None
-        try:
-            hist = t.history(period="1y", auto_adjust=True)
-            if hist is not None and not hist.empty and "Close" in hist.columns:
-                returns = hist["Close"].pct_change().dropna()
-                if len(returns) > 20:
-                    import math
-                    dev_st_pct = float(returns.std() * math.sqrt(252) * 100)
-        except Exception:
-            dev_st_pct = None
-
-        bucket = _resolve_bucket(yf_sector, yf_industry, ticker)
-
-        return {
-            "ticker": ticker,
-            "name": long_name,
-            "yf_sector": yf_sector,
-            "industry": yf_industry,
-            "bucket": bucket,
-            "country_iso": country_iso,
-            "country": _map_country_to_bucket(country_iso),
-            "market_cap": float(market_cap) if market_cap else None,
-            "beta": float(beta) if beta is not None else None,
-            "current_price": float(current_price),
-            "forward_eps": float(forward_eps),
-            "growth_5y": float(growth),
-            "dev_st_pct": dev_st_pct,
-            "_source": "yf",
-        }
-    except Exception:
-        return None
+    Restituisce None quando FMP non copre il simbolo o non ha i campi minimi
+    (EPS forward futuro positivo, prezzo, growth). Il fallback su yfinance e'
+    stato rimosso: col piano Ultimate FMP copre i mercati che ci servono, e il
+    fallback introduceva due dati eterogenei nella stessa lista — la growth
+    yfinance nasce da LTG/+1y, quella FMP dal CAGR del consenso sugli anni
+    fiscali — oltre a far comparire titoli che FMP non sa analizzare.
+    Un ticker senza dati ora sparisce dalla lista, invece di comparire con
+    numeri costruiti in un altro modo."""
+    return _fetch_ticker_fundamentals_fmp(ticker)
 
 
 # ============================================================================
@@ -8908,41 +8801,56 @@ def api_screener_top():
 @app.route('/api/screener/search', methods=['GET'])
 @login_required
 def api_screener_search():
-    """Typeahead search proxy to Yahoo Finance.
-    Returns up to 10 matches: [{symbol, name, exchange, type}, ...].
-    Always 200 even on upstream failure so the typeahead doesn't break the UI.
+    """Typeahead sui simboli FMP. Fino a 10 match: [{symbol, name, exchange, type}].
+
+    Interroga in parallelo search-symbol (match sul ticker) e search-name (match
+    sulla ragione sociale), i match per simbolo in testa. Fonte unica FMP: prima
+    passava da Yahoo, che proponeva simboli su cui FMP non ha nulla — le linee
+    regionali tedesche tipo AG1.F — cioe' risultati che portavano dritti a un
+    "dati non disponibili" quando li sceglievi.
+
+    Risponde sempre 200, anche se FMP e' irraggiungibile, per non rompere la UI.
     """
     q = (request.args.get('q') or '').strip()
     if not q or len(q) > 50:
         return jsonify({"results": []})
+
+    # Timeout stretto: e' una typeahead, meglio nessun risultato che un campo
+    # di ricerca che si pianta per otto secondi.
+    def _search(path):
+        return _fmp_get(path, _timeout=3, query=q, limit=10)
+
+    paths = ("search-symbol", "search-name")
     try:
-        url = (
-            "https://query2.finance.yahoo.com/v1/finance/search?"
-            + urllib.parse.urlencode({"q": q, "quotesCount": 10, "newsCount": 0})
-        )
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=3) as response:
-            if response.status != 200:
-                return jsonify({"results": []})
-            data = json.loads(response.read().decode("utf-8")) or {}
-        out = []
-        for quote in (data.get("quotes") or []):
-            sym = quote.get("symbol")
-            if not sym:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            responses = list(ex.map(_search, paths))
+    except Exception:
+        responses = []
+
+    seen = set()
+    out = []
+    for data in responses:
+        if not isinstance(data, list):
+            continue
+        for item in data:
+            sym = (item.get("symbol") or "").strip()
+            if not sym or sym in seen:
                 continue
-            qtype = (quote.get("quoteType") or "").lower()
-            # Only equities/ETFs are relevant for this screener
-            if qtype not in ("equity", "etf", ""):
-                continue
+            seen.add(sym)
             out.append({
                 "symbol": sym,
-                "name": quote.get("longname") or quote.get("shortname") or "",
-                "exchange": quote.get("exchDisp") or quote.get("exchange") or "",
-                "type": quote.get("typeDisp") or quote.get("quoteType") or "",
+                "name": item.get("name") or "",
+                "exchange": item.get("exchangeFullName") or item.get("exchange") or "",
+                # FMP non espone il tipo di strumento in ricerca: al suo posto
+                # mostriamo la valuta, che sulle quotazioni estere serve di piu'.
+                "type": item.get("currency") or "",
             })
-        return jsonify({"results": out})
-    except Exception:
-        return jsonify({"results": []})
+            if len(out) >= 10:
+                break
+        if len(out) >= 10:
+            break
+    return jsonify({"results": out})
 
 
 @app.route('/api/screener/lookup/<ticker>', methods=['GET'])
@@ -9114,13 +9022,12 @@ def api_screener_fmp_status():
         # Ultimi 4 caratteri: bastano a capire SE la chiave deployata è quella
         # dell'account aggiornato, senza esporre il segreto.
         "key_suffix": api_key[-4:] if api_key else None,
-        "yf_fallback_disabled": (os.getenv("SCREENER_DISABLE_YF_FALLBACK") or "").strip()
-                                in ("1", "true", "yes"),
     }
     if not api_key:
         out["checks"] = []
-        out["verdict"] = ("FMP_API_KEY non è configurata in questo ambiente: "
-                          "lo screener sta usando solo yfinance.")
+        out["verdict"] = ("FMP_API_KEY non è configurata in questo ambiente: senza "
+                          "chiave lo screener non ha più alcuna fonte dati, il "
+                          "fallback yfinance è stato rimosso.")
         return jsonify(out)
 
     vol_from = (_dt.date.today() - _dt.timedelta(days=550)).isoformat()
@@ -9144,7 +9051,7 @@ def api_screener_fmp_status():
                                       for c in failed))
     else:
         out["verdict"] = (f"Gli endpoint rispondono ma {ticker} non ha i campi minimi "
-                          "(EPS forward futuro positivo + growth): lo screener ricade su yfinance.")
+                          "(EPS forward futuro positivo + growth): il titolo non compare in lista.")
     return jsonify(out)
 
 

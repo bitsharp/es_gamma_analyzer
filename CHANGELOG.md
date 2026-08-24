@@ -5,6 +5,19 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.15.0] — 2026-08-24
+
+### Modificato
+- **FMP è ora la fonte unica dello screener: rimosso il fallback su Yahoo Finance.** Prima, quando FMP non copriva un titolo, i fondamentali venivano ricalcolati da yfinance. Il problema non era la disponibilità del dato ma la sua omogeneità: la growth yfinance nasce da LTG o dal +1y, quella FMP dal CAGR del consenso sugli anni fiscali futuri: due misure diverse mescolate nella stessa lista e ordinate insieme per discount. Ora un titolo che FMP non copre semplicemente non compare, invece di comparire con numeri costruiti in un altro modo.
+  - `_fetch_ticker_fundamentals()` chiama solo FMP; `_fetch_ticker_fundamentals_yf()` è stata rimossa (~120 righe) insieme alla variabile d'ambiente `SCREENER_DISABLE_YF_FALLBACK`, che regolava un fallback che non esiste più.
+  - Il badge <em>YF</em> resta visibile solo sulle righe in cache calcolate prima del cambio, finché non vengono ricalcolate.
+- **Anche la ricerca tipo-ahead passa da FMP.** Prima era un proxy sull'API di ricerca di Yahoo, che proponeva simboli su cui FMP non ha nulla — tipicamente le linee regionali tedesche (`AG1.F`, `AG1.MU`, `AG1.HM`): risultati selezionabili che poi portavano dritti a un "dati non disponibili". Ora interroga `search-symbol` e `search-name` in parallelo, unisce i risultati mettendo davanti i match sul ticker e ne restituisce al massimo 10, quindi propone solo simboli effettivamente analizzabili. La colonna di destra del menù mostra la valuta al posto del tipo di strumento, che FMP non espone in ricerca e che sulle quotazioni estere diceva meno.
+
+### Tecnico
+- `_fmp_get()` accetta un `_timeout` opzionale (underscore per non collidere con i parametri di query, che arrivano da `**params`). La tipo-ahead lo usa a 3 secondi invece degli 8 di default: meglio nessun risultato che un campo di ricerca bloccato.
+- La ricerca risponde sempre 200 anche se FMP è irraggiungibile o solleva: verificato che nei tre casi (chiave assente, risposta nulla, eccezione) torna una lista vuota e non un 500.
+- `FMP_API_KEY` diventa di fatto obbligatoria per lo screener: senza chiave la lista resta vuota. Aggiornato `.env.example`.
+
 ## [1.14.0] — 2026-08-21
 
 ### Aggiunto
