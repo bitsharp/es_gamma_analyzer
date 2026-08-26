@@ -21,12 +21,14 @@ Prerequisiti
 Uso
 ---
     python tools/ibkr_gateway_sync.py
-    python tools/ibkr_gateway_sync.py --with-positions   # manda anche le posizioni
-    python tools/ibkr_gateway_sync.py --notify           # e fa notificare l'alert
+    python tools/ibkr_gateway_sync.py --no-positions   # solo ordini
+    python tools/ibkr_gateway_sync.py --notify         # e fa notificare l'alert
 
-Le posizioni di default NON vengono mandate: ci pensa il Flex, e sovrascriverle
-con quelle del gateway non aggiungerebbe niente. Servono solo se vuoi un dato
-intraday invece che di fine giornata.
+Manda posizioni e ordini, entrambi live. Il Flex resta la rete di sicurezza per
+i giorni a PC spento, ma fotografa la chiusura precedente: se durante la
+giornata apri o chiudi qualcosa, solo il gateway se ne accorge. Il server
+confronta le date del dato e tiene il più recente, quindi il giro serale del
+Flex non riporta indietro quello che il gateway ha appena scritto.
 
 Per farlo girare da solo: Utilità di pianificazione di Windows, azione
 "Avvia programma" su pythonw.exe con questo script come argomento, ogni giorno
@@ -215,8 +217,8 @@ def main():
     parser.add_argument("--gateway", default=os.getenv("IBKR_GATEWAY_URL") or DEFAULT_GATEWAY)
     parser.add_argument("--polaris", default=os.getenv("POLARIS_BASE_URL") or DEFAULT_POLARIS)
     parser.add_argument("--token", default=None, help="IBKR_SYNC_TOKEN (default: env o .env)")
-    parser.add_argument("--with-positions", action="store_true",
-                        help="manda anche le posizioni, sovrascrivendo quelle del Flex")
+    parser.add_argument("--no-positions", action="store_true",
+                        help="manda solo gli ordini, lasciando le posizioni al Flex")
     parser.add_argument("--notify", action="store_true",
                         help="fai calcolare e notificare subito l'alert del giorno dopo")
     args = parser.parse_args()
@@ -227,8 +229,12 @@ def main():
 
     ensure_authenticated(args.gateway)
     payload = {"orders": fetch_orders(args.gateway), "source": "gateway"}
-    if args.with_positions:
+    if not args.no_positions:
+        # Le posizioni del gateway sono live, quelle del Flex sono della
+        # chiusura precedente: qui si mandano per impostazione predefinita, e il
+        # server tiene comunque il dato più recente confrontando le date.
         payload["positions"] = fetch_positions(args.gateway)
+        payload["positions_as_of"] = time.time()
     if args.notify:
         payload["notify"] = True
 

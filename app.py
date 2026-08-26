@@ -10245,9 +10245,24 @@ def _ibkr_orders_staleness(doc: Optional[dict]) -> dict:
             "reason": f"ultimo aggiornamento {age / 3600:.0f}h fa" if stale else None}
 
 
+def _ibkr_report_date_to_epoch(report_date: Optional[str]) -> Optional[float]:
+    """Data di un report Flex (`YYYYMMDD` o `YYYY-MM-DD`) → epoch di fine
+    giornata. None se assente o illeggibile, così chi chiama può ripiegare
+    sull'istante corrente."""
+    raw = (report_date or "").strip().replace("-", "")
+    if len(raw) != 8 or not raw.isdigit():
+        return None
+    try:
+        day = _dt.date(int(raw[:4]), int(raw[4:6]), int(raw[6:]))
+    except ValueError:
+        return None
+    return _dt.datetime.combine(day, _dt.time(23, 59), _dt.timezone.utc).timestamp()
+
+
 def _ibkr_store_snapshot(owner_email: str, positions: Optional[List[dict]] = None,
                          orders: Optional[List[dict]] = None,
-                         source: str = "sync") -> Optional[dict]:
+                         source: str = "sync",
+                         positions_as_of: Optional[float] = None) -> Optional[dict]:
     """Salva lo snapshot fondendo, non sostituendo.
 
     Posizioni e ordini arrivano da due sorgenti diverse e con ritmi diversi —
@@ -10255,6 +10270,12 @@ def _ibkr_store_snapshot(owner_email: str, positions: Optional[List[dict]] = Non
     locale porta anche gli ordini ma solo a PC acceso. Se ogni scrittura
     sostituisse il documento intero, il giro notturno del Flex cancellerebbe
     ogni sera gli ordini raccolti di giorno.
+
+    `positions_as_of` è la data *del dato*, non della scrittura: il Flex
+    fotografa la chiusura precedente, quindi una sua scrittura serale è più
+    recente ma meno aggiornata di una del gateway fatta durante il giorno. Vince
+    il dato più recente, non l'ultimo arrivato — altrimenti il cron delle 20:00
+    riporterebbe indietro il portafoglio ogni sera.
 
     Ritorna lo snapshot risultante, o None se Mongo non è disponibile.
     """
@@ -10269,10 +10290,23 @@ def _ibkr_store_snapshot(owner_email: str, positions: Optional[List[dict]] = Non
         "orders": existing.get("orders") or [],
     }
     update = {"owner_email": owner_email, "synced_at": now}
+    skipped = None
+    if positions is not None:
+        incoming_as_of = positions_as_of if positions_as_of is not None else now
+        existing_as_of = existing.get("positions_as_of")
+        if existing_as_of is not None and incoming_as_of < existing_as_of:
+            skipped = {
+                "reason": "posizioni ignorate: il dato in archivio è più recente",
+                "incoming_as_of": incoming_as_of,
+                "existing_as_of": existing_as_of,
+                "existing_source": existing.get("positions_source"),
+            }
+            positions = None
     if positions is not None:
         merged["positions"] = positions
         update.update({"positions": positions, "positions_synced_at": now,
-                       "positions_source": source})
+                       "positions_source": source,
+                       "positions_as_of": positions_as_of if positions_as_of is not None else now})
     if orders is not None:
         merged["orders"] = orders
         update.update({"orders": orders, "orders_synced_at": now,
@@ -10286,7 +10320,10 @@ def _ibkr_store_snapshot(owner_email: str, positions: Optional[List[dict]] = Non
         coll.update_one({"owner_email": owner_email}, {"$set": update}, upsert=True)
     except Exception:
         return None
-    return {**existing, **update, **merged}
+    return {**existing, **update, **merged, "skipped": skipped,
+            # Cosa è stato scritto davvero, non cosa era stato proposto: le
+            # posizioni possono essere state scartate perché più vecchie.
+            "applied": [k for k in ("positions", "orders") if k in update]}
 
 
 # ---------------------------------------------------------------------------
@@ -10437,7 +10474,8 @@ def api_ibkr_sync():
         return jsonify({"error": "payload senza né 'positions' né 'orders'"}), 400
 
     source = _ibkr_str(data.get("source"), 24) or "sync"
-    merged = _ibkr_store_snapshot(owner_email, positions, orders, source=source)
+    merged = _ibkr_store_snapshot(owner_email, positions, orders, source=source,
+                                  positions_as_of=_ibkr_num(data.get("positions_as_of")))
     if merged is None:
         return jsonify({"error": "mongo non disponibile: snapshot non salvato"}), 503
 
@@ -10455,8 +10493,8 @@ def api_ibkr_sync():
         # soglia della notifica Telegram, così i due canali non divergono.
         "should_email": bool(alert["count"]) or bool(data.get("notify_always")),
         "stored": True,
-        "updated": [k for k, v in (("positions", positions), ("orders", orders))
-                    if v is not None],
+        "updated": merged.get("applied") or [],
+        "skipped": merged.get("skipped"),
         "positions": len(snapshot["positions"]),
         "orders": len(snapshot["orders"]),
         "live_orders": sum(1 for o in snapshot["orders"] if o.get("is_live")),
@@ -11205,8 +11243,12 @@ def _ibkr_run_daily_job(notify_always: bool = False) -> dict:
     owner_email = _ibkr_default_owner_email()
     normalized = _ibkr_normalize_payload(fetched)
     orders = normalized["orders"] if fetched.get("orders") is not None else None
+    # Il Flex fotografa una chiusura passata: la data del dato è quella del
+    # report, non l'istante in cui lo scarichiamo.
+    as_of = _ibkr_report_date_to_epoch(fetched.get("report_date"))
     merged = _ibkr_store_snapshot(owner_email, normalized["positions"], orders,
-                                  source=fetched.get("source") or "cron")
+                                  source=fetched.get("source") or "cron",
+                                  positions_as_of=as_of)
     if merged is None:
         return {"status": "error", "error": "mongo non disponibile: snapshot non salvato"}
 
@@ -11228,6 +11270,9 @@ def _ibkr_run_daily_job(notify_always: bool = False) -> dict:
         "status": "ok",
         "source": fetched.get("source"),
         "account_id": fetched.get("account_id"),
+        "report_date": fetched.get("report_date"),
+        "skipped": merged.get("skipped"),
+        "position_symbols": sorted({(p.get("symbol") or "") for p in snapshot["positions"]}),
         "positions": len(snapshot["positions"]),
         "orders": len(snapshot["orders"]),
         "live_orders": sum(1 for o in snapshot["orders"] if o.get("is_live")),

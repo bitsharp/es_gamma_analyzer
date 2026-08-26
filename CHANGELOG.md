@@ -5,6 +5,20 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.19.1] — 2026-08-26
+
+### Corretto
+- **Il giro serale del Flex riportava indietro il portafoglio.** Il Flex fotografa la chiusura precedente, il gateway locale legge il conto in tempo reale: una scrittura del Flex alle 20:00 è più *recente* ma meno *aggiornata* di una del gateway fatta durante il giorno, e sovrascrivendola avrebbe cancellato le operazioni della giornata. Successo davvero oggi: nel conto INTU è stata chiusa e QCOM aperta, e la fotografia di ieri le avrebbe rimesse com'erano. Ora ogni scrittura porta con sé la data *del dato* (`positions_as_of`) e vince il più recente, non l'ultimo arrivato.
+  - Per il Flex la data è quella del report; per gateway e Web API è l'istante della lettura.
+  - `updated` nella risposta di `/api/ibkr/sync` riporta ora cosa è stato scritto davvero, non cosa era stato proposto, e `skipped` spiega perché qualcosa non è passato.
+- **Seguivo l'URL legacy del Flex.** La risposta di `SendRequest` contiene un elemento `<Url>` che punta al vecchio servlet `/Universal/servlet/FlexStatementService`, che la documentazione IBKR annota come legacy e dice di ignorare. È l'errore che si propaga da mezzo internet perché la risposta te lo mette in mano. Ora l'host è fisso.
+
+### Modificato
+- **`tools/ibkr_gateway_sync.py` manda anche le posizioni, di default.** Sono live, mentre quelle del Flex sono della chiusura precedente: se durante la giornata apri o chiudi qualcosa, solo il gateway se ne accorge. Il Flex resta la rete di sicurezza per i giorni a PC spento. `--no-positions` per il comportamento di prima.
+
+### Aggiunto
+- `GET /api/ibkr/flex-status` (solo admin): riporta la *forma* delle credenziali Flex — lunghezza del token, se il query id è numerico — senza mai stamparne i valori, più l'esito di una prova reale. IBKR risponde 1020 a situazioni molto diverse e le due più frequenti si riconoscono da lì: un query id non numerico è il nome della query copiato al posto del numero, un token corto è un copia-incolla tagliato.
+
 ## [1.19.0] — 2026-08-26
 
 ### Modificato
