@@ -5,6 +5,19 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.19.0] — 2026-08-26
+
+### Modificato
+- **Le posizioni IBKR si leggono come le partecipazioni aggiunte a mano.** Via le due tabelle: ogni titolo è una scheda con la stessa forma di quelle del portafoglio manuale — nome, settore, paese, badge di zona e analisi Damodaran (P/E attuale e teorico, target, discount) — più i dati che solo IBKR ha: quantità, carico, prezzo, investito e P&L. La provenienza del dato non deve cambiare il modo in cui si legge il portafoglio.
+- **Ordinamento per importo investito, di default.** È il modo in cui si guarda un portafoglio. I controvalori vengono convertiti nella valuta base del conto prima di ordinare: senza, 6.042 EUR e 4.900 USD verrebbero confrontati come numeri nudi e l'ordine sarebbe sbagliato. Il cambio arriva da IBKR quando la sorgente lo allega (il Flex lo espone come `fxRateToBase`), altrimenti da FMP con cache a 6h. `IBKR_BASE_CURRENCY` per cambiarla, default EUR.
+- **Secondo ordinamento per data earnings, dalla più vicina.** Risponde a una domanda diversa — chi riporta prima — quindi è un interruttore, non il default. I titoli senza data vanno in fondo: "sconosciuto" non è "lontano", e metterli in mezzo li farebbe sembrare una scadenza reale.
+- **Ogni scheda espone i propri ordini attivi in un accordion.** Chiuso mostra quanti sono e come si dividono tra acquisto e vendita; aperto, la tabella con lato, tipo, quantità, prezzo, validità e stato. Chi non ha ordini lo dice invece di lasciare un vuoto ambiguo.
+- **I titoli con soli ordini pendenti hanno la stessa rappresentazione, in una lista separata.** Sono un'esposizione potenziale, non ancora un investimento: mescolarli alle posizioni falserebbe i pesi, ometterli nasconderebbe un rischio earnings che invece c'è.
+
+### Tecnico
+- Nuova rotta `GET /api/ibkr/holdings`: unisce posizioni, ordini vivi raggruppati per simbolo e analisi Damodaran, calcolata in parallelo su 8 thread come `/api/portfolio`. Riusa il simbolo FMP già risolto per gli earnings invece di ritradurlo. `?analyze=0` salta i fondamentali.
+- La pagina fa le due chiamate in parallelo: lo snapshot è istantaneo e porta l'alert, le schede passano da FMP e non devono ritardarlo. L'ultima risposta resta in memoria, così cambiare ordinamento non rifà una ventina di chiamate.
+
 ## [1.18.1] — 2026-08-26
 
 ### Corretto

@@ -9860,6 +9860,63 @@ def _ibkr_enriched_snapshot(snapshot: dict, earnings: Dict[str, dict]) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Cambi: servono per ordinare per importo investito
+# ---------------------------------------------------------------------------
+# Le posizioni sono in valute diverse, quindi confrontare i controvalori nudi
+# metterebbe 4.760 EUR sotto 4.900 USD. Si converte tutto nella valuta base del
+# conto prima di ordinare.
+
+_FX_CACHE: Dict[str, dict] = {}
+_FX_CACHE_TTL_SECONDS = 21600  # 6h: per un ordinamento non serve di meglio
+
+
+def _ibkr_base_currency() -> str:
+    return (_ibkr_api_env("IBKR_BASE_CURRENCY", "EUR") or "EUR").upper()
+
+
+def _fx_to_base(currency: Optional[str]) -> Optional[float]:
+    """Quante unità di valuta base vale una unità di `currency`.
+
+    None quando il cambio non si riesce a stabilire: chi chiama deve poterlo
+    distinguere da 1.0, altrimenti una posizione in dollari finirebbe ordinata
+    come se fosse già in euro.
+    """
+    cur = (currency or "").strip().upper()
+    base = _ibkr_base_currency()
+    if not cur:
+        return None
+    if cur == base:
+        return 1.0
+    cached = _FX_CACHE.get(cur)
+    now = time.time()
+    if cached and (now - cached["ts"]) < _FX_CACHE_TTL_SECONDS:
+        return cached["rate"]
+    rate = None
+    data = _fmp_get("quote", symbol=f"{cur}{base}")
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        rate = data[0].get("price")
+    if not rate:
+        # Prova il verso opposto: FMP non quota tutte le coppie in entrambi i sensi.
+        data = _fmp_get("quote", symbol=f"{base}{cur}")
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            inverse = data[0].get("price")
+            rate = (1.0 / inverse) if inverse else None
+    _FX_CACHE[cur] = {"ts": now, "rate": rate}
+    return rate
+
+
+def _ibkr_market_value_base(row: dict) -> Optional[float]:
+    """Controvalore nella valuta base. Preferisce il cambio che IBKR allega
+    alla posizione (il Flex lo espone come `fxRateToBase`), altrimenti lo
+    chiede a FMP."""
+    value = row.get("market_value")
+    if value is None:
+        return None
+    rate = row.get("fx_rate_to_base") or _fx_to_base(row.get("currency"))
+    return value * rate if rate else None
+
+
 def _ibkr_earnings_alert(snapshot: dict, target: Optional[_dt.date] = None,
                          earnings: Optional[Dict[str, dict]] = None) -> dict:
     """Strumenti dello snapshot che riportano il giorno indicato (di default
@@ -10459,6 +10516,96 @@ def api_ibkr_snapshot():
         "orders_freshness": _ibkr_orders_staleness(doc),
         "alert": {k: alert[k] for k in ("target_date", "count", "unresolved")},
         "alert_symbols": [i["symbol"] for i in alert["items"]],
+    })
+
+
+@app.route('/api/ibkr/holdings', methods=['GET'])
+@login_required
+def api_ibkr_holdings():
+    """Posizioni IBKR presentate come le partecipazioni aggiunte a mano.
+
+    Ogni riga porta l'analisi Damodaran del titolo, la data della prossima
+    trimestrale e gli ordini vivi che la riguardano, così la scheda in pagina
+    è autosufficiente. I titoli su cui c'è solo un ordine pendente e nessuna
+    posizione escono in una lista separata: sono un'esposizione potenziale,
+    non ancora un investimento, e mescolarli falserebbe i pesi.
+
+    `?analyze=0` salta i fondamentali quando serve solo la struttura.
+    """
+    owner_email = _current_user_email()
+    if not owner_email:
+        return jsonify({"error": "no user"}), 401
+    doc = _ibkr_load_snapshot(owner_email)
+    if not doc:
+        return jsonify({"positions": [], "orders_only": [], "synced_at": None,
+                        "base_currency": _ibkr_base_currency()})
+
+    snapshot = {"positions": doc.get("positions") or [], "orders": doc.get("orders") or []}
+    earnings = doc.get("earnings") if isinstance(doc.get("earnings"), dict) else {}
+    today = _ibkr_local_today()
+
+    orders_by_symbol: Dict[str, List[dict]] = {}
+    for order in snapshot["orders"]:
+        if order.get("is_live"):
+            orders_by_symbol.setdefault((order.get("symbol") or "").upper(), []).append(order)
+
+    def earnings_bits(symbol: str) -> dict:
+        info = earnings.get(symbol) or {}
+        date_iso = info.get("date")
+        days = None
+        if date_iso:
+            try:
+                days = (_dt.date.fromisoformat(date_iso) - today).days
+            except ValueError:
+                days = None
+        return {"earnings_date": date_iso, "earnings_in_days": days,
+                "earnings_eps_estimated": info.get("eps_estimated"),
+                "fmp_symbol": info.get("fmp_symbol")}
+
+    rows, positioned = [], set()
+    for position in snapshot["positions"]:
+        symbol = (position.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        positioned.add(symbol)
+        rows.append({**position, **earnings_bits(symbol), "symbol": symbol,
+                     "market_value_base": _ibkr_market_value_base(position),
+                     "orders": orders_by_symbol.get(symbol, [])})
+
+    orders_only = []
+    for symbol, orders in sorted(orders_by_symbol.items()):
+        if symbol in positioned:
+            continue
+        first = orders[0]
+        orders_only.append({
+            "symbol": symbol, "name": first.get("name"),
+            "currency": first.get("currency"), "exchange": first.get("exchange"),
+            **earnings_bits(symbol), "orders": orders,
+        })
+
+    if request.args.get("analyze") != "0":
+        # Un ticker IBKR non è un ticker FMP: si riusa il simbolo già risolto
+        # per gli earnings invece di rifare la traduzione.
+        from concurrent.futures import ThreadPoolExecutor
+        targets = rows + orders_only
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            analyses = list(executor.map(
+                lambda r: (_analyze_portfolio_ticker(r["fmp_symbol"], None)
+                           if r.get("fmp_symbol") else
+                           {"ticker": r["symbol"], "error": "simbolo non risolto su FMP"}),
+                targets,
+            ))
+        for row, analysis in zip(targets, analyses):
+            row["analysis"] = analysis
+
+    return jsonify({
+        "positions": rows,
+        "orders_only": orders_only,
+        "base_currency": _ibkr_base_currency(),
+        "synced_at": doc.get("synced_at"),
+        "positions_synced_at": doc.get("positions_synced_at"),
+        "positions_source": doc.get("positions_source"),
+        "orders_freshness": _ibkr_orders_staleness(doc),
     })
 
 

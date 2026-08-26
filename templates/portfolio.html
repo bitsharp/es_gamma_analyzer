@@ -254,6 +254,52 @@
         .earn-soon  { background: rgba(251,191,36,0.14); color: #fbbf24; border-color: rgba(251,191,36,0.42); }
         .earn-now   { background: rgba(248,113,113,0.18); color: #fca5a5; border-color: rgba(248,113,113,0.55); }
 
+        /* Barra di ordinamento delle schede IBKR */
+        .sort-bar {
+            display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+            margin-bottom: 0.9rem;
+        }
+        .sort-btn {
+            background: rgba(119,141,169,0.15); color: #cbd5e1;
+            border: 1px solid rgba(119,141,169,0.32);
+            padding: 0.28rem 0.75rem; border-radius: 999px;
+            font-size: 0.8rem; font-weight: 600; cursor: pointer;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+        }
+        .sort-btn:hover { color: #fff; }
+        .sort-btn.active {
+            background: rgba(96,165,250,0.2); color: #93c5fd;
+            border-color: rgba(96,165,250,0.55);
+        }
+
+        /* Le schede che riportano domani devono staccarsi dalla lista */
+        .pick-card.card-hot { border-color: rgba(248,113,113,0.55); }
+
+        /* Accordion degli ordini attivi */
+        .orders-acc { margin-top: 0.8rem; border-top: 1px solid rgba(65,90,119,0.4); padding-top: 0.6rem; }
+        .orders-toggle {
+            display: flex; align-items: center; gap: 0.5rem; width: 100%;
+            background: transparent; border: none; color: #93c5fd;
+            font-size: 0.83rem; font-weight: 600; padding: 0.15rem 0; cursor: pointer;
+            text-align: left;
+        }
+        .orders-toggle:hover { color: #bfdbfe; }
+        .orders-toggle i { transition: transform 0.15s; }
+        .orders-toggle .orders-mix {
+            margin-left: auto; color: #778da9; font-weight: 400; font-size: 0.76rem;
+        }
+        .orders-body { margin-top: 0.55rem; overflow-x: auto; }
+        .orders-body .ibkr-table td, .orders-body .ibkr-table th { padding: 0.32rem 0.5rem; }
+        .orders-none {
+            margin-top: 0.8rem; border-top: 1px solid rgba(65,90,119,0.4);
+            padding-top: 0.6rem; font-size: 0.8rem; color: #6b7e92;
+        }
+        .analysis-missing {
+            margin-top: 0.7rem; font-size: 0.78rem; color: #778da9;
+            background: rgba(13,27,42,0.4); border: 1px solid rgba(119,141,169,0.2);
+            border-radius: 8px; padding: 0.45rem 0.65rem;
+        }
+
         @media (max-width: 768px) {
             .nav-link-custom { padding: 0.3rem 0.5rem; font-size: 0.82rem; }
             .pick-card { padding: 0.9rem; }
@@ -332,6 +378,15 @@
                 </div>
             </div>
             <div id="ibkrAlert"></div>
+            <div id="ibkrSortBar" class="sort-bar" style="display:none;">
+                <span class="filter-label">Ordina per</span>
+                <button type="button" class="sort-btn active" data-sort="amount">
+                    <i class="bi bi-cash-stack me-1"></i>Importo investito
+                </button>
+                <button type="button" class="sort-btn" data-sort="earnings">
+                    <i class="bi bi-calendar-event me-1"></i>Earnings più vicini
+                </button>
+            </div>
             <div id="ibkrBody"></div>
         </div>
 
@@ -881,61 +936,170 @@
 
         const isHot = row => row.earnings_in_days === 0 || row.earnings_in_days === 1;
 
-        function renderIbkrPositions(positions) {
-            if (!positions.length) return '';
-            const rows = positions.map(p => {
-                const pnlCls = p.unrealized_pnl == null ? '' : (p.unrealized_pnl >= 0 ? 'pnl-pos' : 'pnl-neg');
-                return `
-                    <tr class="${isHot(p) ? 'is-hot' : ''}">
-                        <td class="sym">${escapeHtml(p.symbol)}${p.name ? `<span class="row-name">${escapeHtml(p.name)}</span>` : ''}</td>
-                        <td class="num">${fmtQty(p.quantity)}</td>
-                        <td class="num">${fmtAmount(p.avg_price, p.currency)}</td>
-                        <td class="num">${fmtAmount(p.market_price, p.currency)}</td>
-                        <td class="num">${fmtAmount(p.market_value, p.currency)}</td>
-                        <td class="num ${pnlCls}">${p.unrealized_pnl == null ? '—' : (p.unrealized_pnl > 0 ? '+' : '') + fmtAmount(p.unrealized_pnl, p.currency)}</td>
-                        <td>${earningsBadge(p)}</td>
-                    </tr>`;
-            }).join('');
-            return `
-                <div class="ibkr-subtitle">Posizioni aperte (${positions.length})</div>
-                <div class="ibkr-table-wrap"><table class="ibkr-table">
-                    <tr><th>Titolo</th><th class="num">Qtà</th><th class="num">Carico</th>
-                        <th class="num">Prezzo</th><th class="num">Controvalore</th>
-                        <th class="num">P&L</th><th>Prossimi earnings</th></tr>
-                    ${rows}
-                </table></div>`;
+        // ---- Schede IBKR ----
+        // Stessa forma delle partecipazioni aggiunte a mano: la provenienza del
+        // dato non deve cambiare il modo in cui si legge il portafoglio.
+
+        // Ordinamento. L'importo investito è il default perché è il modo in cui
+        // si guarda un portafoglio; quello per earnings serve a rispondere a
+        // un'altra domanda — chi riporta prima — e non deve essere permanente.
+        const ibkrSort = { key: 'amount' };
+
+        function sortIbkrRows(rows) {
+            const copy = rows.slice();
+            if (ibkrSort.key === 'earnings') {
+                // Chi non ha una data va in fondo: "sconosciuto" non è "lontano",
+                // ma metterlo in mezzo lo farebbe sembrare una scadenza reale.
+                return copy.sort((a, b) => {
+                    const da = a.earnings_date, db = b.earnings_date;
+                    if (!da && !db) return a.symbol.localeCompare(b.symbol);
+                    if (!da) return 1;
+                    if (!db) return -1;
+                    return da.localeCompare(db) || a.symbol.localeCompare(b.symbol);
+                });
+            }
+            return copy.sort((a, b) => {
+                const va = a.market_value_base != null ? a.market_value_base : a.market_value;
+                const vb = b.market_value_base != null ? b.market_value_base : b.market_value;
+                return (vb || 0) - (va || 0) || a.symbol.localeCompare(b.symbol);
+            });
         }
 
-        function renderIbkrOrders(orders) {
-            if (!orders.length) return '';
+        function ordersAccordion(row, idx, prefix) {
+            const orders = row.orders || [];
+            if (!orders.length) {
+                return `<div class="orders-none">Nessun ordine attivo</div>`;
+            }
             const rows = orders.map(o => {
                 const price = o.limit_price != null ? o.limit_price : o.stop_price;
                 return `
-                    <tr class="${isHot(o) ? 'is-hot' : ''}">
-                        <td class="sym">${escapeHtml(o.symbol)}</td>
+                    <tr>
                         <td class="${o.side === 'BUY' ? 'side-buy' : 'side-sell'}">${escapeHtml(o.side || '—')}</td>
                         <td>${escapeHtml((o.order_type || '—').toLowerCase())}</td>
                         <td class="num">${fmtQty(o.remaining != null ? o.remaining : o.quantity)}</td>
-                        <td class="num">${fmtAmount(price, o.currency)}</td>
+                        <td class="num">${fmtAmount(price, o.currency || row.currency)}</td>
                         <td>${escapeHtml(o.tif || '—')}</td>
-                        <td>${earningsBadge(o)}</td>
+                        <td style="color:#778da9;">${escapeHtml(o.status || '')}</td>
                     </tr>`;
             }).join('');
-            // Flex e gateway aggiornano a ritmi diversi: un unico "aggiornato
-            // alle 20:00" mentirebbe su una delle due metà.
-            const f = window.__ibkrFreshness || {};
-            const nota = f.stale
-                ? `<span style="color:#fbbf24;font-weight:600;"> · non aggiornati (${escapeHtml(f.reason || '')})</span>`
-                : (f.age_seconds != null
-                    ? `<span style="color:#778da9;font-weight:400;"> · ${Math.round(f.age_seconds / 3600)}h fa${f.source ? ' da ' + escapeHtml(f.source) : ''}</span>`
-                    : '');
+            const id = `${prefix}-orders-${idx}`;
+            const buys = orders.filter(o => o.side === 'BUY').length;
+            const sells = orders.length - buys;
             return `
-                <div class="ibkr-subtitle">Ordini pendenti (${orders.length})${nota}</div>
-                <div class="ibkr-table-wrap"><table class="ibkr-table">
-                    <tr><th>Titolo</th><th>Lato</th><th>Tipo</th><th class="num">Qtà</th>
-                        <th class="num">Prezzo</th><th>Validità</th><th>Prossimi earnings</th></tr>
-                    ${rows}
-                </table></div>`;
+                <div class="orders-acc">
+                    <button type="button" class="orders-toggle" data-target="${id}" aria-expanded="false">
+                        <i class="bi bi-chevron-right"></i>
+                        <span>${orders.length} ordini attivi</span>
+                        <span class="orders-mix">${buys} acquisto · ${sells} vendita</span>
+                    </button>
+                    <div class="orders-body" id="${id}" hidden>
+                        <table class="ibkr-table">
+                            <tr><th>Lato</th><th>Tipo</th><th class="num">Qtà</th>
+                                <th class="num">Prezzo</th><th>Validità</th><th>Stato</th></tr>
+                            ${rows}
+                        </table>
+                    </div>
+                </div>`;
+        }
+
+        function analysisMetrics(a) {
+            if (!a) return '';
+            if (a.error) {
+                return `<div class="analysis-missing">Analisi non disponibile: ${escapeHtml(a.error)}</div>`;
+            }
+            const peNow = (a.current_price && a.forward_eps > 0) ? a.current_price / a.forward_eps : null;
+            const low = peNow != null && a.pe_theoretical != null && peNow < a.pe_theoretical;
+            return `
+                <div class="metric-grid">
+                    <div class="metric"><div class="label">P/E attuale</div>
+                        <div class="value ${peNow == null ? '' : (low ? 'discount-pos' : 'discount-neg')}">${fmtNum(peNow, 1)}</div></div>
+                    <div class="metric"><div class="label">P/E teorico</div><div class="value">${fmtNum(a.pe_theoretical, 1)}</div></div>
+                    <div class="metric"><div class="label">Target</div><div class="value">${fmtMoney(a.target_y1)}</div></div>
+                    <div class="metric"><div class="label">Discount</div>
+                        <div class="value ${a.discount_pct > 0 ? 'discount-pos' : 'discount-neg'}">${fmtPct(a.discount_pct)}</div></div>
+                </div>`;
+        }
+
+        function ibkrCardHeader(row) {
+            const a = row.analysis && !row.analysis.error ? row.analysis : null;
+            const zone = a ? computeZone(a) : null;
+            const pills = [
+                a && a.bucket, a && a.country, row.exchange, row.currency,
+            ].filter(Boolean).map(p => `<span class="sector-pill">${escapeHtml(p)}</span>`).join('');
+            return `
+                <div class="d-flex justify-content-between align-items-start" style="gap:1rem;">
+                    <div>
+                        <div class="ticker">${escapeHtml(row.symbol)}</div>
+                        <div class="name">${escapeHtml((a && a.name) || row.name || '')}</div>
+                        <div>${pills}</div>
+                    </div>
+                    <div class="text-end" style="white-space:nowrap;">
+                        <div style="font-size:0.7rem;color:#778da9;text-transform:uppercase;letter-spacing:0.05em;">Earnings</div>
+                        <div>${earningsBadge(row)}</div>
+                        ${zone ? `<div class="zone-badge ${zone.cls}" style="margin-top:0.4rem;font-size:0.78rem;">${zone.label}</div>` : ''}
+                    </div>
+                </div>`;
+        }
+
+        function renderIbkrPositionCard(row, idx) {
+            const pnlCls = row.unrealized_pnl == null ? '' : (row.unrealized_pnl >= 0 ? 'pnl-pos' : 'pnl-neg');
+            const base = row.market_value_base;
+            return `
+                <div class="pick-card ${isHot(row) ? 'card-hot' : ''}">
+                    ${ibkrCardHeader(row)}
+                    <div class="metric-grid">
+                        <div class="metric"><div class="label">Quantità</div><div class="value">${fmtQty(row.quantity)}</div></div>
+                        <div class="metric"><div class="label">Carico</div><div class="value">${fmtAmount(row.avg_price, row.currency)}</div></div>
+                        <div class="metric"><div class="label">Prezzo</div><div class="value">${fmtAmount(row.market_price, row.currency)}</div></div>
+                        <div class="metric"><div class="label">Investito</div><div class="value">${fmtAmount(row.market_value, row.currency)}
+                            ${base != null && row.currency !== (window.__ibkrBase || 'EUR')
+                                ? `<div style="font-size:0.7rem;font-weight:400;color:#778da9;">${fmtAmount(base, window.__ibkrBase || 'EUR')}</div>` : ''}
+                        </div></div>
+                        <div class="metric"><div class="label">P&L</div>
+                            <div class="value ${pnlCls}">${row.unrealized_pnl == null ? '—'
+                                : (row.unrealized_pnl > 0 ? '+' : '') + fmtAmount(row.unrealized_pnl, row.currency)}</div></div>
+                    </div>
+                    ${analysisMetrics(row.analysis)}
+                    ${ordersAccordion(row, idx, 'pos')}
+                </div>`;
+        }
+
+        function renderIbkrOrdersOnlyCard(row, idx) {
+            return `
+                <div class="pick-card ${isHot(row) ? 'card-hot' : ''}">
+                    ${ibkrCardHeader(row)}
+                    ${analysisMetrics(row.analysis)}
+                    ${ordersAccordion(row, idx, 'ord')}
+                </div>`;
+        }
+
+        function freshnessNote() {
+            const f = window.__ibkrFreshness || {};
+            if (f.stale) {
+                return `<span style="color:#fbbf24;font-weight:600;"> · non aggiornati (${escapeHtml(f.reason || '')})</span>`;
+            }
+            if (f.age_seconds != null) {
+                return `<span style="color:#778da9;font-weight:400;"> · ${Math.round(f.age_seconds / 3600)}h fa${f.source ? ' da ' + escapeHtml(f.source) : ''}</span>`;
+            }
+            return '';
+        }
+
+        function renderIbkrHoldings(data) {
+            const positions = sortIbkrRows(data.positions || []);
+            const ordersOnly = sortIbkrRows(data.orders_only || []);
+            let html = '';
+            if (positions.length) {
+                html += `<div class="ibkr-subtitle">Posizioni aperte (${positions.length})</div>`;
+                html += positions.map(renderIbkrPositionCard).join('');
+            }
+            if (ordersOnly.length) {
+                html += `<div class="ibkr-subtitle" style="margin-top:1.2rem;">
+                    Solo ordini pendenti (${ordersOnly.length})${freshnessNote()}</div>`;
+                html += `<div style="font-size:0.78rem;color:#778da9;margin:-0.2rem 0 0.6rem;">
+                    Titoli su cui hai ordini aperti ma nessuna posizione: esposizione potenziale, non ancora investita.</div>`;
+                html += ordersOnly.map(renderIbkrOrdersOnlyCard).join('');
+            }
+            return html;
         }
 
         function renderIbkrAlert(alert, symbols, freshness) {
@@ -1008,37 +1172,71 @@
                 </ul>`;
         }
 
+        // Ultima risposta tenuta da parte, così cambiare ordinamento non
+        // rifà una ventina di chiamate a FMP.
+        let lastIbkr = null;
+
+        function paintIbkr() {
+            if (!lastIbkr) return;
+            document.getElementById('ibkrBody').innerHTML = renderIbkrHoldings(lastIbkr);
+            document.querySelectorAll('#ibkrSortBar .sort-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.sort === ibkrSort.key);
+            });
+            // Un accordion per scheda: delega non serve, sono pochi nodi e
+            // così lo stato aperto/chiuso resta dove sta il markup.
+            document.querySelectorAll('#ibkrBody .orders-toggle').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const body = document.getElementById(btn.dataset.target);
+                    const open = btn.getAttribute('aria-expanded') === 'true';
+                    btn.setAttribute('aria-expanded', String(!open));
+                    btn.querySelector('i').className = open ? 'bi bi-chevron-right' : 'bi bi-chevron-down';
+                    body.hidden = open;
+                });
+            });
+        }
+
         async function loadIbkr(refresh = false) {
             const card = document.getElementById('ibkrCard');
             const btn = document.getElementById('ibkrRefreshBtn');
+            const body = document.getElementById('ibkrBody');
             if (refresh) btn.disabled = true;
             card.style.display = 'block';
+            body.innerHTML = `<div class="empty-state" style="padding:1.5rem;">
+                <div class="spinner-border spinner-border-sm" role="status"></div>
+                <span class="ms-2" style="font-size:0.88rem;">Carico posizioni e analisi…</span></div>`;
             try {
-                const res = await fetch('/api/ibkr/snapshot' + (refresh ? '?refresh=1' : ''));
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                const data = await res.json();
-                const positions = data.positions || [];
-                // Solo gli ordini ancora eseguibili: un REPLACED è la versione
-                // superata di un ordine che IBKR ha già rimpiazzato.
-                const orders = (data.orders || []).filter(o => o.is_live);
-                if (!positions.length && !orders.length) {
+                // Snapshot e schede sono due chiamate: la prima è istantanea e
+                // porta l'alert, la seconda passa da FMP per l'analisi di una
+                // ventina di titoli e vale la pena non farla bloccare l'alert.
+                const [snapRes, holdRes] = await Promise.all([
+                    fetch('/api/ibkr/snapshot' + (refresh ? '?refresh=1' : '')),
+                    fetch('/api/ibkr/holdings'),
+                ]);
+                if (!snapRes.ok) throw new Error('HTTP ' + snapRes.status);
+                const snap = await snapRes.json();
+                const hold = holdRes.ok ? await holdRes.json() : { positions: [], orders_only: [] };
+
+                if (!(snap.positions || []).length && !(snap.orders || []).some(o => o.is_live)) {
                     document.getElementById('ibkrSynced').textContent = 'in attesa della prima sync';
                     document.getElementById('ibkrAlert').innerHTML = '';
-                    document.getElementById('ibkrBody').innerHTML = renderIbkrSetup(data);
+                    document.getElementById('ibkrSortBar').style.display = 'none';
+                    body.innerHTML = renderIbkrSetup(snap);
                     return;
                 }
-                window.__ibkrFreshness = data.orders_freshness || {};
-                const fonte = data.positions_source ? ` · posizioni da ${data.positions_source}` : '';
+                window.__ibkrFreshness = snap.orders_freshness || {};
+                window.__ibkrBase = hold.base_currency || 'EUR';
+                const fonte = snap.positions_source ? ` · posizioni da ${snap.positions_source}` : '';
                 document.getElementById('ibkrSynced').textContent =
-                    fmtSyncedAt(data.positions_synced_at || data.synced_at) + fonte;
-                renderIbkrAlert(data.alert, data.alert_symbols || [], data.orders_freshness);
-                document.getElementById('ibkrBody').innerHTML =
-                    renderIbkrPositions(positions) + renderIbkrOrders(orders);
+                    fmtSyncedAt(snap.positions_synced_at || snap.synced_at) + fonte;
+                renderIbkrAlert(snap.alert, snap.alert_symbols || [], snap.orders_freshness);
+                document.getElementById('ibkrSortBar').style.display = 'flex';
+                lastIbkr = hold;
+                paintIbkr();
             } catch (err) {
                 // Lo snapshot IBKR è un di più: se non arriva, il portafoglio
                 // manuale sotto deve restare perfettamente utilizzabile.
                 card.style.display = 'block';
-                document.getElementById('ibkrBody').innerHTML =
+                body.innerHTML =
                     `<div class="ibkr-alert calm">Snapshot IBKR non disponibile: ${escapeHtml(err.message)}</div>`;
             } finally {
                 btn.disabled = false;
@@ -1046,6 +1244,9 @@
         }
 
         document.getElementById('ibkrRefreshBtn').addEventListener('click', () => loadIbkr(true));
+        document.querySelectorAll('#ibkrSortBar .sort-btn').forEach(btn => {
+            btn.addEventListener('click', () => { ibkrSort.key = btn.dataset.sort; paintIbkr(); });
+        });
 
         loadIbkr();
         loadPortfolio();
