@@ -11,3 +11,6 @@ uploads/
 # Chiavi private OAuth di IBKR: non devono finire nel repo per sbaglio.
 *.pem
 ibkr-keys/
+
+# Log dell'attivita' pianificata di sync IBKR.
+tools/sync-ibkr.log
