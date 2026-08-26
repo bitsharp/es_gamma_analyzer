@@ -651,6 +651,7 @@
     </style>
     {% include '_pe_history.html' %}
     {% include '_insider_transactions.html' %}
+    {% include '_earnings_pill.html' %}
 </head>
 <body>
     <!-- NAVBAR -->
@@ -1236,6 +1237,7 @@
                                       title="Fonte fondamentali: ${r._source === 'fmp' ? 'Financial Modeling Prep' : (r._source === 'yf' ? 'Yahoo Finance' : 'sconosciuta')}">
                                     ${r._source === 'fmp' ? 'FMP' : (r._source === 'yf' ? 'YF' : '—')}
                                 </span>
+                                <span class="earn-pill ep-none ep-loading" data-earnings="${escapeHtml(r.ticker)}">Earnings …</span>
                                 ${strategyBadge}
                             </div>
                         </div>
@@ -1309,6 +1311,7 @@
             ).join('');
             hydratePEHistoryWithin(container);
             hydrateInsiderWithin(container);
+            hydrateEarningsWithin(container);
         }
 
         const escapeHtml = s => String(s || '').replace(/[&<>"']/g, ch => ({
@@ -1383,6 +1386,7 @@
                 attachCloseHandler();
                 hydratePEHistoryWithin(result);
                 hydrateInsiderWithin(result);
+                hydrateEarningsWithin(result);
             } catch (err) {
                 result.innerHTML = wrapLookupResult(`
                     <div class="empty-state" style="padding:1.2rem;color:#f87171;">
@@ -1668,6 +1672,7 @@
             cont.innerHTML = top.map((r, idx) => renderPickCardHtml(r, { rank: idx + 1 })).join('');
             hydratePEHistoryWithin(cont);
             hydrateInsiderWithin(cont);
+            hydrateEarningsWithin(cont);
         }
 
         async function loadSectorTop(bucket) {

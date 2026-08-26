@@ -5,6 +5,22 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.20.0] — 2026-08-26
+
+### Aggiunto
+- **Esposizione sul capitale, a colpo d'occhio.** In testa al blocco IBKR una riga con capitale totale, investito, ordini in acquisto e percentuale impegnata se venissero eseguiti tutti, più una barra che sovrappone le due quote. Il denominatore è il net liquidation del conto, che arriva dal gateway: se non c'è, la pagina lo dichiara invece di inventarsi un totale. Se qualche posizione non ha un controvalore convertibile la percentuale è per difetto, e viene detto.
+- **Capitale che gli ordini pendenti impegnerebbero.** Somma dei soli acquisti — una vendita su un titolo che già si possiede è un'uscita, non un impiego — al prezzo limite, o allo stop quando limite non c'è. Compare nell'intestazione della sezione, sull'accordion di ogni scheda e nel riepilogo. È un tetto, non una previsione: il caso in cui tutti gli ordini andassero a segno.
+- **Data e giorni agli earnings nello screener Damodaran.** Una pillola su ogni scheda, in entrambe le densità. Quelle della **settimana corrente** — da lunedì a domenica, non "entro sette giorni" — sono in arancione acceso; entro due settimane in ambra, oltre in grigio. I titoli che FMP non copre lo dicono invece di restare vuoti.
+  - Le date arrivano dopo il disegno della lista, in un'unica richiesta per tutti i ticker visibili: sono una ventina di chiamate a FMP e non devono ritardare lo screener. Restano in cache per la sessione, così cambiare filtro o densità non le richiede di nuovo.
+
+### Modificato
+- **Le sezioni del blocco IBKR si aprono e si chiudono**, e lo stato viene ricordato: chi comprime le posizioni per guardare gli ordini non vuole rifarlo a ogni ricaricamento. Ogni intestazione porta il totale della sua sezione, così resta leggibile anche da chiusa.
+
+### Tecnico
+- Nuova rotta `GET /api/screener/earnings?tickers=A,B,C` (max 80 per chiamata, 8 thread, cache 6h condivisa con l'alert IBKR). Restituisce data, giorni mancanti e appartenenza alla settimana corrente calcolata su `Europe/Rome`.
+- `tools/ibkr_gateway_sync.py` manda anche il riepilogo del conto (net liquidation e liquidità) letto da `/portfolio/{account}/summary`: è l'unica sorgente che ce l'ha, il Flex con la sola sezione Open Positions non lo espone.
+- Il nuovo frammento `_earnings_pill.html` segue lo schema di `_pe_history.html`: uno slot `data-earnings="TICKER"` e una `hydrateEarningsWithin(root)` globale.
+
 ## [1.19.1] — 2026-08-26
 
 ### Corretto

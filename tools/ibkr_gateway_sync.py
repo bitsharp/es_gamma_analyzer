@@ -178,11 +178,41 @@ def fetch_orders(gateway):
     return out
 
 
-def fetch_positions(gateway):
+def fetch_account(gateway, account_id):
+    """Net liquidation e liquidità: il denominatore dell'esposizione.
+
+    Senza, la pagina non può dire quanto pesa il portafoglio sul capitale — e
+    preferisce dichiararlo mancante piuttosto che stimarlo.
+    """
+    status, payload = http_json(f"{gateway}/portfolio/{account_id}/summary", context=_LOCAL_CTX)
+    if status != 200 or not isinstance(payload, dict):
+        return None
+
+    def amount(key):
+        node = payload.get(key)
+        if isinstance(node, dict):
+            return node.get("amount")
+        return node if isinstance(node, (int, float)) else None
+
+    currency = None
+    node = payload.get("netliquidation")
+    if isinstance(node, dict):
+        currency = node.get("currency")
+    return {
+        "net_liquidation": amount("netliquidation"),
+        "cash": amount("totalcashvalue") or amount("availablefunds"),
+        "currency": currency,
+    }
+
+
+def portfolio_account_id(gateway):
     status, accounts = http_json(f"{gateway}/portfolio/accounts", context=_LOCAL_CTX)
     if status != 200 or not isinstance(accounts, list) or not accounts:
         sys.exit(f"nessun account dal gateway (HTTP {status})")
-    account_id = accounts[0].get("accountId") or accounts[0].get("id")
+    return accounts[0].get("accountId") or accounts[0].get("id")
+
+
+def fetch_positions(gateway, account_id):
     out, page = [], 0
     while page < 10:
         status, rows = http_json(f"{gateway}/portfolio/{account_id}/positions/{page}",
@@ -233,8 +263,12 @@ def main():
         # Le posizioni del gateway sono live, quelle del Flex sono della
         # chiusura precedente: qui si mandano per impostazione predefinita, e il
         # server tiene comunque il dato più recente confrontando le date.
-        payload["positions"] = fetch_positions(args.gateway)
+        account_id = portfolio_account_id(args.gateway)
+        payload["positions"] = fetch_positions(args.gateway, account_id)
         payload["positions_as_of"] = time.time()
+        account = fetch_account(args.gateway, account_id)
+        if account and account.get("net_liquidation"):
+            payload["account"] = account
     if args.notify:
         payload["notify"] = True
 
@@ -248,6 +282,9 @@ def main():
     print(f"aggiornato: {', '.join(response.get('updated') or [])}")
     print(f"ordini vivi: {response.get('live_orders')} su {response.get('orders')}")
     print(f"posizioni in archivio: {response.get('positions')}")
+    if payload.get("account"):
+        print(f"capitale (net liq)   : {payload['account']['net_liquidation']:,.0f} "
+              f"{payload['account'].get('currency') or ''}")
     print(f"earnings {alert.get('target_date')}: {alert.get('count')} "
           f"{', '.join(i['symbol'] for i in alert.get('items') or []) or '—'}")
     if args.notify:

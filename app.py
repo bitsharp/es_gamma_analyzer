@@ -9909,6 +9909,27 @@ def _fx_to_base(currency: Optional[str]) -> Optional[float]:
     return rate
 
 
+def _ibkr_order_capital_base(order: dict, fallback_currency: Optional[str] = None) -> Optional[float]:
+    """Capitale che un ordine di acquisto impegnerebbe, in valuta base.
+
+    Solo gli ordini in acquisto: una vendita su un titolo che già si possiede è
+    un'uscita, non un impiego di capitale. Il prezzo è il limite, o lo stop
+    quando limite non c'è.
+    """
+    if (order.get("side") or "").upper() != "BUY":
+        return None
+    quantity = order.get("remaining")
+    if quantity is None:
+        quantity = order.get("quantity")
+    price = order.get("limit_price")
+    if price is None:
+        price = order.get("stop_price")
+    if not quantity or price is None:
+        return None
+    rate = _fx_to_base(order.get("currency") or fallback_currency)
+    return abs(quantity) * price * rate if rate else None
+
+
 def _ibkr_market_value_base(row: dict) -> Optional[float]:
     """Controvalore nella valuta base. Preferisce il cambio che IBKR allega
     alla posizione (il Flex lo espone come `fxRateToBase`), altrimenti lo
@@ -10265,7 +10286,8 @@ def _ibkr_report_date_to_epoch(report_date: Optional[str]) -> Optional[float]:
 def _ibkr_store_snapshot(owner_email: str, positions: Optional[List[dict]] = None,
                          orders: Optional[List[dict]] = None,
                          source: str = "sync",
-                         positions_as_of: Optional[float] = None) -> Optional[dict]:
+                         positions_as_of: Optional[float] = None,
+                         account: Optional[dict] = None) -> Optional[dict]:
     """Salva lo snapshot fondendo, non sostituendo.
 
     Posizioni e ordini arrivano da due sorgenti diverse e con ritmi diversi —
@@ -10314,6 +10336,17 @@ def _ibkr_store_snapshot(owner_email: str, positions: Optional[List[dict]] = Non
         merged["orders"] = orders
         update.update({"orders": orders, "orders_synced_at": now,
                        "orders_source": source})
+
+    if isinstance(account, dict):
+        # Il net liquidation è il denominatore dell'esposizione: senza, la
+        # percentuale non è calcolabile e la pagina lo dichiara invece di
+        # inventarsi un totale.
+        update["account"] = {
+            "net_liquidation": _ibkr_num(account.get("net_liquidation")),
+            "cash": _ibkr_num(account.get("cash")),
+            "currency": (_ibkr_str(account.get("currency"), 8) or "").upper() or None,
+        }
+        update["account_synced_at"] = now
 
     # Le date earnings si ricalcolano sull'unione: un titolo può entrare nello
     # snapshot da una sorgente e uscirne dall'altra.
@@ -10478,7 +10511,8 @@ def api_ibkr_sync():
 
     source = _ibkr_str(data.get("source"), 24) or "sync"
     merged = _ibkr_store_snapshot(owner_email, positions, orders, source=source,
-                                  positions_as_of=_ibkr_num(data.get("positions_as_of")))
+                                  positions_as_of=_ibkr_num(data.get("positions_as_of")),
+                                  account=data.get("account"))
     if merged is None:
         return jsonify({"error": "mongo non disponibile: snapshot non salvato"}), 503
 
@@ -10563,6 +10597,48 @@ def api_ibkr_snapshot():
     })
 
 
+def _ibkr_capital_summary(doc: dict, positions: List[dict], orders_only: List[dict]) -> dict:
+    """Quanto capitale è investito, quanto lo sarebbe e su quale totale.
+
+    Il totale è il net liquidation del conto, che arriva dal gateway: senza,
+    l'esposizione non è calcolabile e va detto invece di inventare un
+    denominatore. Il capitale degli ordini è la somma dei soli acquisti, cioè
+    il caso in cui venissero eseguiti tutti — non una previsione, un tetto.
+    """
+    account = doc.get("account") if isinstance(doc.get("account"), dict) else {}
+    total = account.get("net_liquidation")
+
+    invested = [p["market_value_base"] for p in positions if p.get("market_value_base") is not None]
+    invested_total = sum(invested) if invested else None
+    missing_value = sum(1 for p in positions if p.get("market_value_base") is None)
+
+    pending = [r["pending_buy_base"] for r in (positions + orders_only)
+               if r.get("pending_buy_base") is not None]
+    pending_total = sum(pending) if pending else None
+
+    def pct(part):
+        if part is None or not total:
+            return None
+        return part / total
+
+    return {
+        "net_liquidation": total,
+        "cash": account.get("cash"),
+        "currency": account.get("currency") or _ibkr_base_currency(),
+        "as_of": doc.get("account_synced_at"),
+        "invested": invested_total,
+        "invested_pct": pct(invested_total),
+        "pending_buy": pending_total,
+        "pending_pct": pct(pending_total),
+        # Somma dell'investito e di quanto sarebbe investito se tutti gli
+        # acquisti pendenti andassero a segno.
+        "committed_pct": pct((invested_total or 0) + (pending_total or 0)) if total else None,
+        # Se qualche posizione non ha un controvalore convertibile, la
+        # percentuale è per difetto e va dichiarato.
+        "positions_without_value": missing_value,
+    }
+
+
 _IBKR_ANALYSIS_CACHE: Dict[str, dict] = {}
 _IBKR_ANALYSIS_TTL_SECONDS = int(
     (os.getenv("IBKR_ANALYSIS_TTL") or "21600").strip() or 21600)  # 6h
@@ -10589,6 +10665,51 @@ def _analyze_portfolio_ticker_cached(fmp_symbol: str) -> dict:
         "value": value,
     }
     return value
+
+
+@app.route('/api/screener/earnings', methods=['GET'])
+@login_required
+def api_screener_earnings():
+    """Prossima trimestrale per un elenco di ticker.
+
+    Serve allo screener, che carica le date dopo aver disegnato le schede: sono
+    una ventina di chiamate a FMP e non devono ritardare la lista. I ticker
+    arrivano già in forma FMP, quindi non passano dalla traduzione IBKR.
+    """
+    raw = (request.args.get("tickers") or "").strip()
+    tickers = [t.strip().upper() for t in raw.split(",") if t.strip()][:80]
+    if not tickers:
+        return jsonify({"results": {}})
+
+    today = _ibkr_local_today()
+    monday = today - _dt.timedelta(days=today.weekday())
+    sunday = monday + _dt.timedelta(days=6)
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        infos = list(executor.map(lambda t: _fetch_next_earnings(t), tickers))
+
+    results = {}
+    for ticker, info in zip(tickers, infos):
+        date_iso = (info or {}).get("date")
+        if not date_iso:
+            results[ticker] = {"date": None, "days": None, "in_current_week": False}
+            continue
+        try:
+            day = _dt.date.fromisoformat(date_iso)
+        except ValueError:
+            results[ticker] = {"date": None, "days": None, "in_current_week": False}
+            continue
+        results[ticker] = {
+            "date": date_iso,
+            "days": (day - today).days,
+            # Settimana corrente in senso stretto: da lunedì a domenica di
+            # questa settimana, non "entro sette giorni".
+            "in_current_week": monday <= day <= sunday,
+            "eps_estimated": (info or {}).get("eps_estimated"),
+        }
+    return jsonify({"results": results, "today": today.isoformat(),
+                    "week": {"from": monday.isoformat(), "to": sunday.isoformat()}})
 
 
 @app.route('/api/ibkr/holdings', methods=['GET'])
@@ -10634,25 +10755,34 @@ def api_ibkr_holdings():
                 "earnings_eps_estimated": info.get("eps_estimated"),
                 "fmp_symbol": info.get("fmp_symbol")}
 
+    def pending_buy(orders: List[dict], currency: Optional[str]) -> Optional[float]:
+        values = [_ibkr_order_capital_base(o, currency) for o in orders]
+        values = [v for v in values if v is not None]
+        return sum(values) if values else None
+
     rows, positioned = [], set()
     for position in snapshot["positions"]:
         symbol = (position.get("symbol") or "").upper()
         if not symbol:
             continue
         positioned.add(symbol)
+        orders = orders_by_symbol.get(symbol, [])
         rows.append({**position, **earnings_bits(symbol), "symbol": symbol,
                      "market_value_base": _ibkr_market_value_base(position),
-                     "orders": orders_by_symbol.get(symbol, [])})
+                     "pending_buy_base": pending_buy(orders, position.get("currency")),
+                     "orders": orders})
 
     orders_only = []
     for symbol, orders in sorted(orders_by_symbol.items()):
         if symbol in positioned:
             continue
         first = orders[0]
+        currency = first.get("currency")
         orders_only.append({
             "symbol": symbol, "name": first.get("name"),
-            "currency": first.get("currency"), "exchange": first.get("exchange"),
+            "currency": currency, "exchange": first.get("exchange"),
             **earnings_bits(symbol), "orders": orders,
+            "pending_buy_base": pending_buy(orders, currency),
         })
 
     if request.args.get("analyze") != "0":
@@ -10673,6 +10803,7 @@ def api_ibkr_holdings():
     return jsonify({
         "positions": rows,
         "orders_only": orders_only,
+        "capital": _ibkr_capital_summary(doc, rows, orders_only),
         "base_currency": _ibkr_base_currency(),
         "synced_at": doc.get("synced_at"),
         "positions_synced_at": doc.get("positions_synced_at"),

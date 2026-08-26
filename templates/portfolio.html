@@ -294,6 +294,50 @@
             margin-top: 0.8rem; border-top: 1px solid rgba(65,90,119,0.4);
             padding-top: 0.6rem; font-size: 0.8rem; color: #6b7e92;
         }
+        /* Riepilogo del capitale */
+        .capital-box {
+            background: rgba(13,27,42,0.5); border: 1px solid rgba(119,141,169,0.25);
+            border-radius: 10px; padding: 0.8rem 0.95rem; margin-bottom: 1rem;
+        }
+        .capital-row {
+            display: flex; flex-wrap: wrap; gap: 1.4rem; margin-bottom: 0.7rem;
+        }
+        .capital-stat .cs-label {
+            font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em;
+            color: #778da9; margin-bottom: 0.1rem;
+        }
+        .capital-stat .cs-value {
+            font-size: 1.02rem; font-weight: 700; color: #fff;
+            font-variant-numeric: tabular-nums;
+        }
+        .capital-stat .cs-pct {
+            font-size: 0.78rem; font-weight: 600; color: #778da9; margin-left: 0.3rem;
+        }
+        .capital-track {
+            display: flex; height: 9px; border-radius: 999px; overflow: hidden;
+            background: rgba(119,141,169,0.18);
+        }
+        .capital-fill.invested { background: #4ade80; }
+        .capital-fill.pending  { background: #60a5fa; opacity: 0.75; }
+        .capital-note, .capital-missing {
+            font-size: 0.75rem; color: #778da9; margin-top: 0.5rem; line-height: 1.5;
+        }
+        .capital-missing { margin-top: 0; }
+
+        /* Intestazioni di sezione comprimibili */
+        .section-toggle {
+            display: flex; align-items: center; gap: 0.5rem; width: 100%;
+            background: transparent; border: none; padding: 0.35rem 0;
+            cursor: pointer; text-align: left; color: #778da9;
+            border-bottom: 1px solid rgba(65,90,119,0.35); margin-bottom: 0.7rem;
+        }
+        .section-toggle:hover .ibkr-subtitle { color: #fff; }
+        .section-toggle .section-sum {
+            margin-left: auto; font-size: 0.8rem; font-weight: 700; color: #e2e8f0;
+            font-variant-numeric: tabular-nums;
+        }
+        .section-toggle + .section-body { margin-bottom: 1.2rem; }
+
         .analysis-missing {
             margin-top: 0.7rem; font-size: 0.78rem; color: #778da9;
             background: rgba(13,27,42,0.4); border: 1px solid rgba(119,141,169,0.2);
@@ -985,12 +1029,15 @@
             const id = `${prefix}-orders-${idx}`;
             const buys = orders.filter(o => o.side === 'BUY').length;
             const sells = orders.length - buys;
+            const capitale = row.pending_buy_base != null
+                ? ` · <span style="color:#60a5fa;">${fmtAmount(row.pending_buy_base, window.__ibkrBase || 'EUR')} da investire</span>`
+                : '';
             return `
                 <div class="orders-acc">
                     <button type="button" class="orders-toggle" data-target="${id}" aria-expanded="false">
                         <i class="bi bi-chevron-right"></i>
                         <span>${orders.length} ordini attivi</span>
-                        <span class="orders-mix">${buys} acquisto · ${sells} vendita</span>
+                        <span class="orders-mix">${buys} acquisto · ${sells} vendita${capitale}</span>
                     </button>
                     <div class="orders-body" id="${id}" hidden>
                         <table class="ibkr-table">
@@ -1084,20 +1131,101 @@
             return '';
         }
 
+        // Stato aperto/chiuso delle sezioni, ricordato tra una visita e l'altra:
+        // chi comprime le posizioni per guardare gli ordini non vuole rifarlo
+        // a ogni ricaricamento.
+        const sectionState = { positions: true, orders: true };
+        try {
+            const saved = JSON.parse(localStorage.getItem('ibkrSections') || '{}');
+            if (typeof saved.positions === 'boolean') sectionState.positions = saved.positions;
+            if (typeof saved.orders === 'boolean') sectionState.orders = saved.orders;
+        } catch (e) { /* localStorage inaccessibile: si resta sui default */ }
+
+        function saveSectionState() {
+            try { localStorage.setItem('ibkrSections', JSON.stringify(sectionState)); } catch (e) {}
+        }
+
+        function sectionHeader(key, label, count, extra) {
+            const open = sectionState[key];
+            return `
+                <button type="button" class="section-toggle" data-section="${key}" aria-expanded="${open}">
+                    <i class="bi bi-chevron-${open ? 'down' : 'right'}"></i>
+                    <span class="ibkr-subtitle" style="margin:0;">${escapeHtml(label)} (${count})</span>
+                    ${extra || ''}
+                </button>`;
+        }
+
+        function capitalBar(cap) {
+            if (!cap) return '';
+            const cur = cap.currency || 'EUR';
+            if (!cap.net_liquidation) {
+                return `<div class="capital-box">
+                    <div class="capital-missing">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Capitale totale non disponibile: l'esposizione si può calcolare solo dopo una
+                        sincronizzazione dal gateway, che è l'unica sorgente che riporta il net liquidation.
+                    </div></div>`;
+            }
+            const pct = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
+            // Le due barre si sommano: investito adesso, più quanto lo sarebbe
+            // se tutti gli ordini di acquisto andassero a segno.
+            const inv = Math.max(0, Math.min(1, cap.invested_pct || 0));
+            const pend = Math.max(0, Math.min(1 - inv, cap.pending_pct || 0));
+            const warn = cap.positions_without_value
+                ? `<div class="capital-note">${cap.positions_without_value} posizioni senza controvalore
+                   convertibile: la percentuale è per difetto.</div>` : '';
+            return `
+                <div class="capital-box">
+                    <div class="capital-row">
+                        <div class="capital-stat">
+                            <div class="cs-label">Capitale</div>
+                            <div class="cs-value">${fmtAmount(cap.net_liquidation, cur)}</div>
+                        </div>
+                        <div class="capital-stat">
+                            <div class="cs-label">Investito</div>
+                            <div class="cs-value" style="color:#4ade80;">${fmtAmount(cap.invested, cur)}
+                                <span class="cs-pct">${pct(cap.invested_pct)}</span></div>
+                        </div>
+                        <div class="capital-stat">
+                            <div class="cs-label">Ordini in acquisto</div>
+                            <div class="cs-value" style="color:#60a5fa;">${fmtAmount(cap.pending_buy, cur)}
+                                <span class="cs-pct">${pct(cap.pending_pct)}</span></div>
+                        </div>
+                        <div class="capital-stat">
+                            <div class="cs-label">Impegnato se eseguiti</div>
+                            <div class="cs-value">${pct(cap.committed_pct)}</div>
+                        </div>
+                    </div>
+                    <div class="capital-track" title="verde: investito · blu: ordini di acquisto pendenti">
+                        <div class="capital-fill invested" style="width:${(inv * 100).toFixed(2)}%"></div>
+                        <div class="capital-fill pending" style="width:${(pend * 100).toFixed(2)}%"></div>
+                    </div>
+                    ${warn}
+                </div>`;
+        }
+
         function renderIbkrHoldings(data) {
             const positions = sortIbkrRows(data.positions || []);
             const ordersOnly = sortIbkrRows(data.orders_only || []);
-            let html = '';
+            const cur = (data.capital && data.capital.currency) || window.__ibkrBase || 'EUR';
+            let html = capitalBar(data.capital);
+
             if (positions.length) {
-                html += `<div class="ibkr-subtitle">Posizioni aperte (${positions.length})</div>`;
-                html += positions.map(renderIbkrPositionCard).join('');
+                const tot = positions.reduce((s, p) => s + (p.market_value_base || 0), 0);
+                html += sectionHeader('positions', 'Posizioni aperte', positions.length,
+                    `<span class="section-sum">${fmtAmount(tot, cur)}</span>`);
+                html += `<div class="section-body" data-body="positions" ${sectionState.positions ? '' : 'hidden'}>
+                    ${positions.map(renderIbkrPositionCard).join('')}</div>`;
             }
             if (ordersOnly.length) {
-                html += `<div class="ibkr-subtitle" style="margin-top:1.2rem;">
-                    Solo ordini pendenti (${ordersOnly.length})${freshnessNote()}</div>`;
-                html += `<div style="font-size:0.78rem;color:#778da9;margin:-0.2rem 0 0.6rem;">
-                    Titoli su cui hai ordini aperti ma nessuna posizione: esposizione potenziale, non ancora investita.</div>`;
-                html += ordersOnly.map(renderIbkrOrdersOnlyCard).join('');
+                const tot = ordersOnly.reduce((s, r) => s + (r.pending_buy_base || 0), 0);
+                html += sectionHeader('orders', 'Solo ordini pendenti', ordersOnly.length,
+                    `<span class="section-sum">${fmtAmount(tot, cur)} da investire</span>${freshnessNote()}`);
+                html += `<div class="section-body" data-body="orders" ${sectionState.orders ? '' : 'hidden'}>
+                    <div style="font-size:0.78rem;color:#778da9;margin:0 0 0.6rem;">
+                        Titoli su cui hai ordini aperti ma nessuna posizione: esposizione potenziale, non ancora investita.
+                        L'importo è la somma dei soli acquisti, cioè il caso in cui venissero eseguiti tutti.</div>
+                    ${ordersOnly.map(renderIbkrOrdersOnlyCard).join('')}</div>`;
             }
             return html;
         }
@@ -1181,6 +1309,18 @@
             document.getElementById('ibkrBody').innerHTML = renderIbkrHoldings(lastIbkr);
             document.querySelectorAll('#ibkrSortBar .sort-btn').forEach(b => {
                 b.classList.toggle('active', b.dataset.sort === ibkrSort.key);
+            });
+            document.querySelectorAll('#ibkrBody .section-toggle').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const key = btn.dataset.section;
+                    const body = document.querySelector(`#ibkrBody [data-body="${key}"]`);
+                    sectionState[key] = !sectionState[key];
+                    saveSectionState();
+                    btn.setAttribute('aria-expanded', String(sectionState[key]));
+                    btn.querySelector('i').className =
+                        'bi bi-chevron-' + (sectionState[key] ? 'down' : 'right');
+                    if (body) body.hidden = !sectionState[key];
+                });
             });
             // Un accordion per scheda: delega non serve, sono pochi nodi e
             // così lo stato aperto/chiuso resta dove sta il markup.

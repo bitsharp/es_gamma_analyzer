@@ -1,0 +1,109 @@
+{#
+   Pillola con la prossima data earnings.
+
+   Si mette uno slot `<span data-earnings="TICKER"></span>` dentro una scheda e
+   si chiama hydrateEarningsWithin(root): le date arrivano dopo, in un'unica
+   richiesta per tutti i ticker presenti, così la lista si disegna subito.
+
+   Il ticker atteso è già in forma FMP (con il suffisso di borsa dove serve).
+#}
+<style>
+    .earn-pill {
+        display: inline-block; padding: 0.15rem 0.55rem; border-radius: 6px;
+        font-size: 0.75rem; font-weight: 700; margin-right: 0.4rem;
+        border: 1px solid; white-space: nowrap; vertical-align: baseline;
+    }
+    /* Questa settimana: è la cosa che deve saltare all'occhio. */
+    .earn-pill.ep-week {
+        background: rgba(251,146,60,0.22); color: #fdba74;
+        border-color: rgba(251,146,60,0.65);
+        box-shadow: 0 0 10px rgba(251,146,60,0.18);
+    }
+    .earn-pill.ep-soon {
+        background: rgba(251,191,36,0.13); color: #fbbf24;
+        border-color: rgba(251,191,36,0.38);
+    }
+    .earn-pill.ep-far {
+        background: rgba(119,141,169,0.15); color: #cbd5e1;
+        border-color: rgba(119,141,169,0.32);
+    }
+    .earn-pill.ep-none {
+        background: rgba(119,141,169,0.1); color: #6b7e92;
+        border-color: rgba(119,141,169,0.22);
+    }
+    .earn-pill.ep-loading { opacity: 0.45; }
+</style>
+<script>
+(function () {
+    const MESI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu',
+                  'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+    // Una sola richiesta per ticker per sessione: la stessa lista viene
+    // ridisegnata a ogni cambio di filtro o densità.
+    const cache = new Map();
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+
+    function pillHtml(info) {
+        if (!info || !info.date) {
+            return `<span class="earn-pill ep-none" title="FMP non ha un calendario earnings per questo titolo">
+                        Earnings n/d</span>`;
+        }
+        const d = new Date(info.date + 'T00:00:00');
+        const quando = `${String(d.getDate()).padStart(2, '0')} ${MESI[d.getMonth()]}`;
+        const g = info.days;
+        let cls = 'ep-far', testo = quando, titolo = `Prossimi earnings: ${info.date}`;
+        if (info.in_current_week) {
+            // Il server restituisce solo trimestrali future, quindi qui dentro
+            // non ci finiscono date già passate di questa settimana.
+            cls = 'ep-week';
+            if (g === 0) testo = 'Earnings oggi';
+            else if (g === 1) testo = 'Earnings domani';
+            else testo = `Earnings ${quando} · ${g}g`;
+            titolo += ' — questa settimana';
+        } else if (g != null && g > 0 && g <= 14) {
+            cls = 'ep-soon';
+            testo = `Earnings ${quando} · ${g}g`;
+        } else if (g != null) {
+            testo = `Earnings ${quando}`;
+            if (g > 0) titolo += ` (tra ${g} giorni)`;
+        }
+        if (info.eps_estimated != null) titolo += ` · EPS atteso ${info.eps_estimated}`;
+        return `<span class="earn-pill ${cls}" title="${esc(titolo)}">${esc(testo)}</span>`;
+    }
+
+    function paint(root) {
+        root.querySelectorAll('[data-earnings]').forEach(slot => {
+            const t = slot.getAttribute('data-earnings');
+            if (cache.has(t)) slot.outerHTML = pillHtml(cache.get(t));
+        });
+    }
+
+    window.hydrateEarningsWithin = async function (rootEl) {
+        if (!rootEl) return;
+        const slots = Array.from(rootEl.querySelectorAll('[data-earnings]'));
+        if (!slots.length) return;
+        const mancanti = [...new Set(slots
+            .map(s => s.getAttribute('data-earnings'))
+            .filter(t => t && !cache.has(t)))];
+        paint(rootEl);
+        if (!mancanti.length) return;
+        try {
+            // A blocchi: l'endpoint ne accetta 80 per volta e URL troppo lunghi
+            // vengono rifiutati da qualche proxy.
+            for (let i = 0; i < mancanti.length; i += 60) {
+                const blocco = mancanti.slice(i, i + 60);
+                const res = await fetch('/api/screener/earnings?tickers=' +
+                                        encodeURIComponent(blocco.join(',')));
+                if (!res.ok) return;
+                const data = await res.json();
+                Object.entries(data.results || {}).forEach(([t, info]) => cache.set(t, info));
+                paint(rootEl);
+            }
+        } catch (e) {
+            // Le date sono un di più: se non arrivano restano le pillole in
+            // caricamento, e la lista resta perfettamente usabile.
+        }
+    };
+})();
+</script>
