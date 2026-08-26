@@ -10241,6 +10241,24 @@ def _ibkr_store_snapshot(owner_email: str, positions: Optional[List[dict]] = Non
 
 _FLEX_BASE = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService"
 
+# IBKR riusa lo stesso testo generico per cause molto diverse, quindi conviene
+# tradurre il codice in una diagnosi invece di rimandare il messaggio nudo.
+_FLEX_ERROR_HINTS = {
+    "1003": "statement non disponibile per il periodo scelto",
+    "1012": "token scaduto: rigenerane uno dal Flex Web Service",
+    "1014": "query id inesistente: controlla di aver copiato il numero della "
+            "query e non il suo nome",
+    "1015": "token non valido",
+    "1016": "account non valido per questa query",
+    "1017": "reference code non valido",
+    "1019": "statement ancora in generazione",
+    "1020": "richiesta non validata: le cause tipiche sono il Flex Web Service "
+            "non abilitato (il token da solo non basta), un token appena creato "
+            "e non ancora propagato, o una restrizione per indirizzo IP sul "
+            "token — Vercel esce da IP variabili, quindi va tolta",
+    "1021": "statement non recuperabile",
+}
+
 
 def _flex_get(url: str) -> Optional[str]:
     try:
@@ -10272,8 +10290,13 @@ def _flex_fetch_positions() -> dict:
     if not sent:
         return {"error": "Flex SendRequest irraggiungibile"}
     if (_flex_xml_text(sent, "Status") or "").lower() != "success":
-        return {"error": "Flex SendRequest: "
-                         + (_flex_xml_text(sent, "ErrorMessage") or sent[:200])}
+        # Il codice conta più del messaggio: IBKR usa lo stesso testo generico
+        # per token sbagliato, token non ancora attivo e query inesistente.
+        code = _flex_xml_text(sent, "ErrorCode")
+        message = _flex_xml_text(sent, "ErrorMessage") or sent[:200]
+        return {"error": f"Flex SendRequest [{code or '?'}]: {message}",
+                "error_code": code,
+                "hint": _FLEX_ERROR_HINTS.get(code or "")}
     reference = _flex_xml_text(sent, "ReferenceCode")
     base_url = _flex_xml_text(sent, "Url") or f"{_FLEX_BASE}/GetStatement"
     if not reference:
@@ -10982,7 +11005,8 @@ def _ibkr_fetch_positions_any_source() -> dict:
 
     flex = _flex_fetch_positions()
     if flex.get("error"):
-        return {"error": flex["error"], "webapi_error": webapi_error}
+        return {"error": flex["error"], "error_code": flex.get("error_code"),
+                "hint": flex.get("hint"), "webapi_error": webapi_error}
     return {"positions": flex["positions"], "orders": None,
             "report_date": flex.get("report_date"), "source": "flex",
             "webapi_error": webapi_error}
@@ -10996,6 +11020,8 @@ def _ibkr_run_daily_job(notify_always: bool = False) -> dict:
     fetched = _ibkr_fetch_positions_any_source()
     if fetched.get("error"):
         return {"status": "error", "error": fetched["error"],
+                "error_code": fetched.get("error_code"),
+                "hint": fetched.get("hint"),
                 "webapi_error": fetched.get("webapi_error")}
 
     owner_email = _ibkr_default_owner_email()
