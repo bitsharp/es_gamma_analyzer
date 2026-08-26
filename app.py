@@ -5836,6 +5836,10 @@ def api_health():
         "google_oauth_configured": google_oauth_configured,
         "google_oauth_missing": _google_oauth_missing_vars(),
         "authlib_available": OAuth is not None,
+        # `cryptography` si importa solo dentro le funzioni OAuth di IBKR:
+        # senza questo campo un pacchetto mancante sul deploy si manifesterebbe
+        # come un generico "credenziali non configurate".
+        "cryptography_available": _cryptography_available(),
     })
 
 
@@ -10338,6 +10342,14 @@ def _get_mongo_ibkr_session_collection():
         return coll
     except Exception:
         return None
+
+
+def _cryptography_available() -> bool:
+    try:
+        from cryptography.hazmat.primitives import serialization  # noqa: F401
+        return True
+    except Exception:
+        return False
 
 
 def _ibkr_api_env(name: str, default: str = "") -> str:
