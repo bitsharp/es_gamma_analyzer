@@ -5,6 +5,23 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.16.0] — 2026-08-26
+
+### Aggiunto
+- **Posizioni e ordini Interactive Brokers nella pagina portafoglio, con la data della prossima trimestrale su ogni riga.** Sopra al portafoglio manuale compare un blocco IBKR con le posizioni aperte (quantità, carico, controvalore, P&L) e gli ordini ancora eseguibili (lato, tipo, prezzo, validità). Su ogni riga un badge dice quando riporta quel titolo: rosso se è oggi o domani, ambra entro la settimana, neutro oltre. Le righe che riportano l'indomani sono evidenziate anche in tabella, così l'informazione si vede senza leggere la colonna.
+  - Gli ordini in stato `REPLACED` restano nello snapshot ma non compaiono e non contano negli alert: sono la versione superata di un ordine che IBKR ha già rimpiazzato, contarli significherebbe elencare due volte lo stesso ordine.
+  - Un banner in testa al blocco riassume chi riporta il giorno dopo, e dichiara esplicitamente i simboli per cui FMP non ha un calendario earnings — un "nessun earning domani" che nasconde un titolo non risolto sarebbe peggio di nessuna informazione.
+- **Alert earnings sul giorno successivo, via Telegram e via mail.** Un job schedulato alle 20:00 legge posizioni e ordini da IBKR, li posta su `/api/ibkr/sync` e riceve indietro l'alert già impaginato nei tre formati (oggetto, testo Telegram, HTML mail). Il messaggio non elenca solo i ticker: per ciascuno riporta la posizione col controvalore e gli ordini pendenti con i loro prezzi, perché serve a decidere se ridurre o spostare uno stop, non solo a sapere che c'è una trimestrale.
+  - Il venerdì sera l'alert guarda al lunedì invece che al sabato: le trimestrali nel weekend non escono, e una notifica che dice sempre "nessun earning domani" smette di essere letta.
+  - Il giorno è calcolato su `Europe/Rome`, non su UTC né sull'ora della macchina che serve la richiesta: la notifica parte alle 20:00 italiane e parla del "giorno dopo" di chi la riceve.
+
+### Tecnico
+- IBKR non è raggiungibile dall'app: la Client Portal API richiede un gateway locale con login giornaliero, che su Vercel non può esistere. Lo snapshot arriva quindi da fuori e l'app fa da deposito e da motore di arricchimento — nuova collection `ibkr_snapshot`, un documento per proprietario, chiavata sull'email e non sullo `user_key` di sessione: un conto IBKR appartiene a una persona, non alla particolare identità Google con cui quella persona ha fatto login, e il job che lo scrive gira headless.
+- Tre rotte nuove: `POST /api/ibkr/sync` (ingest + notifica, bearer token `IBKR_SYNC_TOKEN`), `GET /api/ibkr/snapshot` (lettura per la pagina, sessione) e `/api/ibkr/earnings-alert` (GET di anteprima in sessione, POST col token per rimandare la notifica senza rifare la sync). La guardia `_require_login` lascia passare `/api/ibkr/*` solo se il bearer token è valido; il controllo vero resta comunque dentro la rotta.
+- **Traduzione simbolo IBKR → simbolo FMP.** IBKR nomina gli strumenti per borsa di quotazione, FMP per suffisso: Grifols è `GRF` su BM e `GRF.MC` su FMP, CSG NV è `CSG1` su AEB e `CSG1.AS`. Il simbolo nudo non basta e nemmeno è univoco — `GRF` da solo risolve a dieci strumenti in cinque paesi. La risoluzione prova i candidati in ordine di affidabilità della fonte (borsa, poi paese, poi valuta) e si ferma al primo su cui FMP risponde. Per i casi che nessuna regola può indovinare c'è `IBKR_SYMBOL_MAP` (Amplifon è `AMP2` su IBKR e `AMP.MI` su FMP, ed è già mappata).
+- Le date earnings vengono da `stable/earnings` di FMP, in parallelo su 8 thread come `/api/portfolio`, con cache in memoria a 6h (`EARNINGS_CACHE_TTL`). La pagina riusa le date risolte dall'ultima sync invece di rifare una ventina di chiamate a ogni caricamento; il pulsante *Earnings* nel blocco IBKR forza il ricalcolo.
+- `_telegram_send()` non solleva mai: la notifica è un canale accessorio, un token scaduto non deve far fallire la sync che l'ha innescata. Nuove variabili in `.env.example`: `IBKR_SYNC_TOKEN`, `IBKR_SYNC_USER_EMAIL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `IBKR_SYMBOL_MAP`, `EARNINGS_CACHE_TTL`, `MONGODB_IBKR_COLLECTION`.
+
 ## [1.15.0] — 2026-08-24
 
 ### Modificato

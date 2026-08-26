@@ -185,6 +185,75 @@
             color: #778da9; font-size: 0.78rem; margin-left: auto;
         }
 
+        /* ---- Blocco Interactive Brokers ---- */
+        .ibkr-card {
+            background: #1b263b; border: 1px solid #415a77; border-radius: 12px;
+            padding: 1rem 1.1rem; margin-bottom: 1.3rem;
+        }
+        .ibkr-card h6 {
+            color: #e2e8f0; font-size: 0.9rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.05em; margin: 0;
+        }
+        .ibkr-head {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.85rem;
+        }
+        .ibkr-synced { color: #778da9; font-size: 0.78rem; }
+        .ibkr-refresh {
+            background: transparent; border: 1px solid #415a77; color: #778da9;
+            padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.78rem; cursor: pointer;
+        }
+        .ibkr-refresh:hover:not(:disabled) { color: #fff; border-color: #778da9; }
+        .ibkr-refresh:disabled { opacity: 0.5; cursor: default; }
+
+        .ibkr-alert {
+            border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.9rem;
+            font-size: 0.88rem; border: 1px solid;
+        }
+        .ibkr-alert.hot {
+            background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.45); color: #fca5a5;
+        }
+        .ibkr-alert.calm {
+            background: rgba(119,141,169,0.12); border-color: rgba(119,141,169,0.32); color: #adb5bd;
+        }
+        .ibkr-alert strong { color: #fff; }
+
+        .ibkr-subtitle {
+            font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em;
+            color: #778da9; font-weight: 700; margin: 0.9rem 0 0.4rem;
+        }
+        .ibkr-table-wrap { overflow-x: auto; }
+        .ibkr-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; white-space: nowrap; }
+        .ibkr-table th {
+            text-align: left; font-size: 0.68rem; text-transform: uppercase;
+            letter-spacing: 0.05em; color: #778da9; font-weight: 700;
+            padding: 0.35rem 0.6rem; border-bottom: 1px solid #415a77;
+        }
+        .ibkr-table td {
+            padding: 0.45rem 0.6rem; border-bottom: 1px solid rgba(65,90,119,0.35); color: #e2e8f0;
+        }
+        .ibkr-table tr:last-child td { border-bottom: none; }
+        .ibkr-table td.sym { font-weight: 700; color: #fff; }
+        .ibkr-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .ibkr-table tr.is-hot td { background: rgba(248,113,113,0.08); }
+        .ibkr-table td .row-name {
+            display: block; font-weight: 400; font-size: 0.72rem; color: #778da9;
+            white-space: normal; max-width: 220px;
+        }
+        .pnl-pos { color: #4ade80; }
+        .pnl-neg { color: #f87171; }
+        .side-buy  { color: #4ade80; font-weight: 700; }
+        .side-sell { color: #f87171; font-weight: 700; }
+
+        .earn-badge {
+            display: inline-block; padding: 0.1rem 0.5rem; border-radius: 6px;
+            font-size: 0.75rem; font-weight: 700; border: 1px solid; white-space: nowrap;
+        }
+        .earn-none  { background: rgba(119,141,169,0.12); color: #6b7e92; border-color: rgba(119,141,169,0.25); }
+        .earn-far   { background: rgba(119,141,169,0.15); color: #cbd5e1; border-color: rgba(119,141,169,0.35); }
+        .earn-soon  { background: rgba(251,191,36,0.14); color: #fbbf24; border-color: rgba(251,191,36,0.42); }
+        .earn-now   { background: rgba(248,113,113,0.18); color: #fca5a5; border-color: rgba(248,113,113,0.55); }
+
         @media (max-width: 768px) {
             .nav-link-custom { padding: 0.3rem 0.5rem; font-size: 0.82rem; }
             .pick-card { padding: 0.9rem; }
@@ -247,6 +316,23 @@
             <div class="subtitle">
                 Aggiungi titoli, vedi l'analisi Damodaran live e l'esposizione per settore, paese e zona di valutazione.
             </div>
+        </div>
+
+        <!-- Snapshot Interactive Brokers: scritto dal job delle 20:00 su
+             /api/ibkr/sync, letto qui da /api/ibkr/snapshot. -->
+        <div id="ibkrCard" class="ibkr-card" style="display:none;">
+            <div class="ibkr-head">
+                <h6><i class="bi bi-briefcase-fill me-1"></i> Interactive Brokers</h6>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="ibkr-synced" id="ibkrSynced">—</span>
+                    <button type="button" class="ibkr-refresh" id="ibkrRefreshBtn"
+                            title="Ricalcola le date earnings da FMP">
+                        <i class="bi bi-arrow-clockwise"></i> Earnings
+                    </button>
+                </div>
+            </div>
+            <div id="ibkrAlert"></div>
+            <div id="ibkrBody"></div>
         </div>
 
         <div class="search-section mb-3">
@@ -757,6 +843,152 @@
             if (t) { closeDropdown(); addTicker(t); }
         });
 
+        // ---- Interactive Brokers ----
+        // Il ponte verso IBKR è il job schedulato: qui si legge solo l'ultimo
+        // snapshot salvato, già arricchito con le date earnings da FMP.
+        const CURRENCY_SIGN = { USD: '$', EUR: '€', GBP: '£', CHF: 'CHF ', JPY: '¥' };
+        const fmtQty = v => v == null ? '—' : Number(v).toLocaleString('it-IT', { maximumFractionDigits: 4 });
+        // Il segno va prima del simbolo di valuta, non in mezzo: "-$5,10",
+        // non "$-5,10".
+        const fmtAmount = (v, ccy) => {
+            if (v == null) return '—';
+            const sign = CURRENCY_SIGN[ccy] || (ccy ? ccy + ' ' : '');
+            const n = Number(v);
+            return (n < 0 ? '-' : '') + sign +
+                Math.abs(n).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
+        const fmtSyncedAt = epochSec => {
+            if (!epochSec) return 'mai sincronizzato';
+            const d = new Date(epochSec * 1000);
+            return 'aggiornato ' + d.toLocaleString('it-IT', {
+                day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+            });
+        };
+
+        // Il badge earnings è la ragione d'essere della pagina: "domani" deve
+        // saltare all'occhio, il resto fa da contesto.
+        function earningsBadge(row) {
+            const date = row.earnings_date;
+            if (!date) return '<span class="earn-badge earn-none">n/d</span>';
+            const days = row.earnings_in_days;
+            const label = new Date(date + 'T00:00:00').toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
+            let cls = 'earn-far', text = label;
+            if (days === 0) { cls = 'earn-now'; text = 'oggi · ' + label; }
+            else if (days === 1) { cls = 'earn-now'; text = 'domani · ' + label; }
+            else if (days != null && days > 1 && days <= 7) { cls = 'earn-soon'; text = `${days}gg · ${label}`; }
+            return `<span class="earn-badge ${cls}">${escapeHtml(text)}</span>`;
+        }
+
+        const isHot = row => row.earnings_in_days === 0 || row.earnings_in_days === 1;
+
+        function renderIbkrPositions(positions) {
+            if (!positions.length) return '';
+            const rows = positions.map(p => {
+                const pnlCls = p.unrealized_pnl == null ? '' : (p.unrealized_pnl >= 0 ? 'pnl-pos' : 'pnl-neg');
+                return `
+                    <tr class="${isHot(p) ? 'is-hot' : ''}">
+                        <td class="sym">${escapeHtml(p.symbol)}${p.name ? `<span class="row-name">${escapeHtml(p.name)}</span>` : ''}</td>
+                        <td class="num">${fmtQty(p.quantity)}</td>
+                        <td class="num">${fmtAmount(p.avg_price, p.currency)}</td>
+                        <td class="num">${fmtAmount(p.market_price, p.currency)}</td>
+                        <td class="num">${fmtAmount(p.market_value, p.currency)}</td>
+                        <td class="num ${pnlCls}">${p.unrealized_pnl == null ? '—' : (p.unrealized_pnl > 0 ? '+' : '') + fmtAmount(p.unrealized_pnl, p.currency)}</td>
+                        <td>${earningsBadge(p)}</td>
+                    </tr>`;
+            }).join('');
+            return `
+                <div class="ibkr-subtitle">Posizioni aperte (${positions.length})</div>
+                <div class="ibkr-table-wrap"><table class="ibkr-table">
+                    <tr><th>Titolo</th><th class="num">Qtà</th><th class="num">Carico</th>
+                        <th class="num">Prezzo</th><th class="num">Controvalore</th>
+                        <th class="num">P&L</th><th>Prossimi earnings</th></tr>
+                    ${rows}
+                </table></div>`;
+        }
+
+        function renderIbkrOrders(orders) {
+            if (!orders.length) return '';
+            const rows = orders.map(o => {
+                const price = o.limit_price != null ? o.limit_price : o.stop_price;
+                return `
+                    <tr class="${isHot(o) ? 'is-hot' : ''}">
+                        <td class="sym">${escapeHtml(o.symbol)}</td>
+                        <td class="${o.side === 'BUY' ? 'side-buy' : 'side-sell'}">${escapeHtml(o.side || '—')}</td>
+                        <td>${escapeHtml((o.order_type || '—').toLowerCase())}</td>
+                        <td class="num">${fmtQty(o.remaining != null ? o.remaining : o.quantity)}</td>
+                        <td class="num">${fmtAmount(price, o.currency)}</td>
+                        <td>${escapeHtml(o.tif || '—')}</td>
+                        <td>${earningsBadge(o)}</td>
+                    </tr>`;
+            }).join('');
+            return `
+                <div class="ibkr-subtitle">Ordini pendenti (${orders.length})</div>
+                <div class="ibkr-table-wrap"><table class="ibkr-table">
+                    <tr><th>Titolo</th><th>Lato</th><th>Tipo</th><th class="num">Qtà</th>
+                        <th class="num">Prezzo</th><th>Validità</th><th>Prossimi earnings</th></tr>
+                    ${rows}
+                </table></div>`;
+        }
+
+        function renderIbkrAlert(alert, symbols) {
+            const box = document.getElementById('ibkrAlert');
+            if (!alert) { box.innerHTML = ''; return; }
+            const when = new Date(alert.target_date + 'T00:00:00')
+                .toLocaleDateString('it-IT', { weekday: 'long', day: '2-digit', month: 'long' });
+            let html;
+            if (alert.count > 0) {
+                html = `<div class="ibkr-alert hot">
+                    <i class="bi bi-megaphone-fill me-1"></i>
+                    <strong>${alert.count}</strong> ${alert.count === 1 ? 'titolo riporta' : 'titoli riportano'}
+                    ${escapeHtml(when)}: <strong>${symbols.map(escapeHtml).join(', ')}</strong>
+                </div>`;
+            } else {
+                html = `<div class="ibkr-alert calm">
+                    <i class="bi bi-check2-circle me-1"></i>
+                    Nessun earning ${escapeHtml(when)} su posizioni e ordini pendenti.
+                </div>`;
+            }
+            if (alert.unresolved && alert.unresolved.length) {
+                html += `<div class="ibkr-alert calm" style="margin-top:-0.5rem;">
+                    <i class="bi bi-question-circle me-1"></i>
+                    Senza calendario earnings su FMP: <strong>${alert.unresolved.map(escapeHtml).join(', ')}</strong>
+                </div>`;
+            }
+            box.innerHTML = html;
+        }
+
+        async function loadIbkr(refresh = false) {
+            const card = document.getElementById('ibkrCard');
+            const btn = document.getElementById('ibkrRefreshBtn');
+            if (refresh) btn.disabled = true;
+            try {
+                const res = await fetch('/api/ibkr/snapshot' + (refresh ? '?refresh=1' : ''));
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                const positions = data.positions || [];
+                // Solo gli ordini ancora eseguibili: un REPLACED è la versione
+                // superata di un ordine che IBKR ha già rimpiazzato.
+                const orders = (data.orders || []).filter(o => o.is_live);
+                if (!positions.length && !orders.length) { card.style.display = 'none'; return; }
+                card.style.display = 'block';
+                document.getElementById('ibkrSynced').textContent = fmtSyncedAt(data.synced_at);
+                renderIbkrAlert(data.alert, data.alert_symbols || []);
+                document.getElementById('ibkrBody').innerHTML =
+                    renderIbkrPositions(positions) + renderIbkrOrders(orders);
+            } catch (err) {
+                // Lo snapshot IBKR è un di più: se non arriva, il portafoglio
+                // manuale sotto deve restare perfettamente utilizzabile.
+                card.style.display = 'block';
+                document.getElementById('ibkrBody').innerHTML =
+                    `<div class="ibkr-alert calm">Snapshot IBKR non disponibile: ${escapeHtml(err.message)}</div>`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        document.getElementById('ibkrRefreshBtn').addEventListener('click', () => loadIbkr(true));
+
+        loadIbkr();
         loadPortfolio();
     </script>
     {% include '_release_notes_modal.html' %}

@@ -24,6 +24,7 @@ import pandas as pd
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 import re
+import hmac
 import importlib.util
 import sys
 from functools import wraps
@@ -369,6 +370,13 @@ def _require_login():
         return None
 
     if path == '/api/health' or path == '/api/release-notes' or path in public_paths or path.startswith(public_prefixes) or path.startswith('/static'):
+        return None
+
+    # Endpoint macchina-a-macchina: il job che sincronizza IBKR gira headless e
+    # non ha un cookie di sessione da presentare, si autentica col bearer token
+    # condiviso. Il controllo vero resta dentro la rotta — qui si evita solo che
+    # la guardia di sessione risponda 401 prima che la rotta veda la richiesta.
+    if path.startswith('/api/ibkr/') and _ibkr_sync_authorized():
         return None
 
     if _is_authenticated():
@@ -9367,6 +9375,893 @@ def api_portfolio_remove(ticker):
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ============================================================================
+# INTERACTIVE BROKERS — snapshot posizioni/ordini + calendario earnings
+# ============================================================================
+#
+# IBKR non è raggiungibile da qui: la Client Portal API vuole un gateway locale
+# con login giornaliero, che su Vercel non esiste. Lo snapshot arriva quindi da
+# fuori — il job schedulato legge posizioni e ordini dal connettore IBKR e li
+# posta su /api/ibkr/sync — e l'app lo conserva su Mongo, lo arricchisce con le
+# date earnings di FMP e lo serve alla pagina portafoglio.
+
+_MONGO_IBKR_COLLECTION = None
+
+# Un ordine "vivo" è ancora eseguibile. REPLACED resta nello snapshot ma non
+# conta: è la versione superata di un ordine che IBKR ha già rimpiazzato, e
+# contarla significherebbe elencare due volte lo stesso ordine.
+_IBKR_LIVE_ORDER_STATUSES = {
+    "NEW", "SUBMITTED", "PRESUBMITTED", "PENDINGSUBMIT",
+    "PENDINGCHANGE", "PARTIALLYFILLED", "QUEUED",
+}
+
+# Tetto sulle righe accettate da una sync: lo snapshot finisce in un singolo
+# documento Mongo (limite 16 MB) e un account normale sta ampiamente sotto.
+_IBKR_MAX_ROWS = 500
+
+# "Buy 100 BAC" / "Sell 84 CNC" — IBKR non espone il simbolo come campo a sé
+# negli ordini, va letto dalla descrizione.
+_IBKR_ORDER_DESC_RE = re.compile(r"^\s*(?:buy|sell)\s+[\d.,]+\s+(\S+)", re.IGNORECASE)
+
+
+def _get_mongo_ibkr_collection():
+    """Lazy getter per lo snapshot IBKR: un documento per proprietario.
+
+    La chiave è l'email e non lo `user_key` di sessione: un conto IBKR
+    appartiene a una persona, non alla particolare identità Google con cui
+    quella persona ha fatto login, e il job che scrive lo snapshot gira
+    headless, senza sessione da cui derivare un `google:<sub>`.
+    """
+    global _MONGO_CLIENT, _MONGO_IBKR_COLLECTION
+    if _MONGO_IBKR_COLLECTION is not None:
+        return _MONGO_IBKR_COLLECTION
+    if MongoClient is None:
+        return None
+    uri = (os.getenv("MONGODB_URI") or "").strip()
+    if not uri:
+        return None
+    db_name = (os.getenv("MONGODB_DB") or "es_gamma_analyzer").strip()
+    coll_name = (os.getenv("MONGODB_IBKR_COLLECTION") or "ibkr_snapshot").strip()
+    try:
+        if _MONGO_CLIENT is None:
+            _MONGO_CLIENT = MongoClient(uri, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+        coll = _MONGO_CLIENT[db_name][coll_name]
+        try:
+            coll.create_index("owner_email", unique=True)
+        except Exception:
+            pass
+        _MONGO_IBKR_COLLECTION = coll
+        return coll
+    except Exception:
+        return None
+
+
+def _current_user_email() -> Optional[str]:
+    """Email dell'utente in sessione, normalizzata. Usata solo dallo snapshot
+    IBKR: tutto il resto della persistenza per-utente passa da
+    `_current_user_key()`."""
+    user = session.get("user")
+    if not isinstance(user, dict):
+        return None
+    email = (user.get("email") or "").strip().lower()
+    return email or None
+
+
+def _ibkr_default_owner_email() -> str:
+    """Proprietario dello snapshot quando la richiesta non ne indica uno.
+    IBKR_SYNC_USER_EMAIL se c'è, altrimenti il primo indirizzo di
+    ADMIN_EMAILS."""
+    explicit = (os.getenv("IBKR_SYNC_USER_EMAIL") or "").strip().lower()
+    if explicit:
+        return explicit
+    admins = (os.getenv("ADMIN_EMAILS") or "").strip()
+    if not admins:
+        return ""
+    return admins.split(",")[0].strip().lower()
+
+
+def _ibkr_sync_authorized() -> bool:
+    """Il job schedulato gira senza cookie di sessione, quindi si autentica con
+    un bearer token condiviso. Se IBKR_SYNC_TOKEN non è configurato l'endpoint
+    resta chiuso: meglio una sync che non parte di un endpoint di scrittura
+    aperto a chiunque."""
+    expected = (os.getenv("IBKR_SYNC_TOKEN") or "").strip()
+    if not expected:
+        return False
+    header = (request.headers.get("Authorization") or "").strip()
+    token = header[7:].strip() if header.lower().startswith("bearer ") else ""
+    if not token:
+        token = (request.headers.get("X-Polaris-Token") or "").strip()
+    if not token:
+        return False
+    return hmac.compare_digest(token, expected)
+
+
+# ---------------------------------------------------------------------------
+# Traduzione simbolo IBKR → simbolo FMP
+# ---------------------------------------------------------------------------
+# IBKR nomina gli strumenti per borsa di quotazione, FMP per suffisso Yahoo:
+# Grifols è `GRF` su BM e `GRF.MC` su FMP, CSG NV è `CSG1` su AEB e `CSG1.AS`
+# su FMP. Il simbolo nudo non basta e nemmeno è univoco — `GRF` da solo su IBKR
+# risolve a dieci strumenti diversi in cinque paesi.
+
+_IBKR_EXCHANGE_SUFFIX = {
+    # Stati Uniti: FMP usa il simbolo nudo
+    "NASDAQ": "", "NYSE": "", "AMEX": "", "ARCA": "", "BATS": "", "IEX": "", "PINK": "",
+    # Europa
+    "AEB": ".AS", "FTA": ".AS",
+    "BVME": ".MI", "BVME.ETF": ".MI",
+    "BM": ".MC", "MEFFRV": ".MC",
+    "IBIS": ".DE", "IBIS2": ".DE", "XETRA": ".DE", "FWB": ".DE", "SWB": ".DE", "GETTEX": ".DE",
+    "SBF": ".PA", "ENEXT.BE": ".BR",
+    "EBS": ".SW", "SWX": ".SW", "VSE": ".VI",
+    "LSE": ".L", "LSEETF": ".L", "LSEIOB1": ".L",
+    "SFB": ".ST", "OMXNO": ".OL", "CPH": ".CO", "HEX": ".HE",
+    # Resto del mondo
+    "NSE": ".NS", "BSE": ".BO", "TSEJ": ".T", "SEHK": ".HK", "ASX": ".AX", "TSE": ".TO",
+}
+
+_IBKR_COUNTRY_SUFFIXES = {
+    "US": [""], "NL": [".AS"], "IT": [".MI"], "ES": [".MC"], "DE": [".DE"],
+    "FR": [".PA"], "BE": [".BR"], "CH": [".SW"], "AT": [".VI"], "GB": [".L"],
+    "IN": [".NS", ".BO"], "CA": [".TO"], "JP": [".T"], "HK": [".HK"], "AU": [".AX"],
+    "SE": [".ST"], "NO": [".OL"], "DK": [".CO"], "FI": [".HE"],
+}
+
+# Ultima spiaggia quando non conosciamo né borsa né paese. L'euro è ambiguo per
+# definizione, quindi elenca i mercati su cui l'app già lavora, in ordine di
+# probabilità.
+_IBKR_CURRENCY_SUFFIXES = {
+    "USD": [""], "EUR": [".MI", ".DE", ".AS", ".PA", ".MC", ".BR", ".VI"],
+    "GBP": [".L"], "CHF": [".SW"], "INR": [".NS"], "CAD": [".TO"],
+    "JPY": [".T"], "HKD": [".HK"], "AUD": [".AX"],
+    "SEK": [".ST"], "NOK": [".OL"], "DKK": [".CO"],
+}
+
+_IBKR_KNOWN_SUFFIXES = {s for s in _IBKR_EXCHANGE_SUFFIX.values() if s}
+
+_IBKR_SYMBOL_OVERRIDES_CACHE: Optional[Dict[str, str]] = None
+
+
+def _ibkr_symbol_overrides() -> Dict[str, str]:
+    """Mappa esplicita simbolo IBKR → simbolo FMP, per i casi che nessuna
+    regola per suffisso può indovinare: su Borsa Italiana IBKR numera parte dei
+    ticker (Amplifon è `AMP2`) mentre FMP la chiama `AMP.MI`.
+
+    Si estende senza toccare il codice con
+    IBKR_SYMBOL_MAP="AMP2=AMP.MI,XYZ1=XYZ.MI".
+    """
+    global _IBKR_SYMBOL_OVERRIDES_CACHE
+    if _IBKR_SYMBOL_OVERRIDES_CACHE is not None:
+        return _IBKR_SYMBOL_OVERRIDES_CACHE
+    overrides = {"AMP2": "AMP.MI"}
+    raw = (os.getenv("IBKR_SYMBOL_MAP") or "").strip()
+    for chunk in raw.split(","):
+        if "=" not in chunk:
+            continue
+        src, _, dst = chunk.partition("=")
+        src, dst = src.strip().upper(), dst.strip().upper()
+        if src and dst:
+            overrides[src] = dst
+    _IBKR_SYMBOL_OVERRIDES_CACHE = overrides
+    return overrides
+
+
+def _ibkr_fmp_candidates(symbol: str, currency=None, exchange=None, country=None) -> List[str]:
+    """Simboli FMP da provare per uno strumento IBKR, dal più al meno probabile.
+
+    L'ordine conta: la borsa di quotazione è un'informazione certa, il paese
+    quasi, la valuta è solo un indizio. Chi chiama si ferma al primo candidato
+    su cui FMP risponde.
+    """
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        return []
+    override = _ibkr_symbol_overrides().get(sym)
+    if override:
+        return [override]
+    # Già in forma FMP (arriva così se la sync lo ha risolto a monte).
+    if "." in sym and ("." + sym.rsplit(".", 1)[1]) in _IBKR_KNOWN_SUFFIXES:
+        return [sym]
+
+    suffixes: List[str] = []
+    ex = (exchange or "").strip().upper()
+    if ex in _IBKR_EXCHANGE_SUFFIX:
+        suffixes.append(_IBKR_EXCHANGE_SUFFIX[ex])
+    for source in (_IBKR_COUNTRY_SUFFIXES.get((country or "").strip().upper()),
+                   _IBKR_CURRENCY_SUFFIXES.get((currency or "").strip().upper())):
+        for suffix in (source or []):
+            if suffix not in suffixes:
+                suffixes.append(suffix)
+    if not suffixes:
+        suffixes = [""]
+
+    candidates: List[str] = []
+    for suffix in suffixes:
+        for base in (sym, sym.rstrip("0123456789")):
+            # La cifra finale è una convenzione IBKR di Borsa Italiana: non
+            # provare a sfilarla altrove, spezzerebbe simboli legittimi.
+            if base != sym and suffix != ".MI":
+                continue
+            if not base:
+                continue
+            candidate = base + suffix
+            if candidate not in candidates:
+                candidates.append(candidate)
+    return candidates[:6]
+
+
+# ---------------------------------------------------------------------------
+# Calendario earnings (FMP)
+# ---------------------------------------------------------------------------
+
+_EARNINGS_CACHE: Dict[str, dict] = {}
+_EARNINGS_CACHE_TTL_SECONDS = int((os.getenv("EARNINGS_CACHE_TTL") or "21600").strip() or 21600)
+
+
+def _fetch_next_earnings(symbol: str, currency=None, exchange=None, country=None) -> Optional[dict]:
+    """Prossima trimestrale di uno strumento IBKR, o None se FMP non lo copre.
+
+    Cache in memoria a 6h: il calendario si muove di rado e la pagina
+    portafoglio richiede gli stessi ~20 simboli a ogni caricamento.
+    """
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        return None
+    cache_key = f"{sym}|{currency or ''}|{exchange or ''}|{country or ''}"
+    cached = _EARNINGS_CACHE.get(cache_key)
+    now = time.time()
+    if cached and (now - cached.get("ts", 0)) < _EARNINGS_CACHE_TTL_SECONDS:
+        return cached.get("value")
+
+    today_iso = _ibkr_local_today().isoformat()
+    value = None
+    for candidate in _ibkr_fmp_candidates(sym, currency, exchange, country):
+        rows = _fmp_get("earnings", symbol=candidate, limit=16)
+        if not isinstance(rows, list) or not rows:
+            continue
+        upcoming = sorted(
+            (r for r in rows
+             if isinstance(r, dict) and isinstance(r.get("date"), str) and r["date"] >= today_iso),
+            key=lambda r: r["date"],
+        )
+        if not upcoming:
+            # FMP conosce il titolo ma non ha ancora una data futura: è un esito
+            # legittimo (tipico degli ETC, che earnings non ne hanno), non un
+            # fallimento di lookup — quindi ci si ferma qui invece di provare
+            # altri suffissi e rischiare di agganciare un omonimo.
+            value = {"date": None, "fmp_symbol": candidate,
+                     "eps_estimated": None, "revenue_estimated": None}
+            break
+        nxt = upcoming[0]
+        value = {
+            "date": nxt.get("date"),
+            "fmp_symbol": candidate,
+            "eps_estimated": nxt.get("epsEstimated"),
+            "revenue_estimated": nxt.get("revenueEstimated"),
+        }
+        break
+
+    _EARNINGS_CACHE[cache_key] = {"ts": now, "value": value}
+    return value
+
+
+def _ibkr_local_today() -> _dt.date:
+    """Oggi nel fuso di chi guarda la dashboard. La notifica parte alle 20:00
+    italiane e parla del "giorno dopo": va calcolato su Europe/Rome, non su
+    UTC né sull'ora della macchina che serve la richiesta."""
+    if ZoneInfo is not None:
+        try:
+            return _dt.datetime.now(tz=ZoneInfo("Europe/Rome")).date()
+        except Exception:
+            pass
+    return _dt.date.today()
+
+
+def _ibkr_alert_target_date(reference: Optional[_dt.date] = None) -> _dt.date:
+    """Il giorno da controllare: domani, o il primo giorno feriale successivo se
+    domani cade nel weekend. Le trimestrali di sabato non esistono, e una
+    notifica del venerdì sera che dice "nessun earning domani" non informa di
+    nulla — meglio che guardi al lunedì."""
+    target = (reference or _ibkr_local_today()) + _dt.timedelta(days=1)
+    while target.weekday() >= 5:  # 5=sabato, 6=domenica
+        target += _dt.timedelta(days=1)
+    return target
+
+
+# ---------------------------------------------------------------------------
+# Normalizzazione del payload di sync
+# ---------------------------------------------------------------------------
+
+def _ibkr_num(value) -> Optional[float]:
+    """float() tollerante: IBKR manda le quantità come stringhe e i prezzi
+    assenti come stringa vuota."""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _ibkr_str(value, limit: int = 120) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text[:limit] if text else None
+
+
+def _ibkr_order_symbol(row: dict) -> Optional[str]:
+    explicit = _ibkr_str(row.get("symbol"), 24)
+    if explicit:
+        return explicit.upper()
+    for field in ("description", "primary_description"):
+        match = _IBKR_ORDER_DESC_RE.match(str(row.get(field) or ""))
+        if match:
+            return match.group(1).upper()
+    return None
+
+
+def _ibkr_normalize_position(row: dict) -> Optional[dict]:
+    symbol = _ibkr_str(row.get("symbol") or row.get("contract_description"), 24)
+    if not symbol:
+        return None
+    return {
+        "symbol": symbol.upper(),
+        "name": _ibkr_str(row.get("name")),
+        "quantity": _ibkr_num(row.get("quantity") if row.get("quantity") is not None
+                              else row.get("position")),
+        "avg_price": _ibkr_num(row.get("avg_price") or row.get("average_price")),
+        "market_price": _ibkr_num(row.get("market_price")),
+        "market_value": _ibkr_num(row.get("market_value")),
+        "unrealized_pnl": _ibkr_num(row.get("unrealized_pnl")),
+        "daily_pnl": _ibkr_num(row.get("daily_pnl")),
+        "currency": (_ibkr_str(row.get("currency"), 8) or "").upper() or None,
+        "exchange": (_ibkr_str(row.get("exchange"), 16) or "").upper() or None,
+        "country": (_ibkr_str(row.get("country") or row.get("country_code"), 4) or "").upper() or None,
+        "asset_class": (_ibkr_str(row.get("asset_class"), 8) or "").upper() or None,
+    }
+
+
+def _ibkr_normalize_order(row: dict) -> Optional[dict]:
+    symbol = _ibkr_order_symbol(row)
+    if not symbol:
+        return None
+    status = (_ibkr_str(row.get("status") or row.get("order_status"), 24) or "").upper()
+    return {
+        "order_id": _ibkr_str(row.get("order_id"), 32),
+        "symbol": symbol,
+        "name": _ibkr_str(row.get("name")),
+        "side": (_ibkr_str(row.get("side"), 8) or "").upper() or None,
+        "order_type": (_ibkr_str(row.get("order_type"), 16) or "").upper() or None,
+        "status": status or None,
+        "is_live": status.replace("_", "").replace(" ", "") in _IBKR_LIVE_ORDER_STATUSES,
+        "quantity": _ibkr_num(row.get("quantity") or row.get("total_shares_qty")),
+        "remaining": _ibkr_num(row.get("remaining") or row.get("remaining_shares_qty")),
+        "limit_price": _ibkr_num(row.get("limit_price")),
+        "stop_price": _ibkr_num(row.get("stop_price")),
+        "tif": (_ibkr_str(row.get("tif"), 8) or "").upper() or None,
+        "detail": _ibkr_str(row.get("detail") or row.get("secondary_description")),
+        "description": _ibkr_str(row.get("description") or row.get("primary_description")),
+        "order_time": _ibkr_str(row.get("order_time"), 32),
+        "currency": (_ibkr_str(row.get("currency"), 8) or "").upper() or None,
+        "exchange": (_ibkr_str(row.get("exchange"), 16) or "").upper() or None,
+        "country": (_ibkr_str(row.get("country") or row.get("country_code"), 4) or "").upper() or None,
+    }
+
+
+def _ibkr_normalize_payload(data: dict) -> dict:
+    positions, orders = [], []
+    for raw in (data.get("positions") or [])[:_IBKR_MAX_ROWS]:
+        if isinstance(raw, dict):
+            row = _ibkr_normalize_position(raw)
+            if row:
+                positions.append(row)
+    for raw in (data.get("orders") or [])[:_IBKR_MAX_ROWS]:
+        if isinstance(raw, dict):
+            row = _ibkr_normalize_order(raw)
+            if row:
+                orders.append(row)
+    return {"positions": positions, "orders": orders}
+
+
+# ---------------------------------------------------------------------------
+# Arricchimento: strumenti distinti + date earnings
+# ---------------------------------------------------------------------------
+
+def _ibkr_instruments(snapshot: dict) -> List[dict]:
+    """Strumenti distinti nello snapshot, con l'origine (posizione, ordine o
+    entrambe) e i metadati che servono a risolverli su FMP.
+
+    Gli ordini contano solo se ancora vivi: un earning su un ordine già
+    rimpiazzato o cancellato non è un rischio aperto.
+    """
+    by_symbol: Dict[str, dict] = {}
+    rows_by_kind = (
+        ("position", snapshot.get("positions") or []),
+        ("order", [o for o in (snapshot.get("orders") or [])
+                   if isinstance(o, dict) and o.get("is_live")]),
+    )
+    for kind, rows in rows_by_kind:
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            symbol = (row.get("symbol") or "").strip().upper()
+            if not symbol:
+                continue
+            entry = by_symbol.setdefault(symbol, {
+                "symbol": symbol, "sources": [],
+                "name": None, "currency": None, "exchange": None, "country": None,
+            })
+            if kind not in entry["sources"]:
+                entry["sources"].append(kind)
+            # Il primo valore non vuoto vince: le posizioni portano valuta e
+            # borsa, gli ordini spesso no.
+            for field in ("name", "currency", "exchange", "country"):
+                if not entry.get(field) and row.get(field):
+                    entry[field] = row[field]
+    return sorted(by_symbol.values(), key=lambda e: e["symbol"])
+
+
+def _ibkr_earnings_map(snapshot: dict) -> Dict[str, dict]:
+    """{simbolo IBKR: prossima trimestrale}. Le lookup FMP vanno in parallelo,
+    stesso schema di /api/portfolio: una ventina di simboli su 8 thread."""
+    instruments = _ibkr_instruments(snapshot)
+    if not instruments:
+        return {}
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(
+            lambda i: _fetch_next_earnings(
+                i["symbol"], i.get("currency"), i.get("exchange"), i.get("country")),
+            instruments,
+        ))
+    return {i["symbol"]: r for i, r in zip(instruments, results) if r}
+
+
+def _ibkr_enriched_snapshot(snapshot: dict, earnings: Dict[str, dict]) -> dict:
+    """Snapshot pronto per la pagina: ogni riga porta la sua prossima data
+    earnings e i giorni che mancano."""
+    today = _ibkr_local_today()
+
+    def decorate(row: dict) -> dict:
+        info = earnings.get((row.get("symbol") or "").upper()) or {}
+        date_iso = info.get("date")
+        days = None
+        if date_iso:
+            try:
+                days = (_dt.date.fromisoformat(date_iso) - today).days
+            except ValueError:
+                days = None
+        return {
+            **row,
+            "earnings_date": date_iso,
+            "earnings_in_days": days,
+            "earnings_eps_estimated": info.get("eps_estimated"),
+            "fmp_symbol": info.get("fmp_symbol"),
+        }
+
+    return {
+        "positions": [decorate(r) for r in (snapshot.get("positions") or [])],
+        "orders": [decorate(r) for r in (snapshot.get("orders") or [])],
+    }
+
+
+def _ibkr_earnings_alert(snapshot: dict, target: Optional[_dt.date] = None,
+                         earnings: Optional[Dict[str, dict]] = None) -> dict:
+    """Strumenti dello snapshot che riportano il giorno indicato (di default
+    domani). Ogni voce porta con sé posizione e ordini vivi, perché la
+    notifica dica non solo *cosa* riporta ma *quanto* ci si è esposti."""
+    target_date = target or _ibkr_alert_target_date()
+    target_iso = target_date.isoformat()
+    if earnings is None:
+        earnings = _ibkr_earnings_map(snapshot)
+
+    positions_by_symbol = {(p.get("symbol") or "").upper(): p
+                           for p in (snapshot.get("positions") or [])}
+    orders_by_symbol: Dict[str, List[dict]] = {}
+    for order in (snapshot.get("orders") or []):
+        if not order.get("is_live"):
+            continue
+        orders_by_symbol.setdefault((order.get("symbol") or "").upper(), []).append(order)
+
+    items, unresolved = [], []
+    for instrument in _ibkr_instruments(snapshot):
+        symbol = instrument["symbol"]
+        info = earnings.get(symbol)
+        if not info:
+            unresolved.append(symbol)
+            continue
+        if info.get("date") != target_iso:
+            continue
+        items.append({
+            "symbol": symbol,
+            "name": instrument.get("name"),
+            "fmp_symbol": info.get("fmp_symbol"),
+            "date": info.get("date"),
+            "eps_estimated": info.get("eps_estimated"),
+            "revenue_estimated": info.get("revenue_estimated"),
+            "sources": instrument.get("sources") or [],
+            "position": positions_by_symbol.get(symbol),
+            "orders": orders_by_symbol.get(symbol, []),
+        })
+
+    return {
+        "target_date": target_iso,
+        "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+        "count": len(items),
+        "items": items,
+        # Simboli che FMP non copre: dichiararli evita che un "nessun earning
+        # domani" nasconda un titolo semplicemente non risolto.
+        "unresolved": unresolved,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Resa del messaggio (Telegram + email)
+# ---------------------------------------------------------------------------
+
+_IBKR_WEEKDAYS_IT = ("lunedì", "martedì", "mercoledì", "giovedì",
+                     "venerdì", "sabato", "domenica")
+
+
+def _ibkr_format_date_it(date_iso: Optional[str]) -> str:
+    if not date_iso:
+        return "—"
+    try:
+        day = _dt.date.fromisoformat(date_iso)
+    except (TypeError, ValueError):
+        return date_iso
+    return f"{_IBKR_WEEKDAYS_IT[day.weekday()]} {day.day:02d}/{day.month:02d}/{day.year}"
+
+
+def _ibkr_order_line(order: dict) -> str:
+    price = order.get("limit_price")
+    if price is None:
+        price = order.get("stop_price")
+    qty = order.get("remaining") or order.get("quantity")
+    parts = [
+        (order.get("side") or "?"),
+        f"{qty:g}" if isinstance(qty, float) else str(qty or "?"),
+        (order.get("order_type") or "").title() or "?",
+    ]
+    if price is not None:
+        parts.append(f"@ {price:g}")
+    if order.get("tif"):
+        parts.append(order["tif"])
+    return " ".join(p for p in parts if p)
+
+
+def _ibkr_alert_telegram_text(alert: dict) -> str:
+    """Messaggio Telegram in HTML (parse_mode=HTML): niente Markdown, che
+    inciampa sui punti e sugli underscore dei ticker."""
+    esc = _html.escape
+    header = f"📅 <b>Earnings {_ibkr_format_date_it(alert.get('target_date'))}</b>"
+    if not alert.get("count"):
+        lines = [header, "", "Nessun titolo in portafoglio o con ordini pendenti riporta."]
+    else:
+        lines = [header, ""]
+        for item in alert["items"]:
+            label = esc(item["symbol"])
+            if item.get("name"):
+                label += f" — {esc(item['name'])}"
+            lines.append(f"🔸 <b>{label}</b>")
+            position = item.get("position")
+            if position and position.get("quantity"):
+                bits = [f"posizione {position['quantity']:g}"]
+                if position.get("market_value") is not None:
+                    bits.append(f"{position['market_value']:,.0f} {position.get('currency') or ''}".strip())
+                if position.get("unrealized_pnl") is not None:
+                    bits.append(f"P&L {position['unrealized_pnl']:+,.0f}")
+                lines.append("   " + esc(" · ".join(bits)))
+            for order in item.get("orders") or []:
+                lines.append(f"   ⏳ {esc(_ibkr_order_line(order))}")
+            eps = item.get("eps_estimated")
+            if eps is not None:
+                lines.append("   EPS atteso " + esc(f"{eps:g}"))
+        lines.append("")
+        lines.append("<i>Polaris — controlla stop e size prima della chiusura.</i>")
+    if alert.get("unresolved"):
+        lines.append("")
+        lines.append("⚠️ Senza calendario earnings: " + esc(", ".join(alert["unresolved"])))
+    return "\n".join(lines)
+
+
+def _ibkr_alert_email_html(alert: dict) -> str:
+    """Corpo HTML della mail. Stili inline: i client di posta ignorano <style>
+    e la palette è quella della dashboard."""
+    esc = _html.escape
+    target_label = _ibkr_format_date_it(alert.get("target_date"))
+    rows = []
+    for item in alert.get("items") or []:
+        position = item.get("position") or {}
+        exposure = "—"
+        if position.get("quantity"):
+            exposure = f"{position['quantity']:g} pz"
+            if position.get("market_value") is not None:
+                exposure += f" · {position['market_value']:,.0f} {position.get('currency') or ''}".rstrip()
+        orders = item.get("orders") or []
+        orders_html = "<br>".join(esc(_ibkr_order_line(o)) for o in orders) or "—"
+        eps = item.get("eps_estimated")
+        rows.append(
+            "<tr>"
+            f'<td style="padding:10px 12px;border-bottom:1px solid #2b3d55;'
+            f'font-weight:700;color:#fff;">{esc(item["symbol"])}'
+            + (f'<div style="font-weight:400;font-size:12px;color:#adb5bd;">'
+               f'{esc(item.get("name") or "")}</div>' if item.get("name") else "")
+            + "</td>"
+            f'<td style="padding:10px 12px;border-bottom:1px solid #2b3d55;color:#e2e8f0;">{esc(exposure)}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #2b3d55;color:#e2e8f0;">{orders_html}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #2b3d55;color:#e2e8f0;">'
+            f'{esc(f"{eps:g}") if eps is not None else "—"}</td>'
+            "</tr>"
+        )
+
+    if rows:
+        body = (
+            '<table role="presentation" cellpadding="0" cellspacing="0" '
+            'style="width:100%;border-collapse:collapse;font-size:14px;">'
+            '<tr style="text-align:left;color:#778da9;font-size:11px;'
+            'text-transform:uppercase;letter-spacing:0.05em;">'
+            '<th style="padding:8px 12px;">Titolo</th>'
+            '<th style="padding:8px 12px;">Posizione</th>'
+            '<th style="padding:8px 12px;">Ordini pendenti</th>'
+            '<th style="padding:8px 12px;">EPS atteso</th></tr>'
+            + "".join(rows) + "</table>"
+        )
+    else:
+        body = ('<p style="color:#adb5bd;font-size:14px;">Nessun titolo in portafoglio '
+                'o con ordini pendenti riporta in questa data.</p>')
+
+    warning = ""
+    if alert.get("unresolved"):
+        warning = (
+            '<p style="color:#fbbf24;font-size:12px;margin-top:16px;">⚠️ Senza calendario '
+            f'earnings su FMP: {esc(", ".join(alert["unresolved"]))}</p>'
+        )
+
+    return (
+        '<div style="background:#0d1b2a;padding:24px;font-family:-apple-system,'
+        'BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">'
+        '<div style="max-width:680px;margin:0 auto;background:#1b263b;'
+        'border:1px solid #415a77;border-radius:14px;padding:20px 22px;">'
+        '<div style="font-size:13px;color:#778da9;letter-spacing:0.08em;'
+        'text-transform:uppercase;">Polaris · Interactive Brokers</div>'
+        f'<h2 style="color:#fff;margin:6px 0 18px;font-size:20px;">Earnings {esc(target_label)}</h2>'
+        + body + warning +
+        '<p style="color:#6b7e92;font-size:11px;margin-top:20px;">Generata dal job '
+        'delle 20:00 su posizioni aperte e ordini ancora eseguibili.</p>'
+        '</div></div>'
+    )
+
+
+def _ibkr_alert_subject(alert: dict) -> str:
+    label = _ibkr_format_date_it(alert.get("target_date"))
+    count = alert.get("count") or 0
+    if not count:
+        return f"Polaris · nessun earning {label}"
+    symbols = ", ".join(i["symbol"] for i in alert["items"][:5])
+    if count > 5:
+        symbols += f" +{count - 5}"
+    return f"Polaris · earnings {label}: {symbols}"
+
+
+def _ibkr_alert_with_rendering(alert: dict) -> dict:
+    """Aggiunge all'alert i tre formati pronti da spedire, così il job
+    schedulato non deve reimpaginare niente."""
+    return {
+        **alert,
+        "subject": _ibkr_alert_subject(alert),
+        "telegram_text": _ibkr_alert_telegram_text(alert),
+        "email_html": _ibkr_alert_email_html(alert),
+    }
+
+
+def _ibkr_maybe_notify(alert: dict, data: dict) -> dict:
+    """Manda l'alert su Telegram se c'è qualcosa da dire.
+
+    Un "nessun earning domani" spedito ogni sera è una notifica che si impara a
+    ignorare, e la sera in cui ce n'è uno vero non la si legge. Con
+    `notify_always` si forza l'invio comunque — utile per verificare che il
+    canale funzioni.
+    """
+    if not data.get("notify") and not data.get("notify_always"):
+        return {"sent": False, "error": "notify non richiesto"}
+    if not alert.get("count") and not data.get("notify_always"):
+        return {"sent": False, "error": "nessun earning da segnalare"}
+    return _telegram_send(alert["telegram_text"])
+
+
+def _telegram_send(text: str) -> dict:
+    """Manda un messaggio al bot Telegram configurato. Non solleva mai: la
+    notifica è un canale accessorio, un token scaduto non deve far fallire la
+    sync che l'ha innescata."""
+    token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = (os.getenv("TELEGRAM_CHAT_ID") or "").strip()
+    if not token or not chat_id:
+        return {"sent": False, "error": "TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID non configurati"}
+    try:
+        payload = urllib.parse.urlencode({
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": "true",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=payload,
+            headers={"Content-Type": "application/x-www-form-urlencoded",
+                     "User-Agent": "polaris/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        if body.get("ok"):
+            return {"sent": True, "error": None}
+        return {"sent": False, "error": _ibkr_str(body.get("description"), 200)}
+    except Exception as e:
+        return {"sent": False, "error": str(e)[:200]}
+
+
+# ---------------------------------------------------------------------------
+# Rotte
+# ---------------------------------------------------------------------------
+
+def _ibkr_load_snapshot(owner_email: str) -> Optional[dict]:
+    coll = _get_mongo_ibkr_collection()
+    if coll is None or not owner_email:
+        return None
+    try:
+        return coll.find_one({"owner_email": owner_email}, {"_id": 0})
+    except Exception:
+        return None
+
+
+@app.route('/api/ibkr/sync', methods=['POST'])
+def api_ibkr_sync():
+    """Ingest dello snapshot IBKR dal job schedulato.
+
+    Body: {"positions": [...], "orders": [...], "notify": bool,
+           "owner_email": "..."}. Autenticazione con bearer token
+    (IBKR_SYNC_TOKEN), non con la sessione: il job gira headless.
+
+    Con notify=true calcola l'alert del giorno dopo e lo manda su Telegram;
+    la risposta contiene comunque l'alert già impaginato, così il chiamante
+    può spedire la mail senza rifare i conti.
+    """
+    if not _ibkr_sync_authorized():
+        return jsonify({"error": "unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    owner_email = (_ibkr_str(data.get("owner_email"), 120) or "").lower() or _ibkr_default_owner_email()
+    if not owner_email:
+        return jsonify({"error": "owner_email mancante e nessun default configurato "
+                                 "(IBKR_SYNC_USER_EMAIL o ADMIN_EMAILS)"}), 400
+
+    snapshot = _ibkr_normalize_payload(data)
+    if not snapshot["positions"] and not snapshot["orders"]:
+        return jsonify({"error": "payload vuoto: nessuna posizione né ordine valido"}), 400
+
+    earnings = _ibkr_earnings_map(snapshot)
+    alert = _ibkr_alert_with_rendering(_ibkr_earnings_alert(snapshot, earnings=earnings))
+
+    coll = _get_mongo_ibkr_collection()
+    stored = False
+    if coll is not None:
+        try:
+            coll.update_one(
+                {"owner_email": owner_email},
+                {"$set": {
+                    "owner_email": owner_email,
+                    "positions": snapshot["positions"],
+                    "orders": snapshot["orders"],
+                    "earnings": earnings,
+                    "synced_at": time.time(),
+                }},
+                upsert=True,
+            )
+            stored = True
+        except Exception:
+            stored = False
+
+    telegram = _ibkr_maybe_notify(alert, data)
+
+    return jsonify({
+        "status": "ok",
+        "owner_email": owner_email,
+        # Il chiamante manda la mail solo se c'è qualcosa da mandare: stessa
+        # soglia della notifica Telegram, così i due canali non divergono.
+        "should_email": bool(alert["count"]) or bool(data.get("notify_always")),
+        "stored": stored,
+        "positions": len(snapshot["positions"]),
+        "orders": len(snapshot["orders"]),
+        "live_orders": sum(1 for o in snapshot["orders"] if o.get("is_live")),
+        "telegram": telegram,
+        "alert": alert,
+    })
+
+
+@app.route('/api/ibkr/snapshot', methods=['GET'])
+@login_required
+def api_ibkr_snapshot():
+    """Snapshot IBKR dell'utente in sessione, arricchito con le date earnings.
+
+    Di default riusa le date già risolte dall'ultima sync: sono buone per
+    ore e rifarle significherebbe una ventina di chiamate FMP a ogni
+    caricamento di pagina. `?refresh=1` le ricalcola.
+    """
+    owner_email = _current_user_email()
+    if not owner_email:
+        return jsonify({"error": "no user"}), 401
+    doc = _ibkr_load_snapshot(owner_email)
+    if not doc:
+        return jsonify({
+            "positions": [], "orders": [], "synced_at": None,
+            "alert": None,
+            "hint": "Nessuno snapshot IBKR: il job delle 20:00 non è ancora passato.",
+        })
+
+    snapshot = {"positions": doc.get("positions") or [], "orders": doc.get("orders") or []}
+    earnings = doc.get("earnings") if isinstance(doc.get("earnings"), dict) else None
+    if request.args.get("refresh") == "1" or not earnings:
+        earnings = _ibkr_earnings_map(snapshot)
+
+    enriched = _ibkr_enriched_snapshot(snapshot, earnings)
+    alert = _ibkr_earnings_alert(snapshot, earnings=earnings)
+    return jsonify({
+        "positions": enriched["positions"],
+        "orders": enriched["orders"],
+        "synced_at": doc.get("synced_at"),
+        "alert": {k: alert[k] for k in ("target_date", "count", "unresolved")},
+        "alert_symbols": [i["symbol"] for i in alert["items"]],
+    })
+
+
+@app.route('/api/ibkr/earnings-alert', methods=['GET', 'POST'])
+def api_ibkr_earnings_alert():
+    """Alert earnings sull'ultimo snapshot salvato.
+
+    GET richiede la sessione ed è di sola lettura (anteprima dalla pagina).
+    POST richiede il bearer token e può notificare: serve al job per
+    rimandare la notifica senza rifare la sync.
+    """
+    if request.method == 'POST':
+        if not _ibkr_sync_authorized():
+            return jsonify({"error": "unauthorized"}), 401
+        data = request.get_json(silent=True) or {}
+        owner_email = (_ibkr_str(data.get("owner_email"), 120) or "").lower() or _ibkr_default_owner_email()
+        target_raw = _ibkr_str(data.get("target_date"), 10)
+    else:
+        if not _is_authenticated():
+            return jsonify({"error": "unauthorized"}), 401
+        data = {}
+        owner_email = _current_user_email()
+        target_raw = _ibkr_str(request.args.get("target_date"), 10)
+
+    if not owner_email:
+        return jsonify({"error": "owner_email non determinabile"}), 400
+
+    target = None
+    if target_raw:
+        try:
+            target = _dt.date.fromisoformat(target_raw)
+        except ValueError:
+            return jsonify({"error": "target_date non valida (attesa YYYY-MM-DD)"}), 400
+
+    doc = _ibkr_load_snapshot(owner_email)
+    if not doc:
+        return jsonify({"error": "nessuno snapshot IBKR salvato per " + owner_email}), 404
+
+    snapshot = {"positions": doc.get("positions") or [], "orders": doc.get("orders") or []}
+    earnings = doc.get("earnings") if isinstance(doc.get("earnings"), dict) else None
+    alert = _ibkr_alert_with_rendering(
+        _ibkr_earnings_alert(snapshot, target=target, earnings=earnings))
+
+    telegram = _ibkr_maybe_notify(alert, data)
+
+    return jsonify({"owner_email": owner_email, "synced_at": doc.get("synced_at"),
+                    "should_email": bool(alert["count"]) or bool(data.get("notify_always")),
+                    "telegram": telegram, "alert": alert})
 
 
 # ============================================================================
