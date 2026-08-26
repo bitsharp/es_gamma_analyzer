@@ -11,7 +11,7 @@ quasi sempre:
     male: qui vengono emesse anche in base64, forma che l'app riconosce.
 
 Uso:
-    python tools/ibkr_oauth_env.py --dir ./ibkr-keys
+    python tools/ibkr_oauth_env.py --dir ./ibkr-keys --out ./ibkr-keys/vercel-env.txt
 
 Si aspetta nella cartella: private_signature.pem, private_encryption.pem,
 dhparam.pem. Per generarli:
@@ -20,7 +20,10 @@ dhparam.pem. Per generarli:
     openssl rsa -in private_signature.pem -outform PEM -pubout -out public_signature.pem
     openssl genrsa -out private_encryption.pem 2048
     openssl rsa -in private_encryption.pem -outform PEM -pubout -out public_encryption.pem
-    openssl dhparam -outform PEM 2048 -out dhparam.pem
+    openssl dhparam -outform PEM -out dhparam.pem 2048
+
+Attenzione all'ultima riga: da OpenSSL 3.x il numero di bit va per ultimo,
+dopo tutte le opzioni, altrimenti risponde 'Extra option: "2048"'.
 
 Le tre pubbliche (public_signature.pem, public_encryption.pem, dhparam.pem)
 vanno caricate nel Self-Service Portal. Le private restano da te: non
@@ -77,24 +80,42 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dir", default=".", help="cartella con i file .pem")
+    parser.add_argument("--out", help="scrivi su file invece che a schermo. "
+                                      "Consigliato: sono chiavi private, meglio "
+                                      "non lasciarle nello scrollback del terminale")
     args = parser.parse_args()
 
     signature = read_text(os.path.join(args.dir, "private_signature.pem"))
     encryption = read_text(os.path.join(args.dir, "private_encryption.pem"))
     prime = dh_prime_hex(os.path.join(args.dir, "dhparam.pem"))
 
-    b64 = lambda text: base64.b64encode(text.encode("utf-8")).decode("ascii")
+    def b64(text):
+        return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
-    print("# Incolla questi valori tra le Environment Variables del progetto Vercel.")
-    print("# Le due chiavi sono in base64: l'app le riconosce e così nessun pannello")
-    print("# web può rovinarle mangiando gli a-capo.\n")
-    print(f"IBKR_SIGNATURE_KEY={b64(signature)}")
-    print(f"IBKR_ENCRYPTION_KEY={b64(encryption)}")
-    print(f"IBKR_DH_PRIME={prime}")
-    print()
-    print(f"# primo DH: {len(prime) * 4} bit — atteso 2048")
-    print("# Restano da compilare a mano, dal Self-Service Portal:")
-    print("#   IBKR_CONSUMER_KEY, IBKR_ACCESS_TOKEN, IBKR_ACCESS_TOKEN_SECRET")
+    lines = [
+        "# Incolla questi valori tra le Environment Variables del progetto Vercel.",
+        "# Le due chiavi sono in base64: l'app le riconosce e così nessun pannello",
+        "# web può rovinarle mangiando gli a-capo.",
+        "",
+        f"IBKR_SIGNATURE_KEY={b64(signature)}",
+        f"IBKR_ENCRYPTION_KEY={b64(encryption)}",
+        f"IBKR_DH_PRIME={prime}",
+        "",
+        f"# primo DH: {len(prime) * 4} bit — atteso 2048",
+        "# Restano da compilare a mano, dal Self-Service Portal:",
+        "#   IBKR_CONSUMER_KEY, IBKR_ACCESS_TOKEN, IBKR_ACCESS_TOKEN_SECRET",
+    ]
+    text = "\n".join(lines) + "\n"
+
+    if args.out:
+        # encoding esplicito: su Windows il default è cp1252 e le lettere
+        # accentate dei commenti renderebbero illeggibile il file.
+        with open(args.out, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        print(f"scritto in {args.out}")
+    else:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stdout.write(text)
 
 
 if __name__ == "__main__":
