@@ -7,3 +7,7 @@ uploads/
 .vercel
 .env*.local
 .claude/
+
+# Chiavi private OAuth di IBKR: non devono finire nel repo per sbaglio.
+*.pem
+ibkr-keys/
