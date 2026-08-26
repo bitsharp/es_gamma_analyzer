@@ -8,6 +8,7 @@ La versione mostrata nell'header dell'app è letta direttamente da questo file: 
 ## [1.19.1] — 2026-08-26
 
 ### Corretto
+- **Le posizioni chiuse comparivano come partecipazioni da zero euro.** IBKR le lascia nell'elenco con quantità zero per il resto della giornata: oggi INTU è stata venduta e sarebbe rimasta in pagina, con controvalore nullo, in mezzo alle posizioni vere. Ora vengono scartate — e solo lo zero, perché le quantità negative sono posizioni short e vanno tenute.
 - **Il giro serale del Flex riportava indietro il portafoglio.** Il Flex fotografa la chiusura precedente, il gateway locale legge il conto in tempo reale: una scrittura del Flex alle 20:00 è più *recente* ma meno *aggiornata* di una del gateway fatta durante il giorno, e sovrascrivendola avrebbe cancellato le operazioni della giornata. Successo davvero oggi: nel conto INTU è stata chiusa e QCOM aperta, e la fotografia di ieri le avrebbe rimesse com'erano. Ora ogni scrittura porta con sé la data *del dato* (`positions_as_of`) e vince il più recente, non l'ultimo arrivato.
   - Per il Flex la data è quella del report; per gateway e Web API è l'istante della lettura.
   - `updated` nella risposta di `/api/ibkr/sync` riporta ora cosa è stato scritto davvero, non cosa era stato proposto, e `skipped` spiega perché qualcosa non è passato.

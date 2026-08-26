@@ -9768,7 +9768,10 @@ def _ibkr_normalize_payload(data: dict) -> dict:
     for raw in (data.get("positions") or [])[:_IBKR_MAX_ROWS]:
         if isinstance(raw, dict):
             row = _ibkr_normalize_position(raw)
-            if row:
+            # Una posizione chiusa oggi resta nell'elenco di IBKR con quantità
+            # zero: non è una partecipazione e non va mostrata. Lo zero è
+            # l'unico valore da escludere — le quantità negative sono short.
+            if row and row.get("quantity"):
                 positions.append(row)
     for raw in (data.get("orders") or [])[:_IBKR_MAX_ROWS]:
         if isinstance(raw, dict):
