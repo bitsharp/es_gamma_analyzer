@@ -39,6 +39,7 @@ import os
 import re
 import ssl
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -88,29 +89,65 @@ def read_sync_token(explicit):
     return ""
 
 
-def ensure_authenticated(gateway):
-    """Verifica la sessione e tenta una riautenticazione se è scaduta."""
+def auth_status(gateway):
     status, payload = http_json(f"{gateway}/iserver/auth/status", method="POST",
                                 context=_LOCAL_CTX)
     if status == 0:
         sys.exit(f"gateway non raggiungibile su {gateway}: è avviato?\n  ({payload})")
-    if isinstance(payload, dict) and payload.get("authenticated"):
+    return payload if isinstance(payload, dict) else {}
+
+
+def ensure_authenticated(gateway):
+    """Verifica la sessione e, se è scaduta, tenta di riaprirla.
+
+    La sessione di brokeraggio cade da sola dopo qualche ora di inattività, e
+    `/iserver/reauthenticate` risponde subito "triggered" ma impiega una
+    decina di secondi a ristabilirla: controllare lo stato immediatamente dopo
+    dà sempre un falso negativo, quindi si aspetta.
+    """
+    if auth_status(gateway).get("authenticated"):
         return
-    # Sessione connessa ma non autenticata: succede dopo qualche ora.
+    print("sessione scaduta, provo a riaprirla…")
     http_json(f"{gateway}/iserver/reauthenticate", method="POST", context=_LOCAL_CTX)
-    status, payload = http_json(f"{gateway}/iserver/auth/status", method="POST",
-                                context=_LOCAL_CTX)
-    if not (isinstance(payload, dict) and payload.get("authenticated")):
-        sys.exit("gateway non autenticato: apri https://localhost:5000 e fai login")
+    for _ in range(10):
+        time.sleep(3)
+        if auth_status(gateway).get("authenticated"):
+            print("sessione ristabilita")
+            return
+    sys.exit("gateway non autenticato: apri https://localhost:5000 e rifai login.\n"
+             "Se dice 'competing', un'altra sessione IBKR (TWS, app, connettore) "
+             "ha preso il posto: IBKR ne ammette una sola per utenza.")
 
 
 _ORDER_SYMBOL_RE = re.compile(r"^\s*(?:buy|sell)\s+[\d.,]+\s+(\S+)", re.IGNORECASE)
 
 
+def prime_session(gateway):
+    """Innesca la sessione con /iserver/accounts.
+
+    Senza questa chiamata gli endpoint /iserver rispondono 200 con una lista
+    vuota invece di un errore — che è il modo peggiore di fallire, perché
+    sembra "nessun ordine aperto" e svuoterebbe la lista in pagina.
+    """
+    status, payload = http_json(f"{gateway}/iserver/accounts", context=_LOCAL_CTX)
+    if status != 200 or not isinstance(payload, dict) or not payload.get("accounts"):
+        sys.exit(f"inizializzazione della sessione fallita (HTTP {status}): {str(payload)[:200]}")
+    return payload["accounts"][0]
+
+
 def fetch_orders(gateway):
-    status, payload = http_json(f"{gateway}/iserver/account/orders", context=_LOCAL_CTX)
-    if status != 200 or not isinstance(payload, dict):
-        sys.exit(f"lettura ordini fallita (HTTP {status}): {str(payload)[:200]}")
+    prime_session(gateway)
+    payload = None
+    # La prima lettura può tornare vuota: l'endpoint avvia uno snapshot e
+    # risponde subito, senza aspettare di averlo.
+    for attempt in range(4):
+        status, payload = http_json(f"{gateway}/iserver/account/orders", context=_LOCAL_CTX)
+        if status != 200 or not isinstance(payload, dict):
+            sys.exit(f"lettura ordini fallita (HTTP {status}): {str(payload)[:200]}")
+        if payload.get("orders"):
+            break
+        if attempt < 3:
+            time.sleep(2)
     out = []
     for row in payload.get("orders") or []:
         if not isinstance(row, dict):

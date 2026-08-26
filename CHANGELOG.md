@@ -5,6 +5,13 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.18.1] — 2026-08-26
+
+### Corretto
+- **Lo script del gateway tornava zero ordini invece di un errore.** Gli endpoint `/iserver` del Client Portal Gateway vogliono la sessione innescata da una chiamata a `/iserver/accounts`: senza, rispondono `200` con una lista vuota. Era il modo peggiore di fallire, perché "nessun ordine" è una risposta plausibile e avrebbe svuotato la lista in pagina facendo credere che non ci fossero bracket aperti. Ora la sessione viene innescata prima, e la lettura viene ritentata perché la prima chiamata avvia uno snapshot e risponde senza aspettarlo. Sul conto reale: 95 ordini, 67 vivi su 20 simboli.
+- **La riautenticazione veniva dichiarata fallita quando invece riusciva.** `/iserver/reauthenticate` risponde subito `{"message":"triggered"}` ma impiega una decina di secondi a ristabilire la sessione, e lo script ricontrollava lo stato immediatamente dopo: un falso negativo garantito. Ora attende fino a 30 secondi. Se comunque non risale, il messaggio ricorda che IBKR ammette una sola sessione per utenza e che TWS o un'altra app possono averla presa.
+- **Sotto-codici di comparto nelle borse IBKR.** IBKR qualifica le borse con un suffisso — `NASDAQ.NMS`, `BVME.ETF`, `LSEIOB1` — che non cambia il mercato di quotazione ma mancava in tabella. Per i titoli USA il risultato era comunque giusto, ma per caso: cadendo sul simbolo nudo. Ora si prova il codice intero e poi la radice, così i comparti non vanno enumerati uno per uno. Verificato sui 20 simboli reali: si risolvono tutti tranne `CSG1` (CSG NV, che FMP non copre affatto) e `SSLN` (un ETC, che earnings non ne ha).
+
 ## [1.18.0] — 2026-08-26
 
 ### Aggiunto

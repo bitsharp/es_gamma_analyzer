@@ -9574,8 +9574,13 @@ def _ibkr_fmp_candidates(symbol: str, currency=None, exchange=None, country=None
 
     suffixes: List[str] = []
     ex = (exchange or "").strip().upper()
-    if ex in _IBKR_EXCHANGE_SUFFIX:
-        suffixes.append(_IBKR_EXCHANGE_SUFFIX[ex])
+    # IBKR qualifica le borse con un sotto-codice di comparto — `NASDAQ.NMS`,
+    # `BVME.ETF`, `LSEIOB1` — che non cambia il mercato di quotazione. Si prova
+    # il codice intero e poi la radice, così non serve enumerarli tutti.
+    for key in (ex, ex.split(".", 1)[0]):
+        if key in _IBKR_EXCHANGE_SUFFIX:
+            suffixes.append(_IBKR_EXCHANGE_SUFFIX[key])
+            break
     for source in (_IBKR_COUNTRY_SUFFIXES.get((country or "").strip().upper()),
                    _IBKR_CURRENCY_SUFFIXES.get((currency or "").strip().upper())):
         for suffix in (source or []):
