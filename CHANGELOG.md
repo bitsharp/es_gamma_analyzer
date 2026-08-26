@@ -5,6 +5,12 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.16.1] — 2026-08-26
+
+### Modificato
+- **Il blocco Interactive Brokers non sparisce più quando manca lo snapshot: spiega cosa manca.** Prima, finché il job non aveva mai sincronizzato, la sezione restava nascosta — indistinguibile da una funzione rotta. Ora resta visibile e mostra un elenco di controlli: MongoDB raggiungibile, `IBKR_SYNC_TOKEN` configurato, `FMP_API_KEY` presente, Telegram attivo. In più segnala il caso più insidioso, cioè quando la sync scrive su un'email diversa da quella con cui si è fatto login: lo snapshot verrebbe salvato correttamente e la pagina continuerebbe a non vedere nulla.
+  - `GET /api/ibkr/snapshot` restituisce un blocco `diagnostics` quando non trova documenti. Solo booleani e l'email dell'utente autenticato, nessun valore di token.
+
 ## [1.16.0] — 2026-08-26
 
 ### Aggiunto

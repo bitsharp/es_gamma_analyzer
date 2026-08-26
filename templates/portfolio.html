@@ -957,10 +957,44 @@
             box.innerHTML = html;
         }
 
+        // Quando manca lo snapshot la sezione resta visibile e spiega perché:
+        // un blocco che sparisce senza dire niente si scambia per un bug.
+        function renderIbkrSetup(data) {
+            const d = data.diagnostics || {};
+            const check = (ok, yes, no) =>
+                `<li style="color:${ok ? '#4ade80' : '#f87171'};">
+                    <i class="bi bi-${ok ? 'check-circle' : 'x-circle'} me-1"></i>${ok ? yes : no}</li>`;
+            const items = [
+                check(d.mongo_available, 'MongoDB raggiungibile', 'MongoDB non raggiungibile'),
+                check(d.sync_token_configured,
+                      'IBKR_SYNC_TOKEN configurato',
+                      'IBKR_SYNC_TOKEN non configurato — la sync risponde 401'),
+                check(d.fmp_configured, 'FMP_API_KEY configurata',
+                      'FMP_API_KEY assente — senza calendario earnings'),
+                check(d.telegram_configured, 'Telegram configurato',
+                      'Telegram non configurato — resta solo la mail'),
+            ];
+            if (d.sync_writes_to && !d.owner_matches) {
+                items.push(`<li style="color:#fbbf24;"><i class="bi bi-exclamation-triangle me-1"></i>
+                    La sync scrive su <strong>${escapeHtml(d.sync_writes_to)}</strong> ma sei loggato come
+                    <strong>${escapeHtml(d.logged_in_as || '')}</strong>: allinea IBKR_SYNC_USER_EMAIL</li>`);
+            }
+            return `
+                <div class="ibkr-alert calm">
+                    <i class="bi bi-hourglass-split me-1"></i>
+                    Nessuno snapshot ancora ricevuto. Le posizioni le scrive il job schedulato
+                    su <code>/api/ibkr/sync</code>: IBKR non è interrogabile direttamente da qui.
+                </div>
+                <ul style="list-style:none;padding:0;margin:0;font-size:0.83rem;line-height:1.9;">
+                    ${items.join('')}
+                </ul>`;
+        }
+
         async function loadIbkr(refresh = false) {
             const card = document.getElementById('ibkrCard');
             const btn = document.getElementById('ibkrRefreshBtn');
             if (refresh) btn.disabled = true;
+            card.style.display = 'block';
             try {
                 const res = await fetch('/api/ibkr/snapshot' + (refresh ? '?refresh=1' : ''));
                 if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -969,8 +1003,12 @@
                 // Solo gli ordini ancora eseguibili: un REPLACED è la versione
                 // superata di un ordine che IBKR ha già rimpiazzato.
                 const orders = (data.orders || []).filter(o => o.is_live);
-                if (!positions.length && !orders.length) { card.style.display = 'none'; return; }
-                card.style.display = 'block';
+                if (!positions.length && !orders.length) {
+                    document.getElementById('ibkrSynced').textContent = 'in attesa della prima sync';
+                    document.getElementById('ibkrAlert').innerHTML = '';
+                    document.getElementById('ibkrBody').innerHTML = renderIbkrSetup(data);
+                    return;
+                }
                 document.getElementById('ibkrSynced').textContent = fmtSyncedAt(data.synced_at);
                 renderIbkrAlert(data.alert, data.alert_symbols || []);
                 document.getElementById('ibkrBody').innerHTML =

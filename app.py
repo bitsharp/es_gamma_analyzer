@@ -10195,10 +10195,24 @@ def api_ibkr_snapshot():
         return jsonify({"error": "no user"}), 401
     doc = _ibkr_load_snapshot(owner_email)
     if not doc:
+        # Senza snapshot la pagina non ha niente da mostrare, ma "niente" ha
+        # cause diverse — token non configurato, Mongo giù, email di
+        # destinazione diversa da quella con cui si è loggati — e sono tutte
+        # invisibili da fuori. Meglio dire quale.
+        default_owner = _ibkr_default_owner_email()
         return jsonify({
-            "positions": [], "orders": [], "synced_at": None,
-            "alert": None,
-            "hint": "Nessuno snapshot IBKR: il job delle 20:00 non è ancora passato.",
+            "positions": [], "orders": [], "synced_at": None, "alert": None,
+            "hint": "Nessuno snapshot IBKR ancora salvato per " + owner_email,
+            "diagnostics": {
+                "logged_in_as": owner_email,
+                "sync_writes_to": default_owner or None,
+                "owner_matches": bool(default_owner) and default_owner == owner_email,
+                "sync_token_configured": bool((os.getenv("IBKR_SYNC_TOKEN") or "").strip()),
+                "telegram_configured": bool((os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+                                            and (os.getenv("TELEGRAM_CHAT_ID") or "").strip()),
+                "fmp_configured": bool((os.getenv("FMP_API_KEY") or "").strip()),
+                "mongo_available": _get_mongo_ibkr_collection() is not None,
+            },
         })
 
     snapshot = {"positions": doc.get("positions") or [], "orders": doc.get("orders") or []}
