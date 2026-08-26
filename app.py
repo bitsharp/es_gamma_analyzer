@@ -10355,7 +10355,10 @@ def _flex_fetch_positions() -> dict:
                 "error_code": code,
                 "hint": _FLEX_ERROR_HINTS.get(code or "")}
     reference = _flex_xml_text(sent, "ReferenceCode")
-    base_url = _flex_xml_text(sent, "Url") or f"{_FLEX_BASE}/GetStatement"
+    # L'elemento <Url> della risposta punta al vecchio servlet
+    # /Universal/servlet/FlexStatementService, che IBKR documenta come legacy e
+    # dice di ignorare: seguirlo è l'errore che si propaga da mezzo internet.
+    base_url = f"{_FLEX_BASE}/GetStatement"
     if not reference:
         return {"error": "Flex: nessun ReferenceCode nella risposta"}
 
@@ -11259,6 +11262,58 @@ def api_ibkr_cron():
     notify_always = request.args.get("notify_always") == "1"
     result = _ibkr_run_daily_job(notify_always=notify_always)
     return jsonify(result), (200 if result.get("status") == "ok" else 502)
+
+
+@app.route('/api/ibkr/flex-status', methods=['GET'])
+@login_required
+def api_ibkr_flex_status():
+    """Diagnostica delle credenziali Flex, senza esporle.
+
+    IBKR risponde 1020 a situazioni molto diverse, e le due più frequenti si
+    riconoscono dalla *forma* dei valori configurati — un query id non numerico
+    è il nome della query copiato al posto del numero, un token troppo corto è
+    un copia-incolla tagliato. Qui si riportano lunghezze e primi caratteri, mai
+    i valori interi.
+    """
+    if not _is_admin():
+        return jsonify({"error": "forbidden"}), 403
+
+    token = _ibkr_api_env("IBKR_FLEX_TOKEN")
+    query = _ibkr_api_env("IBKR_FLEX_QUERY_ID")
+    shape = {
+        "token_configurato": bool(token),
+        "token_lunghezza": len(token),
+        "token_anteprima": (token[:3] + "…" + token[-3:]) if len(token) > 8 else None,
+        "token_solo_cifre": token.isdigit() if token else None,
+        "query_id": query,
+        "query_id_numerico": query.isdigit() if query else None,
+    }
+    note = []
+    if token and not token.isdigit():
+        note.append("il token del Flex Web Service è normalmente tutto numerico: "
+                    "controlla di non aver incollato altro")
+    if query and not query.isdigit():
+        note.append("il query id deve essere il NUMERO della query, non il nome "
+                    "che le hai dato")
+    if token and len(token) < 15:
+        note.append("token più corto del previsto: forse è stato troncato")
+
+    if not token or not query:
+        return jsonify({"shape": shape, "note": note,
+                        "esito": "credenziali non configurate"})
+
+    probe = _flex_fetch_positions()
+    if probe.get("error"):
+        return jsonify({"shape": shape, "note": note, "esito": "fallito",
+                        "errore": probe["error"], "codice": probe.get("error_code"),
+                        "diagnosi": probe.get("hint"),
+                        # La prova parte dai server di Vercel: se le stesse
+                        # credenziali funzionano dal PC dell'utente, la causa è
+                        # una restrizione per IP sul token.
+                        "prova_dal_tuo_pc": "python tools/ibkr_flex_check.py"})
+    return jsonify({"shape": shape, "note": note, "esito": "ok",
+                    "posizioni": len(probe["positions"]),
+                    "report_date": probe.get("report_date")})
 
 
 @app.route('/api/ibkr/oauth-status', methods=['GET'])
