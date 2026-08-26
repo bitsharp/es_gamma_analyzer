@@ -174,6 +174,10 @@ def fetch_orders(gateway):
             "tif": row.get("timeInForce"),
             "description": row.get("orderDesc"),
             "exchange": row.get("listingExchange"),
+            # Serve al server per riconoscere le borse che quotano in
+            # sottomultipli: senza la valuta, un prezzo LSE in penny verrebbe
+            # letto come sterline e il capitale impegnato sarebbe centuplicato.
+            "currency": row.get("cashCcy") or row.get("currency"),
         })
     return out
 

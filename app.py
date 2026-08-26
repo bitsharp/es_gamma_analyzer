@@ -9686,6 +9686,29 @@ def _ibkr_alert_target_date(reference: Optional[_dt.date] = None) -> _dt.date:
 # Normalizzazione del payload di sync
 # ---------------------------------------------------------------------------
 
+# Borse che quotano in sottomultipli pur dichiarando la valuta principale: il
+# London Stock Exchange prezza in penny ma riporta GBP, e lo stesso fanno
+# Johannesburg in centesimi e Tel Aviv in agorot. Il prezzo va diviso per cento,
+# i controvalori no — IBKR quelli li dà già nella valuta piena.
+# Senza questa correzione un ordine di 36 SSLN a 46,53 sterline risultava da
+# 167.508 sterline, cioè otto volte il conto.
+_IBKR_SUBUNIT_VENUES = (
+    ("LSE", "GBP", 0.01),
+    ("JSE", "ZAR", 0.01),
+    ("TASE", "ILS", 0.01),
+)
+
+
+def _ibkr_price_scale(exchange: Optional[str], currency: Optional[str]) -> float:
+    """Fattore per portare un prezzo IBKR nella valuta dichiarata."""
+    ex = (exchange or "").strip().upper()
+    cur = (currency or "").strip().upper()
+    for prefix, expected_currency, scale in _IBKR_SUBUNIT_VENUES:
+        if cur == expected_currency and ex.startswith(prefix):
+            return scale
+    return 1.0
+
+
 def _ibkr_num(value) -> Optional[float]:
     """float() tollerante: IBKR manda le quantità come stringhe e i prezzi
     assenti come stringa vuota."""
@@ -9719,13 +9742,22 @@ def _ibkr_normalize_position(row: dict) -> Optional[dict]:
     symbol = _ibkr_str(row.get("symbol") or row.get("contract_description"), 24)
     if not symbol:
         return None
+    currency = (_ibkr_str(row.get("currency"), 8) or "").upper() or None
+    exchange = (_ibkr_str(row.get("exchange"), 16) or "").upper() or None
+    scale = _ibkr_price_scale(exchange, currency)
+
+    def price(value):
+        number = _ibkr_num(value)
+        return number * scale if number is not None else None
+
     return {
         "symbol": symbol.upper(),
         "name": _ibkr_str(row.get("name")),
         "quantity": _ibkr_num(row.get("quantity") if row.get("quantity") is not None
                               else row.get("position")),
-        "avg_price": _ibkr_num(row.get("avg_price") or row.get("average_price")),
-        "market_price": _ibkr_num(row.get("market_price")),
+        "avg_price": price(row.get("avg_price") or row.get("average_price")),
+        "market_price": price(row.get("market_price")),
+        # Il controvalore IBKR lo dà già in valuta piena: non va riscalato.
         "market_value": _ibkr_num(row.get("market_value")),
         "unrealized_pnl": _ibkr_num(row.get("unrealized_pnl")),
         "daily_pnl": _ibkr_num(row.get("daily_pnl")),
@@ -9741,6 +9773,14 @@ def _ibkr_normalize_order(row: dict) -> Optional[dict]:
     if not symbol:
         return None
     status = (_ibkr_str(row.get("status") or row.get("order_status"), 24) or "").upper()
+    currency = (_ibkr_str(row.get("currency"), 8) or "").upper() or None
+    exchange = (_ibkr_str(row.get("exchange"), 16) or "").upper() or None
+    scale = _ibkr_price_scale(exchange, currency)
+
+    def price(value):
+        number = _ibkr_num(value)
+        return number * scale if number is not None else None
+
     return {
         "order_id": _ibkr_str(row.get("order_id"), 32),
         "symbol": symbol,
@@ -9751,14 +9791,14 @@ def _ibkr_normalize_order(row: dict) -> Optional[dict]:
         "is_live": status.replace("_", "").replace(" ", "") in _IBKR_LIVE_ORDER_STATUSES,
         "quantity": _ibkr_num(row.get("quantity") or row.get("total_shares_qty")),
         "remaining": _ibkr_num(row.get("remaining") or row.get("remaining_shares_qty")),
-        "limit_price": _ibkr_num(row.get("limit_price")),
-        "stop_price": _ibkr_num(row.get("stop_price")),
+        "limit_price": price(row.get("limit_price")),
+        "stop_price": price(row.get("stop_price")),
         "tif": (_ibkr_str(row.get("tif"), 8) or "").upper() or None,
         "detail": _ibkr_str(row.get("detail") or row.get("secondary_description")),
         "description": _ibkr_str(row.get("description") or row.get("primary_description")),
         "order_time": _ibkr_str(row.get("order_time"), 32),
-        "currency": (_ibkr_str(row.get("currency"), 8) or "").upper() or None,
-        "exchange": (_ibkr_str(row.get("exchange"), 16) or "").upper() or None,
+        "currency": currency,
+        "exchange": exchange,
         "country": (_ibkr_str(row.get("country") or row.get("country_code"), 4) or "").upper() or None,
     }
 
@@ -10636,6 +10676,12 @@ def _ibkr_capital_summary(doc: dict, positions: List[dict], orders_only: List[di
         # Se qualche posizione non ha un controvalore convertibile, la
         # percentuale è per difetto e va dichiarato.
         "positions_without_value": missing_value,
+        # Rete di sicurezza contro errori di unità di misura: un capitale
+        # impegnato molte volte più grande del conto non è un dato, è un bug.
+        # È già successo con i prezzi in penny del London Stock Exchange, e
+        # senza questo controllo la pagina avrebbe mostrato "1024%" con
+        # l'aplomb di un numero vero.
+        "implausible": bool(total and pending_total and pending_total > total * 5),
     }
 
 

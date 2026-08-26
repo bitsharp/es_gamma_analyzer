@@ -5,6 +5,13 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.20.1] — 2026-08-26
+
+### Corretto
+- **Prezzi del London Stock Exchange letti come sterline invece che penny.** IBKR quota le borse di Londra in GBX ma dichiara la valuta GBP: l'ordine su `SSLN` arrivava con prezzo `4653.00`, che sono 46,53 sterline, non 4.653. Il capitale impegnato dagli ordini risultava così di 216.979 euro su un conto da 21.192 — il 1024%. Ora i prezzi delle borse che quotano in sottomultipli (Londra in penny, Johannesburg in centesimi, Tel Aviv in agorot) vengono riportati alla valuta piena; i controvalori no, perché quelli IBKR li dà già corretti. `SSLN` passa da 143.554 a 1.956 euro, che è il valore giusto.
+  - Il gateway ora manda anche la valuta degli ordini: senza, la correzione non avrebbe potuto riconoscere il caso.
+  - Aggiunta una rete di sicurezza generale: se il capitale degli ordini supera di cinque volte il conto, la pagina lo dichiara inattendibile invece di mostrare una percentuale assurda con l'aplomb di un numero vero. Un errore di unità di misura non deve poter passare per un dato.
+
 ## [1.20.0] — 2026-08-26
 
 ### Aggiunto

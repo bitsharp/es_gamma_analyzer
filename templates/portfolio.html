@@ -1171,9 +1171,15 @@
             // se tutti gli ordini di acquisto andassero a segno.
             const inv = Math.max(0, Math.min(1, cap.invested_pct || 0));
             const pend = Math.max(0, Math.min(1 - inv, cap.pending_pct || 0));
-            const warn = cap.positions_without_value
+            let warn = cap.positions_without_value
                 ? `<div class="capital-note">${cap.positions_without_value} posizioni senza controvalore
                    convertibile: la percentuale è per difetto.</div>` : '';
+            if (cap.implausible) {
+                warn += `<div class="capital-note" style="color:#fbbf24;">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    Il capitale degli ordini supera di molte volte il conto: quasi certamente un prezzo
+                    è stato letto nell'unità sbagliata. Trattalo come non attendibile.</div>`;
+            }
             return `
                 <div class="capital-box">
                     <div class="capital-row">
