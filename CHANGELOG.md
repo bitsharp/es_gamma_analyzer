@@ -5,6 +5,23 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.18.0] — 2026-08-26
+
+### Aggiunto
+- **Sorgenti IBKR ibride: Flex Web Service per le posizioni, gateway locale per gli ordini.** L'OAuth first party è risultato non abilitabile sul conto — il Self-Service Portal risponde 501 alla scrittura del consumer key, e la spiegazione nota è che l'accesso è riservato ai conti Financial Advisor e Institutional. Il codice OAuth resta dov'è, inerte dietro `_ibkr_api_configured()`, e si riaccende da solo il giorno in cui le credenziali ci fossero.
+  - Il Flex Web Service copre le posizioni senza niente da tenere acceso: token annuale, due GET, nessun gateway e nessun login. Gli ordini di lavoro però non li espone, e sono metà del valore dell'alert visto quanti bracket GTC ci sono aperti.
+  - Per gli ordini c'è `tools/ibkr_gateway_sync.py`, da lanciare col Client Portal Gateway acceso: legge gli ordini vivi e li deposita su `/api/ibkr/sync`.
+- **Freschezza degli ordini dichiarata ovunque.** Un alert costruito su ordini di due giorni fa ha esattamente lo stesso aspetto di uno costruito su ordini veri, quindi va detto invece che lasciato intuire. Oltre 36h (`IBKR_ORDERS_STALE_AFTER`) la pagina lo scrive in giallo accanto al titolo della tabella e nel banner, e Telegram e la mail aggiungono una riga: "l'alert copre le sole posizioni". L'intestazione del blocco dice anche da quale sorgente vengono le posizioni.
+
+### Modificato
+- **`/api/ibkr/sync` accetta payload parziali e fonde invece di sostituire.** Mandare solo `orders` aggiorna gli ordini e lascia intatte le posizioni, e viceversa. Senza questo, il giro notturno del Flex avrebbe cancellato ogni sera gli ordini raccolti di giorno dal gateway. Chiave assente significa "non ho notizie", chiave presente ma vuota significa "non c'è più niente": distinguerle serve perché un gateway che non trova ordini deve poter svuotare la lista.
+  - Lo snapshot tiene ora timestamp e sorgente separati per posizioni e ordini.
+
+### Tecnico
+- Il messaggio Telegram escapa solo `& < >`, i tre caratteri documentati da Telegram. Con l'escape completo gli apostrofi diventavano `&#x27;` e comparivano tali e quali nel messaggio, perché le entità numeriche Telegram non le converte.
+- Il parser Flex ritenta sul report ancora in generazione — `SendRequest` restituisce un reference code, ma il documento non è pronto subito — e legge la data di riferimento dall'attributo `toDate` di `<FlexStatement>`, che è un attributo e non un elemento.
+- Nuove variabili: `IBKR_FLEX_TOKEN`, `IBKR_FLEX_QUERY_ID`, `IBKR_ORDERS_STALE_AFTER`.
+
 ## [1.17.0] — 2026-08-26
 
 ### Aggiunto

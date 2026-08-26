@@ -921,8 +921,16 @@
                         <td>${earningsBadge(o)}</td>
                     </tr>`;
             }).join('');
+            // Flex e gateway aggiornano a ritmi diversi: un unico "aggiornato
+            // alle 20:00" mentirebbe su una delle due metà.
+            const f = window.__ibkrFreshness || {};
+            const nota = f.stale
+                ? `<span style="color:#fbbf24;font-weight:600;"> · non aggiornati (${escapeHtml(f.reason || '')})</span>`
+                : (f.age_seconds != null
+                    ? `<span style="color:#778da9;font-weight:400;"> · ${Math.round(f.age_seconds / 3600)}h fa${f.source ? ' da ' + escapeHtml(f.source) : ''}</span>`
+                    : '');
             return `
-                <div class="ibkr-subtitle">Ordini pendenti (${orders.length})</div>
+                <div class="ibkr-subtitle">Ordini pendenti (${orders.length})${nota}</div>
                 <div class="ibkr-table-wrap"><table class="ibkr-table">
                     <tr><th>Titolo</th><th>Lato</th><th>Tipo</th><th class="num">Qtà</th>
                         <th class="num">Prezzo</th><th>Validità</th><th>Prossimi earnings</th></tr>
@@ -930,7 +938,7 @@
                 </table></div>`;
         }
 
-        function renderIbkrAlert(alert, symbols) {
+        function renderIbkrAlert(alert, symbols, freshness) {
             const box = document.getElementById('ibkrAlert');
             if (!alert) { box.innerHTML = ''; return; }
             const when = new Date(alert.target_date + 'T00:00:00')
@@ -952,6 +960,16 @@
                 html += `<div class="ibkr-alert calm" style="margin-top:-0.5rem;">
                     <i class="bi bi-question-circle me-1"></i>
                     Senza calendario earnings su FMP: <strong>${alert.unresolved.map(escapeHtml).join(', ')}</strong>
+                </div>`;
+            }
+            // Un alert costruito su ordini vecchi ha lo stesso aspetto di uno
+            // costruito su ordini veri: se non lo si dice, non si vede.
+            if (freshness && freshness.stale) {
+                html += `<div class="ibkr-alert calm" style="margin-top:-0.5rem;color:#fbbf24;border-color:rgba(251,191,36,0.4);">
+                    <i class="bi bi-clock-history me-1"></i>
+                    Ordini pendenti non aggiornati (${escapeHtml(freshness.reason || '')}):
+                    l'alert qui sopra copre le sole posizioni. Lancia
+                    <code>tools/ibkr_gateway_sync.py</code> col gateway acceso.
                 </div>`;
             }
             box.innerHTML = html;
@@ -1009,8 +1027,11 @@
                     document.getElementById('ibkrBody').innerHTML = renderIbkrSetup(data);
                     return;
                 }
-                document.getElementById('ibkrSynced').textContent = fmtSyncedAt(data.synced_at);
-                renderIbkrAlert(data.alert, data.alert_symbols || []);
+                window.__ibkrFreshness = data.orders_freshness || {};
+                const fonte = data.positions_source ? ` · posizioni da ${data.positions_source}` : '';
+                document.getElementById('ibkrSynced').textContent =
+                    fmtSyncedAt(data.positions_synced_at || data.synced_at) + fonte;
+                renderIbkrAlert(data.alert, data.alert_symbols || [], data.orders_freshness);
                 document.getElementById('ibkrBody').innerHTML =
                     renderIbkrPositions(positions) + renderIbkrOrders(orders);
             } catch (err) {

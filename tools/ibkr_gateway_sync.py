@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""Manda a Polaris gli ordini pendenti letti dal Client Portal Gateway di IBKR.
+
+È la metà locale dell'ibrido: il Flex Web Service gira sempre sul cron di
+Vercel ma le posizioni sono tutto quello che sa dare, mentre gli ordini di
+lavoro esistono solo nella sessione di brokeraggio. Questo script li prende dal
+gateway in esecuzione sulla tua macchina e li deposita su /api/ibkr/sync, che
+li fonde con le posizioni senza sovrascriverle.
+
+Prerequisiti
+------------
+1. Scarica il Client Portal Gateway da IBKR e avvialo:
+       bin/run.sh root/conf.yaml          (Linux/macOS)
+       bin\\run.bat root\\conf.yaml         (Windows)
+2. Apri https://localhost:5000 nel browser e fai login. La sessione dura circa
+   24h, quindi va rifatto ogni tanto: se lo script dice che non sei
+   autenticato, è questo che manca.
+3. Esporta il token di sync (lo stesso che sta su Vercel):
+       export IBKR_SYNC_TOKEN=...          # oppure lo legge da .env
+
+Uso
+---
+    python tools/ibkr_gateway_sync.py
+    python tools/ibkr_gateway_sync.py --with-positions   # manda anche le posizioni
+    python tools/ibkr_gateway_sync.py --notify           # e fa notificare l'alert
+
+Le posizioni di default NON vengono mandate: ci pensa il Flex, e sovrascriverle
+con quelle del gateway non aggiungerebbe niente. Servono solo se vuoi un dato
+intraday invece che di fine giornata.
+
+Per farlo girare da solo: Utilità di pianificazione di Windows, azione
+"Avvia programma" su pythonw.exe con questo script come argomento, ogni giorno
+alle 19:45 — prima del cron di Vercel, così gli ordini arrivano già freschi.
+"""
+
+import argparse
+import json
+import os
+import re
+import ssl
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+DEFAULT_GATEWAY = "https://localhost:5000/v1/api"
+DEFAULT_POLARIS = "https://es-gamma-analyzer.vercel.app"
+
+# Il gateway usa un certificato autofirmato su localhost. Disattivare la
+# verifica qui è accettabile — e solo qui: la connessione non esce dalla
+# macchina. Verso Polaris la verifica resta quella di sistema.
+_LOCAL_CTX = ssl.create_default_context()
+_LOCAL_CTX.check_hostname = False
+_LOCAL_CTX.verify_mode = ssl.CERT_NONE
+
+
+def http_json(url, method="GET", body=None, headers=None, context=None, timeout=25):
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    request = urllib.request.Request(url, data=data, method=method,
+                                     headers={"User-Agent": "polaris-gateway-sync/1.0",
+                                              **({"Content-Type": "application/json"} if data else {}),
+                                              **(headers or {})})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
+            raw = response.read().decode("utf-8", "replace")
+            return response.status, (json.loads(raw) if raw.strip() else None)
+    except urllib.error.HTTPError as error:
+        raw = error.read().decode("utf-8", "replace")
+        try:
+            return error.code, json.loads(raw)
+        except ValueError:
+            return error.code, raw
+    except Exception as error:  # gateway spento, DNS, timeout…
+        return 0, str(error)
+
+
+def read_sync_token(explicit):
+    if explicit:
+        return explicit
+    from_env = (os.getenv("IBKR_SYNC_TOKEN") or "").strip()
+    if from_env:
+        return from_env
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    if os.path.exists(env_path):
+        for line in open(env_path, encoding="utf-8"):
+            if line.strip().startswith("IBKR_SYNC_TOKEN="):
+                return line.split("=", 1)[1].strip()
+    return ""
+
+
+def ensure_authenticated(gateway):
+    """Verifica la sessione e tenta una riautenticazione se è scaduta."""
+    status, payload = http_json(f"{gateway}/iserver/auth/status", method="POST",
+                                context=_LOCAL_CTX)
+    if status == 0:
+        sys.exit(f"gateway non raggiungibile su {gateway}: è avviato?\n  ({payload})")
+    if isinstance(payload, dict) and payload.get("authenticated"):
+        return
+    # Sessione connessa ma non autenticata: succede dopo qualche ora.
+    http_json(f"{gateway}/iserver/reauthenticate", method="POST", context=_LOCAL_CTX)
+    status, payload = http_json(f"{gateway}/iserver/auth/status", method="POST",
+                                context=_LOCAL_CTX)
+    if not (isinstance(payload, dict) and payload.get("authenticated")):
+        sys.exit("gateway non autenticato: apri https://localhost:5000 e fai login")
+
+
+_ORDER_SYMBOL_RE = re.compile(r"^\s*(?:buy|sell)\s+[\d.,]+\s+(\S+)", re.IGNORECASE)
+
+
+def fetch_orders(gateway):
+    status, payload = http_json(f"{gateway}/iserver/account/orders", context=_LOCAL_CTX)
+    if status != 200 or not isinstance(payload, dict):
+        sys.exit(f"lettura ordini fallita (HTTP {status}): {str(payload)[:200]}")
+    out = []
+    for row in payload.get("orders") or []:
+        if not isinstance(row, dict):
+            continue
+        symbol = row.get("ticker")
+        if not symbol:
+            match = _ORDER_SYMBOL_RE.match(str(row.get("orderDesc") or ""))
+            symbol = match.group(1) if match else None
+        if not symbol:
+            continue
+        out.append({
+            "order_id": row.get("orderId"),
+            "symbol": symbol,
+            "name": row.get("companyName"),
+            "side": row.get("side"),
+            "order_type": row.get("orderType"),
+            "status": row.get("status"),
+            "quantity": row.get("totalSize"),
+            "remaining": row.get("remainingQuantity"),
+            "limit_price": row.get("price"),
+            "stop_price": row.get("auxPrice") or row.get("stop_price"),
+            "tif": row.get("timeInForce"),
+            "description": row.get("orderDesc"),
+            "exchange": row.get("listingExchange"),
+        })
+    return out
+
+
+def fetch_positions(gateway):
+    status, accounts = http_json(f"{gateway}/portfolio/accounts", context=_LOCAL_CTX)
+    if status != 200 or not isinstance(accounts, list) or not accounts:
+        sys.exit(f"nessun account dal gateway (HTTP {status})")
+    account_id = accounts[0].get("accountId") or accounts[0].get("id")
+    out, page = [], 0
+    while page < 10:
+        status, rows = http_json(f"{gateway}/portfolio/{account_id}/positions/{page}",
+                                 context=_LOCAL_CTX)
+        if status != 200 or not isinstance(rows, list) or not rows:
+            break
+        for row in rows:
+            symbol = row.get("ticker") or row.get("contractDesc")
+            if not symbol:
+                continue
+            out.append({
+                "symbol": symbol,
+                "name": row.get("name") or row.get("contractDesc"),
+                "quantity": row.get("position"),
+                "avg_price": row.get("avgPrice"),
+                "market_price": row.get("mktPrice"),
+                "market_value": row.get("mktValue"),
+                "unrealized_pnl": row.get("unrealizedPnl"),
+                "currency": row.get("currency"),
+                "asset_class": row.get("assetClass"),
+                "exchange": row.get("listingExchange"),
+            })
+        if len(rows) < 30:
+            break
+        page += 1
+    return out
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--gateway", default=os.getenv("IBKR_GATEWAY_URL") or DEFAULT_GATEWAY)
+    parser.add_argument("--polaris", default=os.getenv("POLARIS_BASE_URL") or DEFAULT_POLARIS)
+    parser.add_argument("--token", default=None, help="IBKR_SYNC_TOKEN (default: env o .env)")
+    parser.add_argument("--with-positions", action="store_true",
+                        help="manda anche le posizioni, sovrascrivendo quelle del Flex")
+    parser.add_argument("--notify", action="store_true",
+                        help="fai calcolare e notificare subito l'alert del giorno dopo")
+    args = parser.parse_args()
+
+    token = read_sync_token(args.token)
+    if not token:
+        sys.exit("IBKR_SYNC_TOKEN non trovato: passalo con --token o mettilo in .env")
+
+    ensure_authenticated(args.gateway)
+    payload = {"orders": fetch_orders(args.gateway), "source": "gateway"}
+    if args.with_positions:
+        payload["positions"] = fetch_positions(args.gateway)
+    if args.notify:
+        payload["notify"] = True
+
+    status, response = http_json(
+        f"{args.polaris.rstrip('/')}/api/ibkr/sync", method="POST", body=payload,
+        headers={"Authorization": f"Bearer {token}"}, timeout=60)
+    if status != 200:
+        sys.exit(f"sync fallita (HTTP {status}): {str(response)[:300]}")
+
+    alert = response.get("alert") or {}
+    print(f"aggiornato: {', '.join(response.get('updated') or [])}")
+    print(f"ordini vivi: {response.get('live_orders')} su {response.get('orders')}")
+    print(f"posizioni in archivio: {response.get('positions')}")
+    print(f"earnings {alert.get('target_date')}: {alert.get('count')} "
+          f"{', '.join(i['symbol'] for i in alert.get('items') or []) or '—'}")
+    if args.notify:
+        print(f"telegram: {response.get('telegram')}")
+
+
+if __name__ == "__main__":
+    main()

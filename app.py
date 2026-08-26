@@ -9942,8 +9942,14 @@ def _ibkr_order_line(order: dict) -> str:
 
 def _ibkr_alert_telegram_text(alert: dict) -> str:
     """Messaggio Telegram in HTML (parse_mode=HTML): niente Markdown, che
-    inciampa sui punti e sugli underscore dei ticker."""
-    esc = _html.escape
+    inciampa sui punti e sugli underscore dei ticker.
+
+    Si escapano solo & < >, cioè i tre caratteri che Telegram documenta: con
+    `quote=True` gli apostrofi diventerebbero `&#x27;` e Telegram le entità
+    numeriche non le converte, quindi si leggerebbero tali e quali.
+    """
+    def esc(value):
+        return _html.escape(str(value), quote=False)
     header = f"📅 <b>Earnings {_ibkr_format_date_it(alert.get('target_date'))}</b>"
     if not alert.get("count"):
         lines = [header, "", "Nessun titolo in portafoglio o con ordini pendenti riporta."]
@@ -9972,6 +9978,10 @@ def _ibkr_alert_telegram_text(alert: dict) -> str:
     if alert.get("unresolved"):
         lines.append("")
         lines.append("⚠️ Senza calendario earnings: " + esc(", ".join(alert["unresolved"])))
+    stale = _ibkr_stale_orders_note(alert)
+    if stale:
+        lines.append("")
+        lines.append("🕒 " + esc(stale))
     return "\n".join(lines)
 
 
@@ -10027,6 +10037,12 @@ def _ibkr_alert_email_html(alert: dict) -> str:
             '<p style="color:#fbbf24;font-size:12px;margin-top:16px;">⚠️ Senza calendario '
             f'earnings su FMP: {esc(", ".join(alert["unresolved"]))}</p>'
         )
+    stale = _ibkr_stale_orders_note(alert)
+    if stale:
+        warning += (
+            '<p style="color:#fbbf24;font-size:12px;margin-top:10px;">🕒 '
+            f'{esc(stale)}</p>'
+        )
 
     return (
         '<div style="background:#0d1b2a;padding:24px;font-family:-apple-system,'
@@ -10054,15 +10070,30 @@ def _ibkr_alert_subject(alert: dict) -> str:
     return f"Polaris · earnings {label}: {symbols}"
 
 
-def _ibkr_alert_with_rendering(alert: dict) -> dict:
-    """Aggiunge all'alert i tre formati pronti da spedire, così il job
-    schedulato non deve reimpaginare niente."""
+def _ibkr_alert_with_rendering(alert: dict, orders_freshness: Optional[dict] = None) -> dict:
+    """Aggiunge all'alert i tre formati pronti da spedire, così chi lo riceve
+    non deve reimpaginare niente.
+
+    `orders_freshness` viene dall'ibrido Flex + gateway: se gli ordini sono
+    vecchi il messaggio deve dirlo, perché un alert costruito su ordini
+    stantii ha esattamente lo stesso aspetto di uno costruito su ordini veri.
+    """
+    enriched = {**alert, "orders_freshness": orders_freshness}
     return {
-        **alert,
-        "subject": _ibkr_alert_subject(alert),
-        "telegram_text": _ibkr_alert_telegram_text(alert),
-        "email_html": _ibkr_alert_email_html(alert),
+        **enriched,
+        "subject": _ibkr_alert_subject(enriched),
+        "telegram_text": _ibkr_alert_telegram_text(enriched),
+        "email_html": _ibkr_alert_email_html(enriched),
     }
+
+
+def _ibkr_stale_orders_note(alert: dict) -> Optional[str]:
+    """Avviso da mostrare quando la lista ordini non è aggiornata."""
+    freshness = alert.get("orders_freshness") or {}
+    if not freshness.get("stale"):
+        return None
+    reason = freshness.get("reason") or "aggiornamento sconosciuto"
+    return f"Ordini pendenti non aggiornati ({reason}): l'alert copre le sole posizioni."
 
 
 def _ibkr_maybe_notify(alert: dict, data: dict) -> dict:
@@ -10124,17 +10155,181 @@ def _ibkr_load_snapshot(owner_email: str) -> Optional[dict]:
         return None
 
 
+# Oltre questa soglia gli ordini vengono dichiarati vecchi. Il gateway locale
+# gira solo quando il PC è acceso, quindi capita che la lista non si aggiorni
+# per un giorno: va detto, perché un alert calcolato su ordini stantii sembra
+# aggiornato quanto uno vero.
+_IBKR_ORDERS_STALE_AFTER_SECONDS = int(
+    (os.getenv("IBKR_ORDERS_STALE_AFTER") or "129600").strip() or 129600)  # 36h
+
+
+def _ibkr_orders_staleness(doc: Optional[dict]) -> dict:
+    """Da quanto non arrivano gli ordini, e se è troppo."""
+    if not doc:
+        return {"synced_at": None, "age_seconds": None, "stale": True,
+                "source": None, "reason": "nessuno snapshot"}
+    synced_at = doc.get("orders_synced_at") or doc.get("synced_at")
+    if not doc.get("orders"):
+        return {"synced_at": synced_at, "age_seconds": None, "stale": True,
+                "source": doc.get("orders_source"),
+                "reason": "nessun ordine mai ricevuto"}
+    if not synced_at:
+        return {"synced_at": None, "age_seconds": None, "stale": True,
+                "source": doc.get("orders_source"), "reason": "data ignota"}
+    age = max(0.0, time.time() - float(synced_at))
+    stale = age > _IBKR_ORDERS_STALE_AFTER_SECONDS
+    return {"synced_at": synced_at, "age_seconds": age, "stale": stale,
+            "source": doc.get("orders_source"),
+            "reason": f"ultimo aggiornamento {age / 3600:.0f}h fa" if stale else None}
+
+
+def _ibkr_store_snapshot(owner_email: str, positions: Optional[List[dict]] = None,
+                         orders: Optional[List[dict]] = None,
+                         source: str = "sync") -> Optional[dict]:
+    """Salva lo snapshot fondendo, non sostituendo.
+
+    Posizioni e ordini arrivano da due sorgenti diverse e con ritmi diversi —
+    il Flex Web Service copre solo le posizioni e gira sempre, il gateway
+    locale porta anche gli ordini ma solo a PC acceso. Se ogni scrittura
+    sostituisse il documento intero, il giro notturno del Flex cancellerebbe
+    ogni sera gli ordini raccolti di giorno.
+
+    Ritorna lo snapshot risultante, o None se Mongo non è disponibile.
+    """
+    coll = _get_mongo_ibkr_collection()
+    if coll is None or not owner_email:
+        return None
+    existing = _ibkr_load_snapshot(owner_email) or {}
+    now = time.time()
+
+    merged = {
+        "positions": existing.get("positions") or [],
+        "orders": existing.get("orders") or [],
+    }
+    update = {"owner_email": owner_email, "synced_at": now}
+    if positions is not None:
+        merged["positions"] = positions
+        update.update({"positions": positions, "positions_synced_at": now,
+                       "positions_source": source})
+    if orders is not None:
+        merged["orders"] = orders
+        update.update({"orders": orders, "orders_synced_at": now,
+                       "orders_source": source})
+
+    # Le date earnings si ricalcolano sull'unione: un titolo può entrare nello
+    # snapshot da una sorgente e uscirne dall'altra.
+    earnings = _ibkr_earnings_map(merged)
+    update["earnings"] = earnings
+    try:
+        coll.update_one({"owner_email": owner_email}, {"$set": update}, upsert=True)
+    except Exception:
+        return None
+    return {**existing, **update, **merged}
+
+
+# ---------------------------------------------------------------------------
+# Flex Web Service — solo posizioni, ma senza niente da tenere acceso
+# ---------------------------------------------------------------------------
+# È il ripiego all'OAuth: un token annuale e due GET, nessun gateway e nessun
+# login. In cambio il Flex non espone gli ordini di lavoro e i dati sono di
+# fine giornata — per gli ordini serve il gateway locale.
+
+_FLEX_BASE = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService"
+
+
+def _flex_get(url: str) -> Optional[str]:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "polaris/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.read().decode("utf-8", "replace")
+    except Exception:
+        return None
+
+
+def _flex_xml_text(xml: str, tag: str) -> Optional[str]:
+    match = re.search(rf"<{tag}>(.*?)</{tag}>", xml, re.S | re.I)
+    return match.group(1).strip() if match else None
+
+
+def _flex_fetch_positions() -> dict:
+    """Posizioni aperte dal Flex Web Service.
+
+    Il report non è pronto subito: si chiede la generazione, si riceve un
+    reference code e si ripassa a ritirarlo. Ritorna {"positions"} o {"error"}.
+    """
+    token = _ibkr_api_env("IBKR_FLEX_TOKEN")
+    query_id = _ibkr_api_env("IBKR_FLEX_QUERY_ID")
+    if not token or not query_id:
+        return {"error": "IBKR_FLEX_TOKEN / IBKR_FLEX_QUERY_ID non configurati"}
+
+    sent = _flex_get(f"{_FLEX_BASE}/SendRequest?"
+                     + urllib.parse.urlencode({"t": token, "q": query_id, "v": "3"}))
+    if not sent:
+        return {"error": "Flex SendRequest irraggiungibile"}
+    if (_flex_xml_text(sent, "Status") or "").lower() != "success":
+        return {"error": "Flex SendRequest: "
+                         + (_flex_xml_text(sent, "ErrorMessage") or sent[:200])}
+    reference = _flex_xml_text(sent, "ReferenceCode")
+    base_url = _flex_xml_text(sent, "Url") or f"{_FLEX_BASE}/GetStatement"
+    if not reference:
+        return {"error": "Flex: nessun ReferenceCode nella risposta"}
+
+    statement = None
+    for attempt in range(6):
+        # Prima attesa più lunga: chiedere subito il report è quasi sempre
+        # inutile e IBKR limita le richieste ravvicinate.
+        time.sleep(4 if attempt == 0 else 6)
+        body = _flex_get(base_url + "?"
+                         + urllib.parse.urlencode({"t": token, "q": reference, "v": "3"}))
+        if not body:
+            continue
+        if "<FlexQueryResponse" in body:
+            statement = body
+            break
+        # Ancora in generazione: la risposta è di nuovo un FlexStatementResponse.
+        if "<FlexStatementResponse" not in body:
+            return {"error": "Flex GetStatement: risposta inattesa " + body[:200]}
+    if statement is None:
+        return {"error": "Flex: report non pronto dopo 6 tentativi"}
+
+    positions = []
+    for match in re.finditer(r"<OpenPosition\b([^>]*?)/?>", statement, re.S):
+        attrs = dict(re.findall(r'(\w+)="([^"]*)"', match.group(1)))
+        symbol = (attrs.get("symbol") or "").strip()
+        if not symbol:
+            continue
+        positions.append({
+            "symbol": symbol,
+            "name": attrs.get("description") or None,
+            "quantity": _ibkr_num(attrs.get("position")),
+            "avg_price": _ibkr_num(attrs.get("costBasisPrice") or attrs.get("openPrice")),
+            "market_price": _ibkr_num(attrs.get("markPrice")),
+            "market_value": _ibkr_num(attrs.get("positionValue")),
+            "unrealized_pnl": _ibkr_num(attrs.get("fifoPnlUnrealized")),
+            "currency": (attrs.get("currency") or "").upper() or None,
+            "asset_class": (attrs.get("assetCategory") or "").upper() or None,
+            "exchange": (attrs.get("listingExchange") or "").upper() or None,
+        })
+    # La data del report è un attributo di <FlexStatement>, non un elemento:
+    # serve a dire in pagina quanto è vecchio il dato, visto che il Flex è di
+    # fine giornata e non intraday.
+    report_date = re.search(r'<FlexStatement\b[^>]*\btoDate="([^"]*)"', statement)
+    return {"positions": positions,
+            "report_date": report_date.group(1) if report_date else None}
+
+
 @app.route('/api/ibkr/sync', methods=['POST'])
 def api_ibkr_sync():
-    """Ingest dello snapshot IBKR dal job schedulato.
+    """Ingest dello snapshot IBKR, anche parziale.
 
     Body: {"positions": [...], "orders": [...], "notify": bool,
-           "owner_email": "..."}. Autenticazione con bearer token
-    (IBKR_SYNC_TOKEN), non con la sessione: il job gira headless.
+           "owner_email": "...", "source": "gateway"}. L'autenticazione è col
+    bearer token `IBKR_SYNC_TOKEN`, non con la sessione: chi chiama gira
+    headless.
 
-    Con notify=true calcola l'alert del giorno dopo e lo manda su Telegram;
-    la risposta contiene comunque l'alert già impaginato, così il chiamante
-    può spedire la mail senza rifare i conti.
+    Le due liste sono indipendenti: mandare solo `orders` aggiorna gli ordini e
+    lascia intatte le posizioni, e viceversa. Serve all'ibrido Flex + gateway,
+    dove le due metà arrivano da sorgenti diverse e con ritmi diversi.
     """
     if not _ibkr_sync_authorized():
         return jsonify({"error": "unauthorized"}), 401
@@ -10144,32 +10339,25 @@ def api_ibkr_sync():
         return jsonify({"error": "owner_email mancante e nessun default configurato "
                                  "(IBKR_SYNC_USER_EMAIL o ADMIN_EMAILS)"}), 400
 
-    snapshot = _ibkr_normalize_payload(data)
-    if not snapshot["positions"] and not snapshot["orders"]:
-        return jsonify({"error": "payload vuoto: nessuna posizione né ordine valido"}), 400
+    # Chiave assente = "non ho notizie", chiave presente ma vuota = "non c'è
+    # più niente". Sono due cose diverse e vanno distinte, altrimenti un
+    # gateway che non trova ordini non riuscirebbe mai a svuotare la lista.
+    normalized = _ibkr_normalize_payload(data)
+    positions = normalized["positions"] if "positions" in data else None
+    orders = normalized["orders"] if "orders" in data else None
+    if positions is None and orders is None:
+        return jsonify({"error": "payload senza né 'positions' né 'orders'"}), 400
 
-    earnings = _ibkr_earnings_map(snapshot)
-    alert = _ibkr_alert_with_rendering(_ibkr_earnings_alert(snapshot, earnings=earnings))
+    source = _ibkr_str(data.get("source"), 24) or "sync"
+    merged = _ibkr_store_snapshot(owner_email, positions, orders, source=source)
+    if merged is None:
+        return jsonify({"error": "mongo non disponibile: snapshot non salvato"}), 503
 
-    coll = _get_mongo_ibkr_collection()
-    stored = False
-    if coll is not None:
-        try:
-            coll.update_one(
-                {"owner_email": owner_email},
-                {"$set": {
-                    "owner_email": owner_email,
-                    "positions": snapshot["positions"],
-                    "orders": snapshot["orders"],
-                    "earnings": earnings,
-                    "synced_at": time.time(),
-                }},
-                upsert=True,
-            )
-            stored = True
-        except Exception:
-            stored = False
-
+    snapshot = {"positions": merged["positions"], "orders": merged["orders"]}
+    freshness = _ibkr_orders_staleness(merged)
+    alert = _ibkr_alert_with_rendering(
+        _ibkr_earnings_alert(snapshot, earnings=merged.get("earnings")),
+        orders_freshness=freshness)
     telegram = _ibkr_maybe_notify(alert, data)
 
     return jsonify({
@@ -10178,10 +10366,13 @@ def api_ibkr_sync():
         # Il chiamante manda la mail solo se c'è qualcosa da mandare: stessa
         # soglia della notifica Telegram, così i due canali non divergono.
         "should_email": bool(alert["count"]) or bool(data.get("notify_always")),
-        "stored": stored,
+        "stored": True,
+        "updated": [k for k, v in (("positions", positions), ("orders", orders))
+                    if v is not None],
         "positions": len(snapshot["positions"]),
         "orders": len(snapshot["orders"]),
         "live_orders": sum(1 for o in snapshot["orders"] if o.get("is_live")),
+        "orders_freshness": freshness,
         "telegram": telegram,
         "alert": alert,
     })
@@ -10232,6 +10423,12 @@ def api_ibkr_snapshot():
         "positions": enriched["positions"],
         "orders": enriched["orders"],
         "synced_at": doc.get("synced_at"),
+        "positions_synced_at": doc.get("positions_synced_at"),
+        "positions_source": doc.get("positions_source"),
+        # La pagina deve poter dire da dove viene ogni metà e quanto è vecchia:
+        # con Flex e gateway che aggiornano a ritmi diversi, un unico "aggiornato
+        # alle 20:00" sarebbe fuorviante su una delle due.
+        "orders_freshness": _ibkr_orders_staleness(doc),
         "alert": {k: alert[k] for k in ("target_date", "count", "unresolved")},
         "alert_symbols": [i["symbol"] for i in alert["items"]],
     })
@@ -10275,7 +10472,8 @@ def api_ibkr_earnings_alert():
     snapshot = {"positions": doc.get("positions") or [], "orders": doc.get("orders") or []}
     earnings = doc.get("earnings") if isinstance(doc.get("earnings"), dict) else None
     alert = _ibkr_alert_with_rendering(
-        _ibkr_earnings_alert(snapshot, target=target, earnings=earnings))
+        _ibkr_earnings_alert(snapshot, target=target, earnings=earnings),
+        orders_freshness=_ibkr_orders_staleness(doc))
 
     telegram = _ibkr_maybe_notify(alert, data)
 
@@ -10762,32 +10960,52 @@ def _send_alert_email(subject: str, html_body: str, to_address: str) -> dict:
 # Rotte
 # ---------------------------------------------------------------------------
 
+def _ibkr_fetch_positions_any_source() -> dict:
+    """Posizioni dalla sorgente migliore disponibile.
+
+    La Web API OAuth, se mai verrà abilitata sul conto, porta anche gli ordini
+    e va preferita. Altrimenti si ripiega sul Flex Web Service, che di
+    posizioni ne dà quante ne servono ma di ordini niente.
+    """
+    if _ibkr_api_configured():
+        fetched = _ibkr_api_fetch_snapshot()
+        if not fetched.get("error"):
+            return {**fetched, "source": "webapi"}
+        webapi_error = fetched["error"]
+    else:
+        webapi_error = None
+
+    flex = _flex_fetch_positions()
+    if flex.get("error"):
+        return {"error": flex["error"], "webapi_error": webapi_error}
+    return {"positions": flex["positions"], "orders": None,
+            "report_date": flex.get("report_date"), "source": "flex",
+            "webapi_error": webapi_error}
+
+
 def _ibkr_run_daily_job(notify_always: bool = False) -> dict:
-    """Il giro completo: legge IBKR, salva lo snapshot, calcola l'alert del
-    giorno dopo e notifica. È il cuore del cron e della sync manuale."""
-    fetched = _ibkr_api_fetch_snapshot()
+    """Il giro completo: aggiorna le posizioni, calcola l'alert del giorno dopo
+    e notifica. Gli ordini non li tocca a meno che la sorgente non li porti —
+    restano quelli depositati dal gateway locale, dichiarando quanto sono
+    vecchi invece di far finta che siano freschi."""
+    fetched = _ibkr_fetch_positions_any_source()
     if fetched.get("error"):
-        return {"status": "error", "error": fetched["error"]}
+        return {"status": "error", "error": fetched["error"],
+                "webapi_error": fetched.get("webapi_error")}
 
-    snapshot = _ibkr_normalize_payload(fetched)
     owner_email = _ibkr_default_owner_email()
-    earnings = _ibkr_earnings_map(snapshot)
-    alert = _ibkr_alert_with_rendering(_ibkr_earnings_alert(snapshot, earnings=earnings))
+    normalized = _ibkr_normalize_payload(fetched)
+    orders = normalized["orders"] if fetched.get("orders") is not None else None
+    merged = _ibkr_store_snapshot(owner_email, normalized["positions"], orders,
+                                  source=fetched.get("source") or "cron")
+    if merged is None:
+        return {"status": "error", "error": "mongo non disponibile: snapshot non salvato"}
 
-    stored = False
-    coll = _get_mongo_ibkr_collection()
-    if coll is not None and owner_email:
-        try:
-            coll.update_one(
-                {"owner_email": owner_email},
-                {"$set": {"owner_email": owner_email, "positions": snapshot["positions"],
-                          "orders": snapshot["orders"], "earnings": earnings,
-                          "synced_at": time.time(), "source": "webapi"}},
-                upsert=True,
-            )
-            stored = True
-        except Exception:
-            stored = False
+    snapshot = {"positions": merged["positions"], "orders": merged["orders"]}
+    freshness = _ibkr_orders_staleness(merged)
+    alert = _ibkr_alert_with_rendering(
+        _ibkr_earnings_alert(snapshot, earnings=merged.get("earnings")),
+        orders_freshness=freshness)
 
     should_notify = bool(alert["count"]) or notify_always
     telegram = _ibkr_maybe_notify(alert, {"notify": True, "notify_always": notify_always})
@@ -10799,11 +11017,13 @@ def _ibkr_run_daily_job(notify_always: bool = False) -> dict:
 
     return {
         "status": "ok",
+        "source": fetched.get("source"),
         "account_id": fetched.get("account_id"),
         "positions": len(snapshot["positions"]),
         "orders": len(snapshot["orders"]),
         "live_orders": sum(1 for o in snapshot["orders"] if o.get("is_live")),
-        "stored": stored,
+        "orders_freshness": freshness,
+        "stored": True,
         "target_date": alert["target_date"],
         "count": alert["count"],
         "symbols": [i["symbol"] for i in alert["items"]],
