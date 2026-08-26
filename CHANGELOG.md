@@ -16,7 +16,9 @@ La versione mostrata nell'header dell'app è letta direttamente da questo file: 
 
 ### Tecnico
 - Nuova rotta `GET /api/ibkr/holdings`: unisce posizioni, ordini vivi raggruppati per simbolo e analisi Damodaran, calcolata in parallelo su 8 thread come `/api/portfolio`. Riusa il simbolo FMP già risolto per gli earnings invece di ritradurlo. `?analyze=0` salta i fondamentali.
-- La pagina fa le due chiamate in parallelo: lo snapshot è istantaneo e porta l'alert, le schede passano da FMP e non devono ritardarlo. L'ultima risposta resta in memoria, così cambiare ordinamento non rifà una ventina di chiamate.
+- La pagina fa tre chiamate in parallelo e disegna in due tempi: le schede compaiono appena arriva la versione senza fondamentali — che viene solo da Mongo, 0,05s — e si ridisegnano quando arriva quella con l'analisi. Tenere la pagina vuota per secondi in attesa di FMP non avrebbe avuto senso, e se l'analisi fallisce le schede restano quelle di prima invece di sparire.
+- Le analisi sono in cache 6h (`IBKR_ANALYSIS_TTL`): ogni titolo sono tre chiamate a FMP e la pagina ne chiede una ventina insieme, con il rischio concreto di sbattere contro il tetto di durata della funzione. Misurato in locale: 20 chiamate al primo caricamento, zero al secondo. Gli errori restano in cache un decimo del tempo, così un FMP momentaneamente giù non congela un titolo su "non disponibile" per sei ore.
+- L'ultima risposta resta in memoria nella pagina, così cambiare ordinamento non rifà nulla.
 
 ## [1.18.1] — 2026-08-26
 

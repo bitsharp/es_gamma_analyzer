@@ -1205,16 +1205,19 @@
                 <div class="spinner-border spinner-border-sm" role="status"></div>
                 <span class="ms-2" style="font-size:0.88rem;">Carico posizioni e analisi…</span></div>`;
             try {
-                // Snapshot e schede sono due chiamate: la prima è istantanea e
-                // porta l'alert, la seconda passa da FMP per l'analisi di una
-                // ventina di titoli e vale la pena non farla bloccare l'alert.
-                const [snapRes, holdRes] = await Promise.all([
-                    fetch('/api/ibkr/snapshot' + (refresh ? '?refresh=1' : '')),
-                    fetch('/api/ibkr/holdings'),
-                ]);
+                // Tre chiamate in parallelo. Le schede si disegnano appena
+                // arriva la versione senza fondamentali — che è immediata,
+                // viene solo da Mongo — e si ridisegnano quando arriva quella
+                // con l'analisi, che passa da FMP per una ventina di titoli.
+                // Aspettare la seconda per mostrare la prima sarebbe tenere
+                // la pagina vuota per secondi senza motivo.
+                const snapPromise = fetch('/api/ibkr/snapshot' + (refresh ? '?refresh=1' : ''));
+                const fastPromise = fetch('/api/ibkr/holdings?analyze=0');
+                const fullPromise = fetch('/api/ibkr/holdings');
+
+                const snapRes = await snapPromise;
                 if (!snapRes.ok) throw new Error('HTTP ' + snapRes.status);
                 const snap = await snapRes.json();
-                const hold = holdRes.ok ? await holdRes.json() : { positions: [], orders_only: [] };
 
                 if (!(snap.positions || []).length && !(snap.orders || []).some(o => o.is_live)) {
                     document.getElementById('ibkrSynced').textContent = 'in attesa della prima sync';
@@ -1224,14 +1227,29 @@
                     return;
                 }
                 window.__ibkrFreshness = snap.orders_freshness || {};
-                window.__ibkrBase = hold.base_currency || 'EUR';
                 const fonte = snap.positions_source ? ` · posizioni da ${snap.positions_source}` : '';
                 document.getElementById('ibkrSynced').textContent =
                     fmtSyncedAt(snap.positions_synced_at || snap.synced_at) + fonte;
                 renderIbkrAlert(snap.alert, snap.alert_symbols || [], snap.orders_freshness);
                 document.getElementById('ibkrSortBar').style.display = 'flex';
-                lastIbkr = hold;
-                paintIbkr();
+
+                const fastRes = await fastPromise;
+                if (fastRes.ok) {
+                    const fast = await fastRes.json();
+                    window.__ibkrBase = fast.base_currency || 'EUR';
+                    lastIbkr = fast;
+                    paintIbkr();
+                }
+                // L'analisi arriva dopo e ridisegna. Se fallisce, le schede
+                // restano quelle di prima: perdere i fondamentali non deve
+                // far sparire quantità, carico e ordini.
+                fullPromise.then(async res => {
+                    if (!res.ok) return;
+                    const full = await res.json();
+                    window.__ibkrBase = full.base_currency || 'EUR';
+                    lastIbkr = full;
+                    paintIbkr();
+                }).catch(() => {});
             } catch (err) {
                 // Lo snapshot IBKR è un di più: se non arriva, il portafoglio
                 // manuale sotto deve restare perfettamente utilizzabile.

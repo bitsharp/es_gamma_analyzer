@@ -10519,6 +10519,34 @@ def api_ibkr_snapshot():
     })
 
 
+_IBKR_ANALYSIS_CACHE: Dict[str, dict] = {}
+_IBKR_ANALYSIS_TTL_SECONDS = int(
+    (os.getenv("IBKR_ANALYSIS_TTL") or "21600").strip() or 21600)  # 6h
+
+
+def _analyze_portfolio_ticker_cached(fmp_symbol: str) -> dict:
+    """`_analyze_portfolio_ticker` con cache in memoria.
+
+    Ogni analisi sono tre chiamate a FMP, e la pagina ne chiede una ventina in
+    un colpo: senza cache ogni ricaricamento pagherebbe l'intero costo, con il
+    rischio concreto di sbattere contro il tetto di durata della funzione.
+    I fondamentali si muovono per trimestri, quindi 6h di cache non costano
+    nulla in accuratezza.
+    """
+    cached = _IBKR_ANALYSIS_CACHE.get(fmp_symbol)
+    now = time.time()
+    if cached and (now - cached["ts"]) < _IBKR_ANALYSIS_TTL_SECONDS:
+        return cached["value"]
+    value = _analyze_portfolio_ticker(fmp_symbol, None)
+    # Gli errori si mettono in cache per un decimo del tempo: se FMP era solo
+    # momentaneamente giù, non deve restare "non disponibile" per sei ore.
+    _IBKR_ANALYSIS_CACHE[fmp_symbol] = {
+        "ts": now if not value.get("error") else now - _IBKR_ANALYSIS_TTL_SECONDS * 0.9,
+        "value": value,
+    }
+    return value
+
+
 @app.route('/api/ibkr/holdings', methods=['GET'])
 @login_required
 def api_ibkr_holdings():
@@ -10590,7 +10618,7 @@ def api_ibkr_holdings():
         targets = rows + orders_only
         with ThreadPoolExecutor(max_workers=8) as executor:
             analyses = list(executor.map(
-                lambda r: (_analyze_portfolio_ticker(r["fmp_symbol"], None)
+                lambda r: (_analyze_portfolio_ticker_cached(r["fmp_symbol"])
                            if r.get("fmp_symbol") else
                            {"ticker": r["symbol"], "error": "simbolo non risolto su FMP"}),
                 targets,
