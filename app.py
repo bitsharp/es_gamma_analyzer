@@ -25,6 +25,8 @@ from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 import re
 import hmac
+import base64
+import hashlib
 import importlib.util
 import sys
 from functools import wraps
@@ -376,7 +378,7 @@ def _require_login():
     # non ha un cookie di sessione da presentare, si autentica col bearer token
     # condiviso. Il controllo vero resta dentro la rotta — qui si evita solo che
     # la guardia di sessione risponda 401 prima che la rotta veda la richiesta.
-    if path.startswith('/api/ibkr/') and _ibkr_sync_authorized():
+    if path.startswith('/api/ibkr/') and _ibkr_cron_authorized():
         return None
 
     if _is_authenticated():
@@ -10276,6 +10278,591 @@ def api_ibkr_earnings_alert():
     return jsonify({"owner_email": owner_email, "synced_at": doc.get("synced_at"),
                     "should_email": bool(alert["count"]) or bool(data.get("notify_always")),
                     "telegram": telegram, "alert": alert})
+
+
+# ============================================================================
+# IBKR WEB API — OAuth 1.0a first party
+# ============================================================================
+#
+# Con le credenziali OAuth generate dal Self-Service Portal l'app legge IBKR da
+# sola: niente gateway, niente sessione Claude, niente PC acceso. Il flusso è
+# quello documentato da IBKR e non è OAuth standard — c'è di mezzo uno scambio
+# Diffie-Hellman:
+#
+#   1. si firma RSA-SHA256 una POST a /oauth/live_session_token, mettendo in
+#      testa alla base string il token secret decifrato (il "prepend");
+#   2. dalla risposta si ricava il segreto condiviso DH e da lì il live session
+#      token, valido 24h;
+#   3. tutte le chiamate successive si firmano HMAC-SHA256 con quel token;
+#   4. gli endpoint /iserver vogliono in più una brokerage session aperta.
+#
+# Il passo di request/access token del protocollo OAuth NON va fatto: per il
+# first party quei valori arrivano dal portale, e chiamarlo darebbe errore.
+
+_IBKR_API_BASE = "https://api.ibkr.com/v1/api"
+_IBKR_API_TIMEOUT = 20
+
+_MONGO_IBKR_SESSION_COLLECTION = None
+
+# Il live session token vale 24h: tenerlo in memoria basterebbe con un processo
+# lungo, ma su Vercel ogni cold start ripartirebbe da capo rifacendo l'handshake
+# (che è la parte lenta e con rate limit). Quindi memoria + Mongo.
+_IBKR_LST_CACHE: Dict[str, Any] = {"token": None, "expires_ms": 0, "cookie": None}
+
+
+def _get_mongo_ibkr_session_collection():
+    """Lazy getter per il live session token OAuth.
+
+    Il token è un segreto a 24h: sta su Mongo, cioè nello stesso perimetro di
+    fiducia della connection string che ci arriva già dall'ambiente.
+    """
+    global _MONGO_CLIENT, _MONGO_IBKR_SESSION_COLLECTION
+    if _MONGO_IBKR_SESSION_COLLECTION is not None:
+        return _MONGO_IBKR_SESSION_COLLECTION
+    if MongoClient is None:
+        return None
+    uri = (os.getenv("MONGODB_URI") or "").strip()
+    if not uri:
+        return None
+    db_name = (os.getenv("MONGODB_DB") or "es_gamma_analyzer").strip()
+    coll_name = (os.getenv("MONGODB_IBKR_SESSION_COLLECTION") or "ibkr_session").strip()
+    try:
+        if _MONGO_CLIENT is None:
+            _MONGO_CLIENT = MongoClient(uri, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+        coll = _MONGO_CLIENT[db_name][coll_name]
+        try:
+            coll.create_index("key", unique=True)
+        except Exception:
+            pass
+        _MONGO_IBKR_SESSION_COLLECTION = coll
+        return coll
+    except Exception:
+        return None
+
+
+def _ibkr_api_env(name: str, default: str = "") -> str:
+    return (os.getenv(name) or default).strip()
+
+
+def _ibkr_api_private_key(name: str):
+    """Legge una chiave privata RSA da variabile d'ambiente.
+
+    Accetta il PEM così com'è, con i newline resi come `\\n` (come capita
+    incollandolo in un pannello web) oppure l'intero PEM in base64. Le tre forme
+    circolano tutte, e sbagliare formato qui produce un errore di firma
+    incomprensibile trecento righe più avanti.
+    """
+    raw = _ibkr_api_env(name)
+    if not raw:
+        return None
+    if "-----BEGIN" not in raw:
+        try:
+            raw = base64.b64decode(raw).decode("utf-8")
+        except Exception:
+            return None
+    pem = raw.replace("\\n", "\n").strip().encode("utf-8")
+    try:
+        from cryptography.hazmat.primitives import serialization
+        return serialization.load_pem_private_key(pem, password=None)
+    except Exception:
+        return None
+
+
+def _ibkr_api_configured() -> bool:
+    return all([
+        _ibkr_api_env("IBKR_CONSUMER_KEY"),
+        _ibkr_api_env("IBKR_ACCESS_TOKEN"),
+        _ibkr_api_env("IBKR_ACCESS_TOKEN_SECRET"),
+        _ibkr_api_env("IBKR_DH_PRIME"),
+        _ibkr_api_private_key("IBKR_SIGNATURE_KEY") is not None,
+        _ibkr_api_private_key("IBKR_ENCRYPTION_KEY") is not None,
+    ])
+
+
+# ---------------------------------------------------------------------------
+# Firma
+# ---------------------------------------------------------------------------
+
+def _ibkr_oauth_nonce() -> str:
+    import secrets as _secrets
+    import string as _string
+    alphabet = _string.ascii_letters + _string.digits
+    return "".join(_secrets.choice(alphabet) for _ in range(16))
+
+
+def _ibkr_base_string(method: str, url: str, oauth_params: dict,
+                      query_params: Optional[dict] = None, prepend: Optional[str] = None) -> str:
+    """Base string della firma: parametri OAuth e di query ordinati
+    lessicograficamente, uniti da '&' e percent-encodati, preceduti da metodo e
+    URL. Il `prepend` — il token secret decifrato in esadecimale — va davanti a
+    tutto, e vale solo per la richiesta del live session token."""
+    params = {**oauth_params, **(query_params or {})}
+    joined = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+    base = "&".join([
+        method.upper(),
+        urllib.parse.quote_plus(url),
+        urllib.parse.quote_plus(joined),
+    ])
+    return f"{prepend}{base}" if prepend else base
+
+
+def _ibkr_rsa_sha256_signature(base_string: str, private_key) -> str:
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding
+    signature = private_key.sign(
+        base_string.encode("utf-8"), padding.PKCS1v15(), hashes.SHA256())
+    return urllib.parse.quote_plus(base64.b64encode(signature).decode("utf-8"))
+
+
+def _ibkr_hmac_sha256_signature(base_string: str, live_session_token: str) -> str:
+    digest = hmac.new(base64.b64decode(live_session_token),
+                      base_string.encode("utf-8"), hashlib.sha256).digest()
+    return urllib.parse.quote_plus(base64.b64encode(digest).decode("utf-8"))
+
+
+def _ibkr_authorization_header(params: dict, realm: str) -> str:
+    pairs = ", ".join(f'{k}="{v}"' for k, v in sorted(params.items()))
+    return f'OAuth realm="{realm}", {pairs}'
+
+
+def _ibkr_int_to_signed_bytes(value: int) -> bytes:
+    """Intero → byte come lo serializza un BigInteger Java, che è quello che si
+    aspetta IBKR: se il bit più alto è a 1 va aggiunto uno zero in testa,
+    altrimenti il numero verrebbe letto come negativo."""
+    hex_string = format(value, "x")
+    if len(hex_string) % 2:
+        hex_string = "0" + hex_string
+    raw = bytes.fromhex(hex_string)
+    if raw and raw[0] & 0x80:
+        raw = b"\x00" + raw
+    return raw
+
+
+# ---------------------------------------------------------------------------
+# Handshake
+# ---------------------------------------------------------------------------
+
+def _ibkr_api_call(method: str, path: str, oauth_headers: dict, realm: str,
+                   query: Optional[dict] = None, body: Optional[dict] = None,
+                   cookie: Optional[str] = None) -> tuple:
+    """Chiamata HTTP firmata. Ritorna (status, payload|testo)."""
+    url = f"{_IBKR_API_BASE}{path}"
+    if query:
+        url += "?" + urllib.parse.urlencode(query)
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    headers = {
+        "Authorization": _ibkr_authorization_header(oauth_headers, realm),
+        "Accept": "*/*",
+        "User-Agent": "polaris/1.0",
+        "Host": "api.ibkr.com",
+    }
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    if cookie:
+        headers["Cookie"] = cookie
+    req = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
+    try:
+        with urllib.request.urlopen(req, timeout=_IBKR_API_TIMEOUT) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+            try:
+                return resp.status, json.loads(raw)
+            except ValueError:
+                return resp.status, raw
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", "replace") if hasattr(e, "read") else str(e)
+        return e.code, raw
+    except Exception as e:
+        return 0, str(e)
+
+
+def _ibkr_request_live_session_token() -> dict:
+    """Esegue l'handshake DH e calcola il live session token.
+
+    Ritorna {"token", "expires_ms", "valid"} oppure {"error"}.
+    """
+    import secrets as _secrets
+
+    signature_key = _ibkr_api_private_key("IBKR_SIGNATURE_KEY")
+    encryption_key = _ibkr_api_private_key("IBKR_ENCRYPTION_KEY")
+    if signature_key is None or encryption_key is None:
+        return {"error": "chiavi RSA mancanti o non leggibili "
+                         "(IBKR_SIGNATURE_KEY / IBKR_ENCRYPTION_KEY)"}
+
+    consumer_key = _ibkr_api_env("IBKR_CONSUMER_KEY")
+    access_token = _ibkr_api_env("IBKR_ACCESS_TOKEN")
+    access_token_secret = _ibkr_api_env("IBKR_ACCESS_TOKEN_SECRET")
+    dh_prime_hex = _ibkr_api_env("IBKR_DH_PRIME")
+    dh_generator = int(_ibkr_api_env("IBKR_DH_GENERATOR", "2") or 2)
+    realm = _ibkr_api_env("IBKR_REALM", "limited_poa")
+
+    # Il prepend è il token secret del portale, decifrato con la propria chiave
+    # di encryption e reso esadecimale.
+    try:
+        from cryptography.hazmat.primitives.asymmetric import padding
+        decrypted = encryption_key.decrypt(
+            base64.b64decode(access_token_secret), padding.PKCS1v15())
+        prepend = decrypted.hex()
+    except Exception as e:
+        return {"error": f"decifratura del token secret fallita: {e}"}
+
+    dh_random = _secrets.randbits(256)
+    dh_prime = int(dh_prime_hex, 16)
+    dh_challenge = format(pow(dh_generator, dh_random, dh_prime), "x")
+
+    oauth_params = {
+        "diffie_hellman_challenge": dh_challenge,
+        "oauth_consumer_key": consumer_key,
+        "oauth_nonce": _ibkr_oauth_nonce(),
+        "oauth_signature_method": "RSA-SHA256",
+        "oauth_timestamp": str(int(time.time())),
+        "oauth_token": access_token,
+    }
+    base_string = _ibkr_base_string(
+        "POST", f"{_IBKR_API_BASE}/oauth/live_session_token", oauth_params, prepend=prepend)
+    oauth_params["oauth_signature"] = _ibkr_rsa_sha256_signature(base_string, signature_key)
+
+    status, payload = _ibkr_api_call("POST", "/oauth/live_session_token", oauth_params, realm)
+    if status != 200 or not isinstance(payload, dict):
+        return {"error": f"live_session_token HTTP {status}: {str(payload)[:300]}"}
+
+    try:
+        shared_secret = pow(int(payload["diffie_hellman_response"], 16), dh_random, dh_prime)
+        token = base64.b64encode(hmac.new(
+            _ibkr_int_to_signed_bytes(shared_secret),
+            bytes.fromhex(prepend),
+            hashlib.sha1,
+        ).digest()).decode("utf-8")
+    except Exception as e:
+        return {"error": f"calcolo del live session token fallito: {e}"}
+
+    # IBKR rimanda la firma del token: se non combacia, la colpa è quasi sempre
+    # di una chiave sbagliata, e scoprirlo ora è molto meglio che vedere 401
+    # opachi su ogni chiamata successiva.
+    expected = hmac.new(base64.b64decode(token), consumer_key.encode("utf-8"),
+                        hashlib.sha1).hexdigest()
+    valid = hmac.compare_digest(expected, payload.get("live_session_token_signature") or "")
+    if not valid:
+        return {"error": "firma del live session token non valida: controlla "
+                         "consumer key e chiavi RSA"}
+
+    return {"token": token, "expires_ms": int(payload.get("live_session_token_expiration") or 0),
+            "valid": True}
+
+
+def _ibkr_live_session_token(force: bool = False) -> Optional[str]:
+    """Live session token valido, dalla cache o rinnovato.
+
+    Si rinnova con 5 minuti di margine: un token che scade a metà della sequenza
+    di chiamate produrrebbe un fallimento parziale, il caso più fastidioso da
+    diagnosticare.
+    """
+    now_ms = int(time.time() * 1000)
+    if not force and _IBKR_LST_CACHE.get("token") and _IBKR_LST_CACHE["expires_ms"] > now_ms + 300_000:
+        return _IBKR_LST_CACHE["token"]
+
+    coll = _get_mongo_ibkr_session_collection()
+    if not force and coll is not None:
+        try:
+            doc = coll.find_one({"key": "live_session_token"})
+            if doc and int(doc.get("expires_ms") or 0) > now_ms + 300_000:
+                _IBKR_LST_CACHE.update({"token": doc["token"], "expires_ms": doc["expires_ms"]})
+                return doc["token"]
+        except Exception:
+            pass
+
+    result = _ibkr_request_live_session_token()
+    if result.get("error"):
+        _IBKR_LST_CACHE["last_error"] = result["error"]
+        return None
+    _IBKR_LST_CACHE.update({"token": result["token"], "expires_ms": result["expires_ms"],
+                            "last_error": None})
+    if coll is not None:
+        try:
+            coll.update_one({"key": "live_session_token"},
+                            {"$set": {"key": "live_session_token", "token": result["token"],
+                                      "expires_ms": result["expires_ms"], "renewed_at": time.time()}},
+                            upsert=True)
+        except Exception:
+            pass
+    return result["token"]
+
+
+def _ibkr_signed_request(method: str, path: str, query: Optional[dict] = None,
+                         body: Optional[dict] = None) -> tuple:
+    """Chiamata a una risorsa protetta, firmata HMAC-SHA256 col live session
+    token. I parametri di query entrano nella base string; il body JSON no."""
+    token = _ibkr_live_session_token()
+    if not token:
+        return 0, _IBKR_LST_CACHE.get("last_error") or "live session token non disponibile"
+    oauth_params = {
+        "oauth_consumer_key": _ibkr_api_env("IBKR_CONSUMER_KEY"),
+        "oauth_nonce": _ibkr_oauth_nonce(),
+        "oauth_signature_method": "HMAC-SHA256",
+        "oauth_timestamp": str(int(time.time())),
+        "oauth_token": _ibkr_api_env("IBKR_ACCESS_TOKEN"),
+    }
+    base_string = _ibkr_base_string(method, f"{_IBKR_API_BASE}{path}", oauth_params, query)
+    oauth_params["oauth_signature"] = _ibkr_hmac_sha256_signature(base_string, token)
+    return _ibkr_api_call(method, path, oauth_params, _ibkr_api_env("IBKR_REALM", "limited_poa"),
+                          query=query, body=body, cookie=_IBKR_LST_CACHE.get("cookie"))
+
+
+def _ibkr_open_brokerage_session() -> dict:
+    """Apre la sessione di brokeraggio, senza la quale gli endpoint /iserver
+    rispondono ma a vuoto. `compete=true` perché IBKR ammette una sola sessione
+    per username: senza, basta la TWS aperta a far fallire il job."""
+    status, payload = _ibkr_signed_request(
+        "POST", "/iserver/auth/ssodh/init", query={"publish": "true", "compete": "true"})
+    if status != 200:
+        return {"ok": False, "status": status, "detail": str(payload)[:300]}
+    tickle_status, tickle = _ibkr_signed_request("POST", "/tickle")
+    if tickle_status == 200 and isinstance(tickle, dict) and tickle.get("session"):
+        _IBKR_LST_CACHE["cookie"] = f"api={tickle['session']}"
+    return {"ok": True, "authenticated": bool(isinstance(payload, dict) and payload.get("authenticated"))}
+
+
+# ---------------------------------------------------------------------------
+# Lettura di posizioni e ordini
+# ---------------------------------------------------------------------------
+
+def _ibkr_api_account_id() -> Optional[str]:
+    explicit = _ibkr_api_env("IBKR_ACCOUNT_ID")
+    if explicit:
+        return explicit
+    status, payload = _ibkr_signed_request("GET", "/portfolio/accounts")
+    if status == 200 and isinstance(payload, list) and payload:
+        return payload[0].get("accountId") or payload[0].get("id")
+    return None
+
+
+def _ibkr_api_positions(account_id: str) -> List[dict]:
+    """Posizioni aperte, normalizzate nella forma che si aspetta
+    `_ibkr_normalize_payload`. Le pagine si scorrono finché tornano piene:
+    IBKR ne restituisce 30 per volta."""
+    out, page = [], 0
+    while page < 10:
+        status, payload = _ibkr_signed_request("GET", f"/portfolio/{account_id}/positions/{page}")
+        if status != 200 or not isinstance(payload, list) or not payload:
+            break
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            out.append({
+                "symbol": row.get("ticker") or row.get("contractDesc"),
+                "name": row.get("name") or row.get("contractDesc"),
+                "quantity": row.get("position"),
+                "avg_price": row.get("avgPrice"),
+                "market_price": row.get("mktPrice"),
+                "market_value": row.get("mktValue"),
+                "unrealized_pnl": row.get("unrealizedPnl"),
+                "currency": row.get("currency"),
+                "asset_class": row.get("assetClass"),
+                "exchange": row.get("listingExchange"),
+            })
+        if len(payload) < 30:
+            break
+        page += 1
+    return out
+
+
+def _ibkr_api_orders() -> List[dict]:
+    status, payload = _ibkr_signed_request("GET", "/iserver/account/orders")
+    rows = payload.get("orders") if isinstance(payload, dict) else None
+    if status != 200 or not isinstance(rows, list):
+        return []
+    out = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        out.append({
+            "order_id": row.get("orderId"),
+            "symbol": row.get("ticker"),
+            "name": row.get("companyName"),
+            "side": row.get("side"),
+            "order_type": row.get("orderType"),
+            "status": row.get("status"),
+            "quantity": row.get("totalSize"),
+            "remaining": row.get("remainingQuantity"),
+            "limit_price": row.get("price"),
+            "stop_price": row.get("stop_price") or row.get("auxPrice"),
+            "tif": row.get("timeInForce"),
+            "description": row.get("orderDesc"),
+            "exchange": row.get("listingExchange"),
+        })
+    return out
+
+
+def _ibkr_api_fetch_snapshot() -> dict:
+    """Snapshot completo letto direttamente da IBKR.
+    Ritorna {"positions", "orders"} oppure {"error"}."""
+    if not _ibkr_api_configured():
+        return {"error": "credenziali IBKR Web API non configurate"}
+    session = _ibkr_open_brokerage_session()
+    if not session.get("ok"):
+        return {"error": f"apertura sessione fallita ({session.get('status')}): "
+                         f"{session.get('detail')}"}
+    account_id = _ibkr_api_account_id()
+    if not account_id:
+        return {"error": "nessun account IBKR trovato"}
+    return {"positions": _ibkr_api_positions(account_id),
+            "orders": _ibkr_api_orders(), "account_id": account_id}
+
+
+# ---------------------------------------------------------------------------
+# Invio email (SMTP)
+# ---------------------------------------------------------------------------
+
+def _send_alert_email(subject: str, html_body: str, to_address: str) -> dict:
+    """Manda la mail dell'alert via SMTP. Come Telegram, non solleva mai: se le
+    credenziali mancano il job deve comunque completare la sync."""
+    host = _ibkr_api_env("SMTP_HOST", "smtp.gmail.com")
+    port = int(_ibkr_api_env("SMTP_PORT", "465") or 465)
+    user = _ibkr_api_env("SMTP_USER")
+    password = _ibkr_api_env("SMTP_PASSWORD")
+    if not user or not password or not to_address:
+        return {"sent": False, "error": "SMTP_USER / SMTP_PASSWORD / destinatario non configurati"}
+    try:
+        import smtplib
+        import ssl
+        from email.message import EmailMessage
+        message = EmailMessage()
+        message["Subject"] = subject
+        message["From"] = user
+        message["To"] = to_address
+        message.set_content("Questa notifica richiede un client che mostri l'HTML.")
+        message.add_alternative(html_body, subtype="html")
+        context = ssl.create_default_context()
+        if port == 587:
+            with smtplib.SMTP(host, port, timeout=20) as server:
+                server.starttls(context=context)
+                server.login(user, password)
+                server.send_message(message)
+        else:
+            with smtplib.SMTP_SSL(host, port, timeout=20, context=context) as server:
+                server.login(user, password)
+                server.send_message(message)
+        return {"sent": True, "error": None}
+    except Exception as e:
+        return {"sent": False, "error": str(e)[:200]}
+
+
+# ---------------------------------------------------------------------------
+# Rotte
+# ---------------------------------------------------------------------------
+
+def _ibkr_run_daily_job(notify_always: bool = False) -> dict:
+    """Il giro completo: legge IBKR, salva lo snapshot, calcola l'alert del
+    giorno dopo e notifica. È il cuore del cron e della sync manuale."""
+    fetched = _ibkr_api_fetch_snapshot()
+    if fetched.get("error"):
+        return {"status": "error", "error": fetched["error"]}
+
+    snapshot = _ibkr_normalize_payload(fetched)
+    owner_email = _ibkr_default_owner_email()
+    earnings = _ibkr_earnings_map(snapshot)
+    alert = _ibkr_alert_with_rendering(_ibkr_earnings_alert(snapshot, earnings=earnings))
+
+    stored = False
+    coll = _get_mongo_ibkr_collection()
+    if coll is not None and owner_email:
+        try:
+            coll.update_one(
+                {"owner_email": owner_email},
+                {"$set": {"owner_email": owner_email, "positions": snapshot["positions"],
+                          "orders": snapshot["orders"], "earnings": earnings,
+                          "synced_at": time.time(), "source": "webapi"}},
+                upsert=True,
+            )
+            stored = True
+        except Exception:
+            stored = False
+
+    should_notify = bool(alert["count"]) or notify_always
+    telegram = _ibkr_maybe_notify(alert, {"notify": True, "notify_always": notify_always})
+    email = {"sent": False, "error": "nessun earning da segnalare"}
+    if should_notify:
+        email = _send_alert_email(
+            alert["subject"], alert["email_html"],
+            _ibkr_api_env("ALERT_EMAIL_TO") or owner_email)
+
+    return {
+        "status": "ok",
+        "account_id": fetched.get("account_id"),
+        "positions": len(snapshot["positions"]),
+        "orders": len(snapshot["orders"]),
+        "live_orders": sum(1 for o in snapshot["orders"] if o.get("is_live")),
+        "stored": stored,
+        "target_date": alert["target_date"],
+        "count": alert["count"],
+        "symbols": [i["symbol"] for i in alert["items"]],
+        "unresolved": alert["unresolved"],
+        "telegram": telegram,
+        "email": email,
+    }
+
+
+def _ibkr_cron_authorized() -> bool:
+    """Vercel Cron manda `Authorization: Bearer $CRON_SECRET`. Si accetta anche
+    il token di sync, per poter lanciare il giro a mano."""
+    expected = _ibkr_api_env("CRON_SECRET")
+    if expected:
+        header = (request.headers.get("Authorization") or "").strip()
+        token = header[7:].strip() if header.lower().startswith("bearer ") else ""
+        if token and hmac.compare_digest(token, expected):
+            return True
+    return _ibkr_sync_authorized()
+
+
+@app.route('/api/ibkr/cron', methods=['GET', 'POST'])
+def api_ibkr_cron():
+    """Job giornaliero: legge IBKR, salva, notifica. Lo chiama Vercel Cron."""
+    if not _ibkr_cron_authorized():
+        return jsonify({"error": "unauthorized"}), 401
+    notify_always = request.args.get("notify_always") == "1"
+    result = _ibkr_run_daily_job(notify_always=notify_always)
+    return jsonify(result), (200 if result.get("status") == "ok" else 502)
+
+
+@app.route('/api/ibkr/oauth-status', methods=['GET'])
+@login_required
+def api_ibkr_oauth_status():
+    """Diagnostica dell'handshake OAuth, passo per passo.
+
+    Serve durante la configurazione: senza, un 401 di IBKR non dice se ha
+    sbagliato la chiave di firma, quella di encryption, il consumer key o il
+    primo DH. Riservata agli admin perché espone il dettaglio degli errori.
+    """
+    if not _is_admin():
+        return jsonify({"error": "forbidden"}), 403
+
+    steps = {
+        "consumer_key": bool(_ibkr_api_env("IBKR_CONSUMER_KEY")),
+        "access_token": bool(_ibkr_api_env("IBKR_ACCESS_TOKEN")),
+        "access_token_secret": bool(_ibkr_api_env("IBKR_ACCESS_TOKEN_SECRET")),
+        "dh_prime": bool(_ibkr_api_env("IBKR_DH_PRIME")),
+        "signature_key_loaded": _ibkr_api_private_key("IBKR_SIGNATURE_KEY") is not None,
+        "encryption_key_loaded": _ibkr_api_private_key("IBKR_ENCRYPTION_KEY") is not None,
+        "realm": _ibkr_api_env("IBKR_REALM", "limited_poa"),
+    }
+    if not _ibkr_api_configured():
+        return jsonify({"configured": False, "steps": steps,
+                        "hint": "completa le variabili IBKR_* prima di provare l'handshake"})
+
+    lst = _ibkr_request_live_session_token()
+    steps["live_session_token"] = "ok" if lst.get("token") else lst.get("error")
+    if not lst.get("token"):
+        return jsonify({"configured": True, "steps": steps})
+
+    _IBKR_LST_CACHE.update({"token": lst["token"], "expires_ms": lst["expires_ms"]})
+    session_result = _ibkr_open_brokerage_session()
+    steps["brokerage_session"] = ("ok" if session_result.get("ok")
+                                  else f"{session_result.get('status')}: {session_result.get('detail')}")
+    account_id = _ibkr_api_account_id() if session_result.get("ok") else None
+    steps["account_id"] = account_id or "non trovato"
+    if account_id:
+        steps["positions"] = len(_ibkr_api_positions(account_id))
+        steps["orders"] = len(_ibkr_api_orders())
+    return jsonify({"configured": True, "steps": steps})
 
 
 # ============================================================================

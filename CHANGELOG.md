@@ -5,6 +5,23 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.17.0] — 2026-08-26
+
+### Aggiunto
+- **L'app legge Interactive Brokers da sola: OAuth 1.0a first party sulla Web API.** Con le credenziali generate dal Self-Service Portal non serve più niente in mezzo — né gateway, né sessione Claude, né PC acceso. Posizioni *e* ordini pendenti arrivano live, che è il motivo per cui si è scelta questa strada invece del Flex Web Service: il Flex non espone gli ordini di lavoro, e l'alert avrebbe perso tutti i bracket GTC.
+  - L'handshake non è OAuth standard: c'è di mezzo uno scambio Diffie-Hellman. Si firma RSA-SHA256 una POST a `/oauth/live_session_token` mettendo in testa alla base string il token secret decifrato, dalla risposta si ricava il segreto condiviso e da lì un token valido 24h, e da quel momento ogni chiamata si firma HMAC-SHA256. Il passo request/access token del protocollo va saltato: per il first party quei valori vengono dal portale e chiamarlo darebbe errore.
+  - Il live session token vive in memoria *e* su Mongo (`ibkr_session`): su Vercel ogni cold start rifarebbe l'handshake, che è la parte lenta e con rate limit. Si rinnova con 5 minuti di margine, perché un token che scade a metà sequenza produce un fallimento parziale, il caso peggiore da diagnosticare.
+  - La firma del token che IBKR rimanda viene verificata invece che ignorata: se non combacia la colpa è quasi sempre di una chiave sbagliata, e accorgersene subito evita una serie di 401 opachi.
+- **Job giornaliero server-side su Vercel Cron.** `GET /api/ibkr/cron` fa il giro completo — legge IBKR, salva lo snapshot, calcola l'alert del giorno dopo, notifica su Telegram e via mail. Schedulato alle 18:00 UTC in `vercel.json`.
+- **Mail via SMTP.** Con il job che gira sul server la mail non può più passare da Gmail lato client: `_send_alert_email()` usa `smtplib` (SSL su 465 o STARTTLS su 587). Come Telegram non solleva mai — se le credenziali mancano il job completa comunque e resta il canale Telegram.
+- **`GET /api/ibkr/oauth-status`, riservata agli admin.** Diagnostica dell'handshake passo per passo: quali variabili ci sono, se le due chiavi RSA si caricano, se il live session token si ottiene, se la sessione di brokeraggio si apre, quante posizioni e ordini tornano. Senza, un 401 di IBKR non dice se hai sbagliato chiave di firma, chiave di encryption, consumer key o primo DH.
+
+### Tecnico
+- Nuova dipendenza `cryptography` per firma RSA-SHA256 e decifratura PKCS#1 v1.5. Le primitive sono state verificate contro l'implementazione di riferimento di IBKR prima di toccare credenziali vere: base string identica in tutte le combinazioni, e la codifica dell'intero DH — che deve seguire la convenzione BigInteger di Java, con lo zero in testa quando il bit alto è a 1 — confrontata su 4000 casi casuali. Un handshake DH completo è stato simulato facendo entrambe le parti: token e firma coincidono.
+- Le chiavi private si leggono da variabile d'ambiente in tre forme: PEM multilinea, PEM con i newline resi come `\n`, o PEM in base64. Circolano tutte e tre, e sbagliare formato produrrebbe un errore di firma incomprensibile molto più avanti.
+- `compete=true` all'apertura della sessione di brokeraggio: IBKR ammette una sola sessione per username, senza quel flag basterebbe la TWS aperta a far fallire il job.
+- Nuove variabili: `IBKR_CONSUMER_KEY`, `IBKR_ACCESS_TOKEN`, `IBKR_ACCESS_TOKEN_SECRET`, `IBKR_SIGNATURE_KEY`, `IBKR_ENCRYPTION_KEY`, `IBKR_DH_PRIME`, `IBKR_DH_GENERATOR`, `IBKR_REALM`, `IBKR_ACCOUNT_ID`, `CRON_SECRET`, `SMTP_*`, `ALERT_EMAIL_TO`.
+
 ## [1.16.1] — 2026-08-26
 
 ### Modificato
