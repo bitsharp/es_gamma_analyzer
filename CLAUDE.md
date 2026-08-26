@@ -64,6 +64,9 @@ vercel.json             # Vercel routing (all → api/index.py)
 | `POST /api/pressure-point` | Save pressure point |
 | `GET /api/last-analysis` | Load user's last analysis |
 | `GET /api/cot-sp500` | Weekly CFTC COT report (S&P 500) |
+| `POST /api/ibkr/sync` | IBKR snapshot ingest (bearer token, not session) |
+| `GET /api/ibkr/snapshot` | IBKR positions/orders + earnings dates for the portfolio page |
+| `GET\|POST /api/ibkr/earnings-alert` | Next-day earnings alert (GET = session preview, POST = token + notify) |
 
 ## Environment Variables
 
@@ -83,6 +86,7 @@ ADMIN_EMAILS=            # Comma-separated admin email list
 | `login_sessions` | Auth session logs | 90d |
 | `last_analysis` | Per-user last PDF analysis | — |
 | `es_spx_conversions` | ES/SPX conversion data | — |
+| `ibkr_snapshot` | IBKR positions/orders + resolved earnings dates, one doc per owner | — |
 
 ## Deployment
 
@@ -126,7 +130,8 @@ There is **no separate Python module for extraction/analysis** even though the R
 - **In-memory cache with TTL** — API calls cached to avoid rate limits.
 - **Fallback chains** — market data calls try the preferred source (Nasdaq JSON) and fall back transparently (SPX→SPY, stooq→Nasdaq, yfinance last). When adding a new symbol, copy an existing `get_<symbol>_snapshot_cached` and preserve the chain shape.
 - **Silent Mongo/OAuth failures** — helpers wrap every Mongo/OAuth call in try/except and return `None`/empty. Never let a Mongo outage raise into a request handler.
-- **Per-user scoping** — `_current_user_key()` derives a stable Mongo key from the authenticated email. All per-user persistence (`last_analysis`, `trading_checklist`, journal trades) must scope reads/writes by this key.
+- **Per-user scoping** — `_current_user_key()` derives a stable Mongo key from the authenticated email. All per-user persistence (`last_analysis`, `trading_checklist`, journal trades) must scope reads/writes by this key. The one exception is `ibkr_snapshot`, keyed on `owner_email` via `_current_user_email()`: it's written by a headless job that has no session to derive a `google:<sub>` from.
+- **IBKR is not reachable from the app** — the Client Portal API needs a local gateway with a daily login, impossible on Vercel. `/api/ibkr/sync` is an ingest endpoint: an external scheduled job reads positions/orders from the IBKR connector and posts them here. It authenticates with `IBKR_SYNC_TOKEN` (bearer), and `_require_login` lets `/api/ibkr/*` through only when that token checks out. IBKR names instruments by listing venue and FMP by suffix, so `_ibkr_fmp_candidates()` translates between them (exchange → country → currency, first FMP hit wins) with `IBKR_SYMBOL_MAP` for what no rule can guess.
 - **Admin allowlist** — `ADMIN_EMAILS` env var controls admin access.
 - File uploads: 16 MB max, `werkzeug.utils.secure_filename`.
 
