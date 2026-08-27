@@ -10622,47 +10622,82 @@ def _flex_parse_activity(xml: str) -> dict:
             "report_date": report_date.group(1) if report_date else None}
 
 
-def _flex_parse_trades(xml: str) -> List[dict]:
-    """Eseguiti da un Trade Confirmation Flex.
+def _flex_trade_rows(xml: str) -> List[dict]:
+    """Le righe degli eseguiti, una per esecuzione e non di più.
 
-    Si tiene solo l'azionario e si ignorano le righe di annullo: quello che
-    serve è come è cambiata la quantità in portafoglio.
+    Una Activity Flex a cui siano stati spuntati più livelli di dettaglio
+    ripete lo stesso fill una volta per livello — `EXECUTION`, `ORDER`,
+    `CLOSED_LOT` — e sommarli conterebbe due o tre volte lo stesso realizzato.
+    Si tiene il livello più fine fra quelli presenti; i lotti chiusi si
+    scartano sempre, perché ripartiscono un realizzato già contato altrove.
     """
-    trades = []
-    for attrs in _flex_attrs(xml, "TradeConfirm", "Trade"):
-        symbol = (attrs.get("symbol") or "").strip()
-        quantity = _ibkr_num(attrs.get("quantity"))
-        if not symbol or not quantity:
-            continue
-        currency = (attrs.get("currency") or "").upper() or None
-        exchange = (attrs.get("listingExchange") or attrs.get("exchange") or "").upper() or None
-        price = _ibkr_num(attrs.get("price") or attrs.get("tradePrice"))
-        if price is not None:
-            price *= _ibkr_price_scale(exchange, currency)
-        # `quantity` è già firmata sugli eseguiti IBKR, ma non su tutte le
-        # varianti: se c'è buySell lo si usa come verità.
-        side = (attrs.get("buySell") or "").upper()
-        if side.startswith("SELL") and quantity > 0:
-            quantity = -quantity
-        elif side.startswith("BUY") and quantity < 0:
-            quantity = abs(quantity)
-        # Le commissioni entrano nel carico, come fa IBKR: senza, il prezzo di
-        # carico risulta più basso del vero e il gain/loss di conseguenza più
-        # generoso. Arrivano negative perché sono un costo.
-        commission = _ibkr_num(attrs.get("ibCommission") or attrs.get("commission"))
-        trades.append({
-            "symbol": symbol,
-            "name": attrs.get("description") or None,
-            "quantity": quantity,
-            "price": price,
-            "commission": abs(commission) if commission is not None else 0.0,
-            "currency": currency,
-            "exchange": exchange,
-            "asset_class": (attrs.get("assetCategory") or "").upper() or None,
-            "trade_date": (attrs.get("tradeDate") or attrs.get("reportDate") or "").replace("-", ""),
-            "order_id": attrs.get("orderID") or attrs.get("ibOrderID") or None,
-        })
-    return trades
+    rows = _flex_attrs(xml, "TradeConfirm", "Trade")
+    levels = {(row.get("levelOfDetail") or "").upper() for row in rows}
+    for preferred in ("EXECUTION", "ORDER"):
+        if preferred in levels:
+            return [r for r in rows
+                    if (r.get("levelOfDetail") or "").upper() == preferred]
+    # Nessun livello dichiarato: è il caso della Trade Confirmation, dove le
+    # righe sono già una per eseguito.
+    return [r for r in rows
+            if (r.get("levelOfDetail") or "").upper() not in ("CLOSED_LOT", "LOT")]
+
+
+def _flex_trade_from_attrs(attrs: dict) -> Optional[dict]:
+    """Un eseguito dagli attributi della sua riga. None se la riga non lo è."""
+    symbol = (attrs.get("symbol") or "").strip()
+    quantity = _ibkr_num(attrs.get("quantity"))
+    if not symbol or not quantity:
+        return None
+    currency = (attrs.get("currency") or "").upper() or None
+    exchange = (attrs.get("listingExchange") or attrs.get("exchange") or "").upper() or None
+    price = _ibkr_num(attrs.get("price") or attrs.get("tradePrice"))
+    if price is not None:
+        price *= _ibkr_price_scale(exchange, currency)
+    # `quantity` è già firmata sugli eseguiti IBKR, ma non su tutte le
+    # varianti: se c'è buySell lo si usa come verità.
+    side = (attrs.get("buySell") or "").upper()
+    if side.startswith("SELL") and quantity > 0:
+        quantity = -quantity
+    elif side.startswith("BUY") and quantity < 0:
+        quantity = abs(quantity)
+    # Le commissioni entrano nel carico, come fa IBKR: senza, il prezzo di
+    # carico risulta più basso del vero e il gain/loss di conseguenza più
+    # generoso. Arrivano negative perché sono un costo.
+    commission = _ibkr_num(attrs.get("ibCommission") or attrs.get("commission"))
+    # Il realizzato c'è solo se la query lo porta, e vale zero sugli eseguiti
+    # che aprono. Le due cose vanno tenute distinte — "campo assente" significa
+    # query da correggere, "zero" significa che quell'ordine non ha chiuso
+    # niente — quindi niente `or`, che confonderebbe lo zero con l'assenza.
+    realized = attrs.get("fifoPnlRealized")
+    if realized in (None, ""):
+        realized = attrs.get("realizedPnl")
+    return {
+        "symbol": symbol,
+        "name": attrs.get("description") or None,
+        "quantity": quantity,
+        "price": price,
+        "commission": abs(commission) if commission is not None else 0.0,
+        "realized_pnl": _ibkr_num(realized),
+        # Cambio verso la valuta base allegato da IBKR: è quello con cui il
+        # conto è valorizzato, e vale più di uno chiesto a FMP mesi dopo.
+        "fx_rate_to_base": _ibkr_num(attrs.get("fxRateToBase")),
+        "currency": currency,
+        "exchange": exchange,
+        "asset_class": (attrs.get("assetCategory") or "").upper() or None,
+        "trade_date": (attrs.get("tradeDate") or attrs.get("reportDate") or "").replace("-", ""),
+        "order_id": attrs.get("orderID") or attrs.get("ibOrderID") or None,
+    }
+
+
+def _flex_parse_trades(xml: str) -> List[dict]:
+    """Eseguiti da un report Flex — Trade Confirmation o Activity con la
+    sezione Trades.
+
+    Si ignorano le righe di annullo: quello che serve è come è cambiata la
+    quantità in portafoglio e quanto si è realizzato chiudendo.
+    """
+    return [t for t in (_flex_trade_from_attrs(a) for a in _flex_trade_rows(xml)) if t]
 
 
 def _flex_apply_trades(positions: List[dict], trades: List[dict],
@@ -10793,6 +10828,290 @@ def _flex_fetch_positions() -> dict:
         # adesso, ed è ciò che impedisce al cron di essere scartato come vecchio.
         result["report_date"] = None
     return result
+
+
+# ---------------------------------------------------------------------------
+# Storico del P&L giornaliero — dagli eseguiti Flex
+# ---------------------------------------------------------------------------
+# Il calendario del portafoglio chiede una cosa che nessuna delle sorgenti già
+# in uso porta: quanto si è guadagnato o perso *ogni* giorno, indietro nel
+# tempo. Le posizioni dicono dove si è adesso, il P&L del gateway dice com'è
+# andata oggi, e nessuno dei due si ricorda di ieri.
+#
+# La sorgente giusta è una Activity Flex con la sezione "Trades" su un periodo
+# lungo: ogni eseguito porta `fifoPnlRealized`, cioè il realizzato di quella
+# chiusura, già al netto delle commissioni. Sommandoli per giornata si ottiene
+# la riga del calendario.
+
+_FLEX_PNL_CACHE: Dict[str, Any] = {}
+_FLEX_PNL_TTL_SECONDS = int((os.getenv("FLEX_PNL_TTL") or "3600").strip() or 3600)
+
+# Le conversioni valutarie compaiono fra gli eseguiti ma non sono operazioni:
+# contarle gonfierebbe il numero di trade della giornata senza portare P&L.
+_FLEX_PNL_SKIP_CATEGORIES = {"CASH"}
+
+# Quanti giorni di storico si tengono in archivio. Tre anni bastano a
+# qualunque uso del calendario e il documento resta lontanissimo dai 16 MB.
+_IBKR_PNL_MAX_DAYS = 1100
+
+# Oltre quanti simboli si smette di dettagliare la giornata. Il dettaglio serve
+# al passaggio del mouse, non a rileggere il registro: venti righe sono già più
+# di quante se ne guardino.
+_IBKR_PNL_MAX_SYMBOLS_PER_DAY = 20
+
+
+def _flex_trade_day(trade: dict) -> Optional[str]:
+    """Data di un eseguito, da `YYYYMMDD` a `YYYY-MM-DD`."""
+    raw = (trade.get("trade_date") or "").strip().replace("-", "")
+    if len(raw) != 8 or not raw.isdigit():
+        return None
+    return f"{raw[:4]}-{raw[4:6]}-{raw[6:]}"
+
+
+def _flex_pnl_days(trades: List[dict]) -> dict:
+    """Eseguiti → una riga per giornata, in valuta base.
+
+    Un giorno conta due numeri diversi e vanno tenuti separati: le *operazioni*
+    sono tutti gli eseguiti, le *chiusure* solo quelle che hanno realizzato
+    qualcosa. La percentuale di successo si calcola sulle seconde — un ordine
+    di acquisto non è né vinto né perso, e metterlo al denominatore
+    schiaccerebbe la percentuale verso il basso senza motivo.
+    """
+    days: Dict[str, dict] = {}
+    fx_missing = set()
+    realized_seen = False
+
+    for trade in trades:
+        if (trade.get("asset_class") or "").upper() in _FLEX_PNL_SKIP_CATEGORIES:
+            continue
+        day = _flex_trade_day(trade)
+        if not day:
+            continue
+        entry = days.setdefault(day, {
+            "date": day, "pnl": 0.0, "trades": 0, "closed": 0,
+            "wins": 0, "losses": 0, "commissions": 0.0, "symbols": {},
+        })
+        entry["trades"] += 1
+
+        rate = trade.get("fx_rate_to_base")
+        if rate is None:
+            rate = _fx_to_base(trade.get("currency"))
+        commission = trade.get("commission") or 0.0
+        if rate is not None:
+            entry["commissions"] += commission * rate
+
+        realized = trade.get("realized_pnl")
+        if realized is None:
+            # La query non porta il realizzato: la giornata resta contata come
+            # attività ma senza P&L. Chi chiama lo deve poter dire in pagina.
+            continue
+        realized_seen = True
+        if rate is None:
+            # Senza cambio il numero non è sommabile: si dichiara la giornata
+            # incompleta invece di trattare i dollari come euro.
+            fx_missing.add(day)
+            continue
+        value = realized * rate
+        entry["pnl"] += value
+        symbol = (trade.get("symbol") or "").upper()
+        bucket = entry["symbols"].setdefault(symbol, {"symbol": symbol, "pnl": 0.0, "trades": 0})
+        bucket["pnl"] += value
+        bucket["trades"] += 1
+        if abs(value) < 1e-9:
+            # Eseguito di apertura: non ha chiuso niente, quindi non è né una
+            # vincita né una perdita.
+            continue
+        entry["closed"] += 1
+        if value > 0:
+            entry["wins"] += 1
+        else:
+            entry["losses"] += 1
+
+    out = {}
+    for day, entry in days.items():
+        symbols = sorted(entry["symbols"].values(), key=lambda s: -abs(s["pnl"]))
+        out[day] = {
+            "date": day,
+            "pnl": round(entry["pnl"], 2),
+            "trades": entry["trades"],
+            "closed": entry["closed"],
+            "wins": entry["wins"],
+            "losses": entry["losses"],
+            "commissions": round(entry["commissions"], 2),
+            "symbols": [{"symbol": s["symbol"], "pnl": round(s["pnl"], 2),
+                         "trades": s["trades"]}
+                        for s in symbols[:_IBKR_PNL_MAX_SYMBOLS_PER_DAY]],
+            "partial": day in fx_missing,
+        }
+    return {"days": out, "realized_available": realized_seen,
+            "fx_missing": sorted(fx_missing)}
+
+
+def _flex_fetch_pnl_history() -> dict:
+    """Storico giornaliero dal Flex. Ritorna {"days", ...} oppure {"error"}.
+
+    Vuole una query propria (`IBKR_FLEX_PNL_QUERY_ID`) perché quella degli
+    eseguiti copre "Today" e per il calendario servirebbe a poco. Se non c'è si
+    ripiega su quella, dichiarandolo: si otterrà la sola giornata di oggi, che
+    accumulandosi giro dopo giro costruisce comunque lo storico da qui in poi.
+    """
+    query_id = _ibkr_api_env("IBKR_FLEX_PNL_QUERY_ID")
+    fallback = False
+    if not query_id:
+        query_id = _ibkr_api_env("IBKR_FLEX_TRADES_QUERY_ID")
+        fallback = bool(query_id)
+    if not _ibkr_api_env("IBKR_FLEX_TOKEN") or not query_id:
+        return {"error": "IBKR_FLEX_TOKEN / IBKR_FLEX_PNL_QUERY_ID non configurati"}
+
+    cached = _FLEX_PNL_CACHE.get(query_id)
+    if cached and (time.time() - cached.get("ts", 0)) < _FLEX_PNL_TTL_SECONDS:
+        return {**cached["value"], "cached": True}
+
+    fetched = _flex_fetch_statement(query_id)
+    if fetched.get("error"):
+        return fetched
+    trades = _flex_parse_trades(fetched["xml"])
+    aggregated = _flex_pnl_days(trades)
+    result = {
+        "days": aggregated["days"],
+        "realized_available": aggregated["realized_available"],
+        "fx_missing": aggregated["fx_missing"],
+        "trades_seen": len(trades),
+        "currency": _ibkr_base_currency(),
+        "fallback_query": fallback,
+    }
+    _FLEX_PNL_CACHE[query_id] = {"ts": time.time(), "value": result}
+    return result
+
+
+def _ibkr_store_pnl_days(owner_email: str, days: dict,
+                         meta: Optional[dict] = None) -> Optional[dict]:
+    """Fonde lo storico giornaliero con quello già in archivio.
+
+    Fonde per data invece di sostituire perché la query Flex può coprire un
+    periodo corto — al limite la sola giornata di oggi — e una sostituzione
+    butterebbe via tutto il resto a ogni giro. Così lo storico si accumula
+    anche partendo da una query stretta: ci mette solo il tempo che serve.
+
+    Ritorna lo storico risultante, o None se Mongo non è disponibile.
+    """
+    coll = _get_mongo_ibkr_collection()
+    if coll is None or not owner_email:
+        return None
+    existing = _ibkr_load_snapshot(owner_email) or {}
+    stored = existing.get("pnl_days") if isinstance(existing.get("pnl_days"), dict) else {}
+    merged = {**stored, **(days or {})}
+    # Si tengono le giornate più recenti: il taglio è sulla data, non
+    # sull'ordine di inserimento, perché una risincronizzazione può riportare
+    # indietro giorni vecchi.
+    if len(merged) > _IBKR_PNL_MAX_DAYS:
+        keep = sorted(merged.keys())[-_IBKR_PNL_MAX_DAYS:]
+        merged = {k: merged[k] for k in keep}
+    update = {"pnl_days": merged, "pnl_synced_at": time.time()}
+    if isinstance(meta, dict):
+        update["pnl_meta"] = meta
+    try:
+        coll.update_one({"owner_email": owner_email}, {"$set": update}, upsert=True)
+    except Exception:
+        return None
+    return merged
+
+
+# Ogni quanto il giro schedulato rilegge lo storico. Non è un dato che si
+# muove di continuo — cambia solo quando si chiude qualcosa — e ogni lettura è
+# un report Flex da generare, su un servizio che le richieste le limita.
+_IBKR_PNL_MAX_AGE_SECONDS = int(
+    (os.getenv("IBKR_PNL_MAX_AGE") or "14400").strip() or 14400)  # 4h
+
+
+def _ibkr_refresh_pnl_history(owner_email: str, force: bool = False) -> dict:
+    """Aggiorna lo storico giornaliero, se è ora.
+
+    Best effort: il calendario è un di più rispetto alle posizioni, e un errore
+    qui non deve far fallire il giro che le porta.
+    """
+    if not owner_email:
+        return {"status": "skipped", "reason": "nessun proprietario"}
+    doc = _ibkr_load_snapshot(owner_email) or {}
+    synced_at = doc.get("pnl_synced_at")
+    if not force and synced_at:
+        age = time.time() - float(synced_at)
+        if age < _IBKR_PNL_MAX_AGE_SECONDS:
+            return {"status": "skipped",
+                    "reason": f"aggiornato {age / 3600:.1f}h fa",
+                    "days": len(doc.get("pnl_days") or {})}
+
+    fetched = _flex_fetch_pnl_history()
+    if fetched.get("error"):
+        return {"status": "error", "error": fetched["error"],
+                "hint": fetched.get("hint")}
+    meta = {
+        "currency": fetched.get("currency"),
+        "realized_available": fetched.get("realized_available"),
+        "fallback_query": fetched.get("fallback_query"),
+        "trades_seen": fetched.get("trades_seen"),
+        "fx_missing": fetched.get("fx_missing"),
+    }
+    merged = _ibkr_store_pnl_days(owner_email, fetched["days"], meta=meta)
+    if merged is None:
+        return {"status": "error", "error": "mongo non disponibile: storico non salvato"}
+    return {"status": "ok", "days": len(merged),
+            "days_in_report": len(fetched["days"]),
+            "trades_seen": fetched.get("trades_seen"),
+            "realized_available": fetched.get("realized_available"),
+            "fallback_query": fetched.get("fallback_query")}
+
+
+@app.route('/api/ibkr/pnl-calendar', methods=['GET'])
+@login_required
+def api_ibkr_pnl_calendar():
+    """Storico del P&L giornaliero per il calendario del portafoglio.
+
+    Di default legge quello in archivio, che è istantaneo. `?refresh=1` va a
+    rigenerare il report Flex: sono decine di secondi, quindi resta legato a un
+    gesto esplicito e non al caricamento della pagina.
+    """
+    owner_email = _current_user_email()
+    if not owner_email:
+        return jsonify({"error": "no user"}), 401
+
+    refreshed = None
+    if request.args.get("refresh") == "1":
+        refreshed = _ibkr_refresh_pnl_history(owner_email, force=True)
+
+    doc = _ibkr_load_snapshot(owner_email) or {}
+    days = doc.get("pnl_days") if isinstance(doc.get("pnl_days"), dict) else {}
+    meta = doc.get("pnl_meta") if isinstance(doc.get("pnl_meta"), dict) else {}
+
+    # Perché il calendario è vuoto è la prima domanda che ci si pone, e da fuori
+    # le cause si somigliano tutte. Qui si dice quale.
+    hint = None
+    if not days:
+        if not _ibkr_api_env("IBKR_FLEX_TOKEN"):
+            hint = ("IBKR_FLEX_TOKEN non configurato: senza Flex non c'è da dove "
+                    "leggere gli eseguiti.")
+        elif not _ibkr_api_env("IBKR_FLEX_PNL_QUERY_ID") and not _ibkr_api_env("IBKR_FLEX_TRADES_QUERY_ID"):
+            hint = ("Nessuna query eseguiti configurata: serve IBKR_FLEX_PNL_QUERY_ID, "
+                    "una Activity Flex con la sezione Trades su un periodo lungo.")
+        elif not doc.get("pnl_synced_at"):
+            hint = "Storico mai letto: premi Aggiorna, oppure aspetta il prossimo giro schedulato."
+        else:
+            hint = "Nessun eseguito nel periodo coperto dalla query."
+    elif meta.get("realized_available") is False:
+        hint = ("La query porta gli eseguiti ma non il realizzato: aggiungi il campo "
+                "fifoPnlRealized alla sezione Trades, altrimenti le giornate restano a zero.")
+    elif meta.get("fallback_query"):
+        hint = ("IBKR_FLEX_PNL_QUERY_ID non configurato: si sta usando la query degli "
+                "eseguiti di oggi, quindi lo storico si costruisce solo da qui in avanti.")
+
+    return jsonify({
+        "days": days,
+        "currency": meta.get("currency") or _ibkr_base_currency(),
+        "synced_at": doc.get("pnl_synced_at"),
+        "meta": meta,
+        "hint": hint,
+        "refreshed": refreshed,
+    })
 
 
 @app.route('/api/ibkr/sync', methods=['POST'])
@@ -11105,7 +11424,8 @@ def api_ibkr_pulse():
     try:
         doc = coll.find_one({"owner_email": owner_email},
                             {"_id": 0, "synced_at": 1, "positions_synced_at": 1,
-                             "orders_synced_at": 1, "positions_source": 1}) or {}
+                             "orders_synced_at": 1, "positions_source": 1,
+                             "pnl_synced_at": 1}) or {}
     except Exception:
         return jsonify({"synced_at": None})
     return jsonify({
@@ -11113,6 +11433,10 @@ def api_ibkr_pulse():
         "positions_synced_at": doc.get("positions_synced_at"),
         "orders_synced_at": doc.get("orders_synced_at"),
         "positions_source": doc.get("positions_source"),
+        # Lo storico si aggiorna con un ritmo suo, molto più lento delle
+        # posizioni: senza una data a sé il calendario non saprebbe mai quando
+        # è cambiato davvero.
+        "pnl_synced_at": doc.get("pnl_synced_at"),
     })
 
 
@@ -11871,6 +12195,15 @@ def _ibkr_run_daily_job(notify_always: bool = False, notify: bool = True) -> dic
     if merged is None:
         return {"status": "error", "error": "mongo non disponibile: snapshot non salvato"}
 
+    # Storico giornaliero per il calendario. Ha un ritmo suo — si muove solo
+    # quando si chiude qualcosa — quindi si rilegge ogni tot ore e non a ogni
+    # giro, e un suo fallimento non deve portarsi via le posizioni appena
+    # salvate: quelle sono il motivo per cui il job esiste.
+    try:
+        pnl = _ibkr_refresh_pnl_history(owner_email)
+    except Exception as error:
+        pnl = {"status": "error", "error": str(error)[:200]}
+
     snapshot = {"positions": merged["positions"], "orders": merged["orders"]}
     freshness = _ibkr_orders_staleness(merged)
     alert = _ibkr_alert_with_rendering(
@@ -11895,6 +12228,7 @@ def _ibkr_run_daily_job(notify_always: bool = False, notify: bool = True) -> dic
         "trades_query_configured": fetched.get("trades_query_configured"),
         "trades_error": fetched.get("trades_error"),
         "flex_sections": fetched.get("flex_sections"),
+        "pnl_history": pnl,
         "skipped": merged.get("skipped"),
         "position_symbols": sorted({(p.get("symbol") or "") for p in snapshot["positions"]}),
         "positions": len(snapshot["positions"]),
@@ -11980,6 +12314,12 @@ def api_ibkr_flex_status():
         note.append("IBKR_FLEX_TRADES_QUERY_ID non configurato: senza la query "
                     "Trade Confirmation le posizioni restano ferme alla chiusura "
                     "precedente e gli eseguiti di oggi non compaiono")
+    shape["pnl_query_id"] = _ibkr_api_env("IBKR_FLEX_PNL_QUERY_ID") or None
+    if not shape["pnl_query_id"]:
+        note.append("IBKR_FLEX_PNL_QUERY_ID non configurato: il calendario P&L "
+                    "ripiega sulla query di oggi e lo storico si costruisce solo "
+                    "da qui in avanti. Serve una Activity Flex con la sezione "
+                    "Trades su un periodo lungo e il campo fifoPnlRealized")
 
     probe = _flex_fetch_positions()
     if probe.get("error"):

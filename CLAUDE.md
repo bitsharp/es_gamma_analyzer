@@ -67,6 +67,7 @@ vercel.json             # Vercel routing (all → api/index.py)
 | `POST /api/ibkr/sync` | IBKR snapshot ingest (bearer token, not session) |
 | `GET /api/ibkr/snapshot` | IBKR positions/orders + earnings dates for the portfolio page |
 | `GET\|POST /api/ibkr/earnings-alert` | Next-day earnings alert (GET = session preview, POST = token + notify) |
+| `GET /api/ibkr/pnl-calendar` | Daily realized P&L history for the portfolio calendar (`?refresh=1` re-reads Flex) |
 
 ## Environment Variables
 
@@ -86,7 +87,7 @@ ADMIN_EMAILS=            # Comma-separated admin email list
 | `login_sessions` | Auth session logs | 90d |
 | `last_analysis` | Per-user last PDF analysis | — |
 | `es_spx_conversions` | ES/SPX conversion data | — |
-| `ibkr_snapshot` | IBKR positions/orders + resolved earnings dates, one doc per owner | — |
+| `ibkr_snapshot` | IBKR positions/orders + resolved earnings dates + daily realized P&L history (`pnl_days`), one doc per owner | — |
 
 ## Deployment
 

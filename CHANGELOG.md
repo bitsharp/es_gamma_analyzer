@@ -5,6 +5,20 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.26.0] — 2026-08-27
+
+### Aggiunto
+- **Calendario del P&L giornaliero nel portafoglio.** Un mese alla volta, una casella per giornata di borsa: quanto si è realizzato chiudendo, quante operazioni sono passate e la percentuale di quelle chiuse in utile. Accanto a ogni riga il totale della settimana, e in testa quello del mese. Il dato sono gli eseguiti letti dal Flex Web Service — il `fifoPnlRealized` di ogni chiusura, convertito in valuta base col cambio che IBKR allega all'operazione — sommati per giornata.
+  - Cliccando una giornata si apre il dettaglio per titolo: quante operazioni e quanto ha reso ciascuno.
+  - Le giornate in cui un cambio non si è potuto stabilire sono marcate **parziale**: il totale è per difetto e viene detto, invece di sommare dollari ed euro come se fossero la stessa cosa.
+  - Serve una query Flex propria (`IBKR_FLEX_PNL_QUERY_ID`): una Activity Flex con la sezione Trades su un periodo lungo. Senza, si ripiega su quella degli eseguiti di oggi e lo storico si costruisce un giorno alla volta — la pagina lo dichiara invece di mostrare un calendario mezzo vuoto senza spiegazioni.
+  - Lo storico si fonde per data invece di essere sostituito: una query che copre un periodo corto non cancella più i mesi già raccolti.
+
+### Tecnico
+- Gli eseguiti Flex vengono ora deduplicati per livello di dettaglio. Una query con più livelli spuntati (`EXECUTION`, `ORDER`, `CLOSED_LOT`) ripete lo stesso fill una volta per livello: sommarli avrebbe contato due o tre volte lo stesso realizzato, e sulle posizioni avrebbe raddoppiato le quantità.
+- Lo storico si aggiorna col giro schedulato ma con un ritmo suo (`IBKR_PNL_MAX_AGE`, default 4h): cambia solo quando si chiude qualcosa, e ogni lettura è un report che IBKR genera sul momento. Un suo fallimento non tocca le posizioni, che restano il motivo per cui il job esiste.
+- `pnl_synced_at` entra in `/api/ibkr/pulse`: senza una data a sé il calendario si sarebbe aggiornato solo per caso, quando cambiava dell'altro.
+
 ## [1.25.2] — 2026-08-27
 
 ### Corretto
