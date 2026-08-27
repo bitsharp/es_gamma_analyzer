@@ -10288,6 +10288,33 @@ def _ibkr_load_snapshot(owner_email: str) -> Optional[dict]:
 _IBKR_ORDERS_STALE_AFTER_SECONDS = int(
     (os.getenv("IBKR_ORDERS_STALE_AFTER") or "129600").strip() or 129600)  # 36h
 
+# Le posizioni invecchiano molto prima degli ordini: un ordine di ieri
+# probabilmente è ancora lì, una posizione di ieri può essere stata aperta o
+# chiusa stamattina all'apertura. Sei ore coprono una mattinata di borsa.
+_IBKR_POSITIONS_STALE_AFTER_SECONDS = int(
+    (os.getenv("IBKR_POSITIONS_STALE_AFTER") or "21600").strip() or 21600)  # 6h
+
+
+def _ibkr_positions_staleness(doc: Optional[dict]) -> dict:
+    """Da quanto non si aggiornano le posizioni.
+
+    Serve quanto quella degli ordini, e per lo stesso motivo: uno snapshot di
+    ieri sera ha lo stesso aspetto di uno di adesso, ma se nel frattempo sono
+    scattati dei limit il portafoglio che si sta guardando non è quello che si
+    ha. Sotto le sei ore si tace, sopra si dichiara.
+    """
+    if not doc or not doc.get("positions"):
+        return {"synced_at": None, "age_seconds": None, "stale": False, "source": None}
+    synced_at = doc.get("positions_synced_at") or doc.get("synced_at")
+    if not synced_at:
+        return {"synced_at": None, "age_seconds": None, "stale": True,
+                "source": doc.get("positions_source"), "reason": "data ignota"}
+    age = max(0.0, time.time() - float(synced_at))
+    stale = age > _IBKR_POSITIONS_STALE_AFTER_SECONDS
+    return {"synced_at": synced_at, "age_seconds": age, "stale": stale,
+            "source": doc.get("positions_source"),
+            "reason": (f"ultimo aggiornamento {age / 3600:.0f}h fa" if stale else None)}
+
 
 def _ibkr_orders_staleness(doc: Optional[dict]) -> dict:
     """Da quanto non arrivano gli ordini, e se è troppo."""
@@ -10632,6 +10659,7 @@ def api_ibkr_snapshot():
         # con Flex e gateway che aggiornano a ritmi diversi, un unico "aggiornato
         # alle 20:00" sarebbe fuorviante su una delle due.
         "orders_freshness": _ibkr_orders_staleness(doc),
+        "positions_freshness": _ibkr_positions_staleness(doc),
         "alert": {k: alert[k] for k in ("target_date", "count", "unresolved")},
         "alert_symbols": [i["symbol"] for i in alert["items"]],
     })
@@ -10855,6 +10883,7 @@ def api_ibkr_holdings():
         "positions_synced_at": doc.get("positions_synced_at"),
         "positions_source": doc.get("positions_source"),
         "orders_freshness": _ibkr_orders_staleness(doc),
+        "positions_freshness": _ibkr_positions_staleness(doc),
     })
 
 

@@ -5,6 +5,12 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.20.2] — 2026-08-27
+
+### Corretto
+- **La pagina non diceva abbastanza forte che le posizioni erano di ieri.** Con una sola sincronizzazione serale, chi apriva il portafoglio la mattina vedeva il conto com'era alle 19:45 del giorno prima — e uno snapshot vecchio ha lo stesso aspetto di uno appena fatto. Succedeva davvero: due limit europei scattati all'apertura non comparivano. Ora, oltre le sei ore (`IBKR_POSITIONS_STALE_AFTER`), un avviso in cima alla sezione dice a che ora risalgono e come aggiornarle. La soglia è più stretta di quella degli ordini, che sono a 36 ore: un ordine di ieri probabilmente è ancora lì, una posizione di ieri può essere stata aperta o chiusa stamattina.
+- L'attività pianificata gira ora **ogni 30 minuti dalle 08:00 alle 22:30** invece che una volta alle 19:45: una sincronizzazione al giorno lasciava il portafoglio indietro per tutta la giornata di borsa.
+
 ## [1.20.1] — 2026-08-26
 
 ### Corretto

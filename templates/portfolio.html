@@ -1120,6 +1120,24 @@
                 </div>`;
         }
 
+        // Uno snapshot di ieri sera ha lo stesso aspetto di uno di adesso, ma se
+        // nel frattempo sono scattati dei limit il portafoglio mostrato non è
+        // quello che si ha. Va detto sopra la lista, non nascosto in una data.
+        function stalePositionsNote() {
+            const f = window.__ibkrPosFreshness || {};
+            if (!f.stale) return '';
+            const quando = f.synced_at
+                ? new Date(f.synced_at * 1000).toLocaleString('it-IT',
+                    { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+                : 'data ignota';
+            return `<div class="ibkr-alert calm" style="color:#fbbf24;border-color:rgba(251,191,36,0.4);">
+                <i class="bi bi-clock-history me-1"></i>
+                Posizioni ferme a <strong>${escapeHtml(quando)}</strong>: se da allora sono scattati
+                degli ordini, qui non compaiono ancora. Avvia il gateway e lancia
+                <code>tools/ibkr_gateway_sync.py</code> per aggiornarle.
+            </div>`;
+        }
+
         function freshnessNote() {
             const f = window.__ibkrFreshness || {};
             if (f.stale) {
@@ -1218,6 +1236,7 @@
 
             if (positions.length) {
                 const tot = positions.reduce((s, p) => s + (p.market_value_base || 0), 0);
+                html += stalePositionsNote();
                 html += sectionHeader('positions', 'Posizioni aperte', positions.length,
                     `<span class="section-sum">${fmtAmount(tot, cur)}</span>`);
                 html += `<div class="section-body" data-body="positions" ${sectionState.positions ? '' : 'hidden'}>
@@ -1373,6 +1392,7 @@
                     return;
                 }
                 window.__ibkrFreshness = snap.orders_freshness || {};
+                window.__ibkrPosFreshness = snap.positions_freshness || {};
                 const fonte = snap.positions_source ? ` · posizioni da ${snap.positions_source}` : '';
                 document.getElementById('ibkrSynced').textContent =
                     fmtSyncedAt(snap.positions_synced_at || snap.synced_at) + fonte;
