@@ -5,6 +5,14 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.23.0] — 2026-08-27
+
+### Aggiunto
+- **Vista compatta per le posizioni IBKR, ora predefinita.** Una riga per titolo con i quattro numeri che servono a decidere: capitale investito, gain/loss corrente, prossima data earnings e tipologia di valutazione (Affare, Sconto, Equa, Cara). Con venti titoli la scheda completa costringeva a scorrere per confrontare due posizioni; in griglia l'occhio scende in verticale su una colonna sola. L'interruttore *Compatta / Completa* è accanto agli ordinamenti e la scelta viene ricordata.
+  - Nella sezione dei titoli con soli ordini pendenti la prima colonna diventa *Da investire* e il gain/loss è un trattino: non c'è una posizione, e mettere uno zero avrebbe suggerito un pareggio invece di un'assenza.
+  - L'accordion degli ordini resta anche in compatta, su una riga sola: era una funzione richiesta, non andava persa per fare spazio.
+  - Sotto i 900px la griglia a cinque colonne passa a due, col titolo su tutta la larghezza.
+
 ## [1.22.0] — 2026-08-27
 
 ### Aggiunto

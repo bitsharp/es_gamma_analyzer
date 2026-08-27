@@ -284,6 +284,41 @@
         /* Le schede che riportano domani devono staccarsi dalla lista */
         .pick-card.card-hot { border-color: rgba(248,113,113,0.55); }
 
+        /* Vista compatta: una riga per titolo, quattro numeri allineati.
+           Le colonne hanno larghezza fissa perche' l'occhio possa scorrerle
+           in verticale invece di ricercarle riga per riga. */
+        .compact-card { padding: 0.65rem 0.85rem; margin-bottom: 0.5rem; }
+        .compact-row {
+            display: grid;
+            grid-template-columns: minmax(140px, 1.6fr) repeat(2, minmax(96px, 1fr)) minmax(110px, 1fr) minmax(96px, 1fr);
+            gap: 0.6rem; align-items: center;
+        }
+        .compact-row .cc-label {
+            font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em;
+            color: #6b7e92; margin-bottom: 0.1rem;
+        }
+        .compact-row .cc-value {
+            font-size: 0.92rem; font-weight: 700; color: #fff;
+            font-variant-numeric: tabular-nums; white-space: nowrap;
+        }
+        .compact-row .cc-ticker { font-size: 1.05rem; font-weight: 800; color: #fff; }
+        .compact-row .cc-sub {
+            font-size: 0.72rem; color: #778da9;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .compact-card .zone-badge.compact-zone {
+            font-size: 0.75rem; padding: 0.12rem 0.45rem;
+        }
+        .compact-card .orders-acc { margin-top: 0.55rem; padding-top: 0.45rem; }
+        .compact-card .orders-toggle { font-size: 0.76rem; }
+
+        @media (max-width: 900px) {
+            /* Sotto i 900px la griglia a cinque colonne diventa illeggibile:
+               si va a due, tenendo il titolo su tutta la larghezza. */
+            .compact-row { grid-template-columns: repeat(2, 1fr); }
+            .compact-row .cc-name { grid-column: 1 / -1; }
+        }
+
         /* Accordion degli ordini attivi */
         .orders-acc { margin-top: 0.8rem; border-top: 1px solid rgba(65,90,119,0.4); padding-top: 0.6rem; }
         .orders-toggle {
@@ -438,6 +473,13 @@
                 </button>
                 <button type="button" class="sort-btn" data-sort="earnings">
                     <i class="bi bi-calendar-event me-1"></i>Earnings più vicini
+                </button>
+                <span class="filter-label" style="margin-left:auto;">Vista</span>
+                <button type="button" class="sort-btn density-btn active" data-density="compact">
+                    <i class="bi bi-list me-1"></i>Compatta
+                </button>
+                <button type="button" class="sort-btn density-btn" data-density="full">
+                    <i class="bi bi-card-text me-1"></i>Completa
                 </button>
             </div>
             <div id="ibkrBody"></div>
@@ -1105,6 +1147,52 @@
                 </div>`;
         }
 
+        // Vista compatta: quattro numeri per riga — quanto c'è dentro, come sta
+        // andando, quando riporta, quanto vale. È il default perché con venti
+        // titoli la scheda completa costringe a scorrere per confrontare.
+        const ibkrDensity = { key: 'compact' };
+        try {
+            const saved = localStorage.getItem('ibkrDensity');
+            if (saved === 'compact' || saved === 'full') ibkrDensity.key = saved;
+        } catch (e) { /* localStorage inaccessibile: si resta su compatta */ }
+
+        function zoneChip(row) {
+            const a = row.analysis && !row.analysis.error ? row.analysis : null;
+            if (!a) return '<span class="zone-badge zone-na compact-zone">N/D</span>';
+            const z = computeZone(a);
+            return `<span class="zone-badge ${z.cls} compact-zone">${z.label}</span>`;
+        }
+
+        function compactCell(label, value, cls) {
+            return `<div class="cc"><div class="cc-label">${escapeHtml(label)}</div>
+                    <div class="cc-value ${cls || ''}">${value}</div></div>`;
+        }
+
+        function renderIbkrCompactCard(row, idx, prefix) {
+            const a = row.analysis && !row.analysis.error ? row.analysis : null;
+            const pnl = row.unrealized_pnl;
+            const pnlCls = pnl == null ? '' : (pnl >= 0 ? 'pnl-pos' : 'pnl-neg');
+            const investito = prefix === 'pos'
+                ? fmtAmount(row.market_value, row.currency)
+                : fmtAmount(row.pending_buy_base, window.__ibkrBase || 'EUR');
+            return `
+                <div class="pick-card compact-card ${isHot(row) ? 'card-hot' : ''}">
+                    <div class="compact-row">
+                        <div class="cc cc-name">
+                            <div class="cc-ticker">${escapeHtml(row.symbol)}</div>
+                            <div class="cc-sub">${escapeHtml((a && a.name) || row.name || '')}</div>
+                        </div>
+                        ${compactCell(prefix === 'pos' ? 'Investito' : 'Da investire', investito)}
+                        ${compactCell('Gain/Loss', prefix === 'pos'
+                            ? (pnl == null ? '—' : (pnl > 0 ? '+' : '') + fmtAmount(pnl, row.currency))
+                            : '—', pnlCls)}
+                        ${compactCell('Earnings', earningsBadge(row))}
+                        ${compactCell('Tipologia', zoneChip(row))}
+                    </div>
+                    ${ordersAccordion(row, idx, prefix)}
+                </div>`;
+        }
+
         function renderIbkrPositionCard(row, idx) {
             const pnlCls = row.unrealized_pnl == null ? '' : (row.unrealized_pnl >= 0 ? 'pnl-pos' : 'pnl-neg');
             const base = row.market_value_base;
@@ -1256,8 +1344,11 @@
                 html += stalePositionsNote();
                 html += sectionHeader('positions', 'Posizioni aperte', positions.length,
                     `<span class="section-sum">${fmtAmount(tot, cur)}</span>`);
+                const draw = ibkrDensity.key === 'compact'
+                    ? ((r, i) => renderIbkrCompactCard(r, i, 'pos'))
+                    : renderIbkrPositionCard;
                 html += `<div class="section-body" data-body="positions" ${sectionState.positions ? '' : 'hidden'}>
-                    ${positions.map(renderIbkrPositionCard).join('')}</div>`;
+                    ${positions.map(draw).join('')}</div>`;
             }
             if (ordersOnly.length) {
                 const tot = ordersOnly.reduce((s, r) => s + (r.pending_buy_base || 0), 0);
@@ -1267,7 +1358,9 @@
                     <div style="font-size:0.78rem;color:#778da9;margin:0 0 0.6rem;">
                         Titoli su cui hai ordini aperti ma nessuna posizione: esposizione potenziale, non ancora investita.
                         L'importo è la somma dei soli acquisti, cioè il caso in cui venissero eseguiti tutti.</div>
-                    ${ordersOnly.map(renderIbkrOrdersOnlyCard).join('')}</div>`;
+                    ${ordersOnly.map(ibkrDensity.key === 'compact'
+                        ? ((r, i) => renderIbkrCompactCard(r, i, 'ord'))
+                        : renderIbkrOrdersOnlyCard).join('')}</div>`;
             }
             return html;
         }
@@ -1349,8 +1442,11 @@
         function paintIbkr() {
             if (!lastIbkr) return;
             document.getElementById('ibkrBody').innerHTML = renderIbkrHoldings(lastIbkr);
-            document.querySelectorAll('#ibkrSortBar .sort-btn').forEach(b => {
+            document.querySelectorAll('#ibkrSortBar .sort-btn[data-sort]').forEach(b => {
                 b.classList.toggle('active', b.dataset.sort === ibkrSort.key);
+            });
+            document.querySelectorAll('#ibkrSortBar .density-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.density === ibkrDensity.key);
             });
             document.querySelectorAll('#ibkrBody .section-toggle').forEach(btn => {
                 btn.addEventListener('click', () => {
@@ -1447,8 +1543,15 @@
         }
 
         document.getElementById('ibkrRefreshBtn').addEventListener('click', () => loadIbkr(true));
-        document.querySelectorAll('#ibkrSortBar .sort-btn').forEach(btn => {
+        document.querySelectorAll('#ibkrSortBar .sort-btn[data-sort]').forEach(btn => {
             btn.addEventListener('click', () => { ibkrSort.key = btn.dataset.sort; paintIbkr(); });
+        });
+        document.querySelectorAll('#ibkrSortBar .density-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                ibkrDensity.key = btn.dataset.density;
+                try { localStorage.setItem('ibkrDensity', ibkrDensity.key); } catch (e) {}
+                paintIbkr();
+            });
         });
 
         // ---- Aggiornamento automatico ----
