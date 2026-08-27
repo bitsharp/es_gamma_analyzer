@@ -10947,6 +10947,22 @@ def _flex_pnl_days(trades: List[dict]) -> dict:
             "fx_missing": sorted(fx_missing)}
 
 
+# Le sorelle si chiamano IBKR_FLEX_QUERY_ID e IBKR_FLEX_TRADES_QUERY_ID, quindi
+# scrivere questa senza il suffisso è un errore naturale — ed è successo. Si
+# accettano entrambe le forme: l'alternativa è che il calendario ripieghi in
+# silenzio su una query che il realizzato non ce l'ha, cioè un sintomo che non
+# assomiglia per niente alla causa.
+_IBKR_PNL_QUERY_ENV_NAMES = ("IBKR_FLEX_PNL_QUERY_ID", "IBKR_FLEX_PNL_QUERY")
+
+
+def _ibkr_pnl_query_id() -> str:
+    for name in _IBKR_PNL_QUERY_ENV_NAMES:
+        value = _ibkr_api_env(name)
+        if value:
+            return value
+    return ""
+
+
 def _flex_fetch_pnl_history(force: bool = False) -> dict:
     """Storico giornaliero dal Flex. Ritorna {"days", ...} oppure {"error"}.
 
@@ -10955,7 +10971,7 @@ def _flex_fetch_pnl_history(force: bool = False) -> dict:
     ripiega su quella, dichiarandolo: si otterrà la sola giornata di oggi, che
     accumulandosi giro dopo giro costruisce comunque lo storico da qui in poi.
     """
-    query_id = _ibkr_api_env("IBKR_FLEX_PNL_QUERY_ID")
+    query_id = _ibkr_pnl_query_id()
     fallback = False
     if not query_id:
         query_id = _ibkr_api_env("IBKR_FLEX_TRADES_QUERY_ID")
@@ -11090,7 +11106,7 @@ def api_ibkr_pnl_calendar():
         if not _ibkr_api_env("IBKR_FLEX_TOKEN"):
             hint = ("IBKR_FLEX_TOKEN non configurato: senza Flex non c'è da dove "
                     "leggere gli eseguiti.")
-        elif not _ibkr_api_env("IBKR_FLEX_PNL_QUERY_ID") and not _ibkr_api_env("IBKR_FLEX_TRADES_QUERY_ID"):
+        elif not _ibkr_pnl_query_id() and not _ibkr_api_env("IBKR_FLEX_TRADES_QUERY_ID"):
             hint = ("Nessuna query eseguiti configurata: serve IBKR_FLEX_PNL_QUERY_ID, "
                     "una Activity Flex con la sezione Trades su un periodo lungo.")
         elif not doc.get("pnl_synced_at"):
@@ -12280,7 +12296,7 @@ def _ibkr_env_diagnostics() -> dict:
         "variabili_viste": names,
         # Il valore no, ma sapere se è vuota o solo spazi sì: è la differenza
         # fra "manca" e "c'è ma non contiene niente".
-        "pnl_query_valorizzata": bool(_ibkr_api_env("IBKR_FLEX_PNL_QUERY_ID")),
+        "pnl_query_valorizzata": bool(_ibkr_pnl_query_id()),
         "vercel_env": os.getenv("VERCEL_ENV"),
         "commit": (os.getenv("VERCEL_GIT_COMMIT_SHA") or "")[:8] or None,
     }
@@ -12352,7 +12368,7 @@ def api_ibkr_flex_status():
         note.append("IBKR_FLEX_TRADES_QUERY_ID non configurato: senza la query "
                     "Trade Confirmation le posizioni restano ferme alla chiusura "
                     "precedente e gli eseguiti di oggi non compaiono")
-    shape["pnl_query_id"] = _ibkr_api_env("IBKR_FLEX_PNL_QUERY_ID") or None
+    shape["pnl_query_id"] = _ibkr_pnl_query_id() or None
     if not shape["pnl_query_id"]:
         note.append("IBKR_FLEX_PNL_QUERY_ID non configurato: il calendario P&L "
                     "ripiega sulla query di oggi e lo storico si costruisce solo "
