@@ -10620,11 +10620,16 @@ def _flex_parse_trades(xml: str) -> List[dict]:
             quantity = -quantity
         elif side.startswith("BUY") and quantity < 0:
             quantity = abs(quantity)
+        # Le commissioni entrano nel carico, come fa IBKR: senza, il prezzo di
+        # carico risulta più basso del vero e il gain/loss di conseguenza più
+        # generoso. Arrivano negative perché sono un costo.
+        commission = _ibkr_num(attrs.get("ibCommission") or attrs.get("commission"))
         trades.append({
             "symbol": symbol,
             "name": attrs.get("description") or None,
             "quantity": quantity,
             "price": price,
+            "commission": abs(commission) if commission is not None else 0.0,
             "currency": currency,
             "exchange": exchange,
             "asset_class": (attrs.get("assetCategory") or "").upper() or None,
@@ -10664,17 +10669,20 @@ def _flex_apply_trades(positions: List[dict], trades: List[dict],
             current.pop(symbol, None)
             continue
 
+        price = trade.get("price")
+        fee = trade.get("commission") or 0.0
         if existing is None or old_qty == 0 or (old_qty > 0) != (new_qty > 0):
-            # Posizione nuova, o girata di segno: il carico riparte dal prezzo
-            # di questo eseguito.
-            avg = trade.get("price")
+            # Posizione nuova, o girata di segno: il carico riparte da questo
+            # eseguito, commissione compresa.
+            avg = (price + fee / abs(new_qty)) if price is not None and new_qty else price
         elif abs(new_qty) > abs(old_qty):
-            # Si sta aggiungendo: media ponderata.
+            # Si sta aggiungendo: media ponderata sui costi, commissione inclusa.
             old_avg = (existing or {}).get("avg_price")
-            avg = (((old_qty * old_avg) + (delta * trade["price"])) / new_qty
-                   if old_avg is not None and trade.get("price") is not None else old_avg)
+            avg = (((old_qty * old_avg) + (delta * price) + fee) / new_qty
+                   if old_avg is not None and price is not None else old_avg)
         else:
-            # Si sta riducendo: il carico non cambia.
+            # Si sta riducendo: il carico non cambia. La commissione della
+            # vendita è un costo realizzato, non un aumento del carico residuo.
             avg = (existing or {}).get("avg_price")
 
         # Il prezzo dell'ultimo eseguito è la quotazione più recente che si
@@ -10691,8 +10699,10 @@ def _flex_apply_trades(positions: List[dict], trades: List[dict],
             "currency": (existing or {}).get("currency") or trade.get("currency"),
             "exchange": (existing or {}).get("exchange") or trade.get("exchange"),
             "asset_class": (existing or {}).get("asset_class") or trade.get("asset_class"),
-            # Il P&L non è ricalcolabile senza il prezzo di mercato vero.
-            "unrealized_pnl": None if applied else (existing or {}).get("unrealized_pnl"),
+            # A questo livello il P&L non è calcolabile: l'unico prezzo che si
+            # ha è quello dell'eseguito, che darebbe zero per costruzione. Lo
+            # riempie la rivalutazione col listino, in lettura.
+            "unrealized_pnl": None,
             "derived_from_trades": True,
         }
 
@@ -10917,6 +10927,58 @@ def _ibkr_capital_summary(doc: dict, positions: List[dict], orders_only: List[di
     }
 
 
+_QUOTE_CACHE: Dict[str, dict] = {}
+_QUOTE_CACHE_TTL_SECONDS = int((os.getenv("QUOTE_CACHE_TTL") or "300").strip() or 300)  # 5 min
+
+
+def _fetch_quote_price(fmp_symbol: str) -> Optional[float]:
+    """Ultimo prezzo da FMP. Cache 5 minuti: la pagina si ricarica da sola ogni
+    minuto e non serve interrogare il listino a ogni giro."""
+    if not fmp_symbol:
+        return None
+    cached = _QUOTE_CACHE.get(fmp_symbol)
+    now = time.time()
+    if cached and (now - cached["ts"]) < _QUOTE_CACHE_TTL_SECONDS:
+        return cached["price"]
+    price = None
+    data = _fmp_get("quote", symbol=fmp_symbol)
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        price = _ibkr_num(data[0].get("price"))
+    _QUOTE_CACHE[fmp_symbol] = {"ts": now, "price": price}
+    return price
+
+
+def _ibkr_revalue_position(row: dict) -> dict:
+    """Rivaluta una posizione col prezzo corrente di FMP.
+
+    Serve solo alle posizioni che arrivano dal Flex: quelle di chiusura sono
+    valorizzate a ieri, e quelle ricostruite dagli eseguiti hanno come unico
+    prezzo quello a cui si è comprato — con un P&L che sarebbe zero per
+    costruzione. Le posizioni del gateway invece sono già live e non si toccano.
+    """
+    price = _fetch_quote_price(row.get("fmp_symbol"))
+    if price is None or price <= 0:
+        return row
+    # FMP quota Londra in penny come IBKR: senza la stessa correzione il
+    # controvalore risulterebbe centuplicato.
+    price *= _ibkr_price_scale(row.get("exchange"), row.get("currency"))
+    reference = row.get("avg_price") or row.get("market_price")
+    if reference and not (0.02 < price / reference < 50):
+        # Scarto implausibile: quasi certamente unità di misura diverse o
+        # simbolo agganciato al titolo sbagliato. Meglio il dato vecchio di uno
+        # inventato.
+        return {**row, "revalue_rejected": True}
+    quantity = row.get("quantity") or 0
+    avg = row.get("avg_price")
+    return {
+        **row,
+        "market_price": price,
+        "market_value": quantity * price,
+        "unrealized_pnl": ((price - avg) * quantity) if avg is not None else row.get("unrealized_pnl"),
+        "revalued": True,
+    }
+
+
 _IBKR_ANALYSIS_CACHE: Dict[str, dict] = {}
 _IBKR_ANALYSIS_TTL_SECONDS = int(
     (os.getenv("IBKR_ANALYSIS_TTL") or "21600").strip() or 21600)  # 6h
@@ -11068,6 +11130,20 @@ def api_ibkr_holdings():
         values = [v for v in values if v is not None]
         return sum(values) if values else None
 
+    # Le posizioni del gateway sono già valorizzate in tempo reale da IBKR;
+    # quelle del Flex no, e vanno rivalutate col listino.
+    needs_revalue = (doc.get("positions_source") or "").startswith("flex")
+    if needs_revalue:
+        # Le quotazioni si scaldano in parallelo: in serie sarebbero tante
+        # chiamate quante le posizioni, una dopo l'altra.
+        from concurrent.futures import ThreadPoolExecutor
+        wanted = {(earnings.get((p.get("symbol") or "").upper()) or {}).get("fmp_symbol")
+                  for p in snapshot["positions"]}
+        wanted.discard(None)
+        if wanted:
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                list(executor.map(_fetch_quote_price, wanted))
+
     rows, positioned = [], set()
     for position in snapshot["positions"]:
         symbol = (position.get("symbol") or "").upper()
@@ -11075,10 +11151,15 @@ def api_ibkr_holdings():
             continue
         positioned.add(symbol)
         orders = orders_by_symbol.get(symbol, [])
-        rows.append({**position, **earnings_bits(symbol), "symbol": symbol,
-                     "market_value_base": _ibkr_market_value_base(position),
-                     "pending_buy_base": pending_buy(orders, position.get("currency")),
-                     "orders": orders})
+        row = {**position, **earnings_bits(symbol), "symbol": symbol}
+        if needs_revalue:
+            row = _ibkr_revalue_position(row)
+        row.update({
+            "market_value_base": _ibkr_market_value_base(row),
+            "pending_buy_base": pending_buy(orders, position.get("currency")),
+            "orders": orders,
+        })
+        rows.append(row)
 
     orders_only = []
     for symbol, orders in sorted(orders_by_symbol.items()):

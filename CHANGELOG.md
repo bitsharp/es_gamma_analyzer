@@ -5,6 +5,14 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.23.1] — 2026-08-27
+
+### Corretto
+- **Gain/loss vuoto sulle posizioni aperte in giornata.** Le posizioni ricostruite dagli eseguiti non avevano un prezzo di mercato — l'unico disponibile era quello a cui si era comprato, che avrebbe dato zero per costruzione — e il P&L veniva annullato. Onesto ma inutile: lasciava una colonna di trattini. Ora le posizioni che arrivano dal Flex vengono rivalutate col listino FMP, il che riempie il gain/loss e per giunta corregge i controvalori, che altrimenti restavano fermi alla chiusura precedente. Quelle del gateway non si toccano: IBKR le dà già in tempo reale.
+  - Le quotazioni si scaldano in parallelo e restano in cache 5 minuti (`QUOTE_CACHE_TTL`).
+  - FMP quota Londra in penny come IBKR: si applica la stessa correzione, e un prezzo che si discosta più di cinquanta volte dal carico viene scartato invece di essere creduto.
+- **Le commissioni entrano nel prezzo di carico**, come fa IBKR. Senza, il carico risultava più basso del vero e il gain/loss di conseguenza più generoso: su BMW il carico era 57,36 contro 57,3925. Ora coincide. La commissione di una vendita invece non tocca il carico residuo, perché è un costo realizzato.
+
 ## [1.23.0] — 2026-08-27
 
 ### Aggiunto
