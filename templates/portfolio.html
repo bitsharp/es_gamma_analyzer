@@ -198,7 +198,16 @@
             display: flex; align-items: center; justify-content: space-between;
             gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.85rem;
         }
-        .ibkr-synced { color: #778da9; font-size: 0.78rem; }
+        .ibkr-synced {
+            color: #778da9; font-size: 0.78rem;
+            transition: color 0.3s, background 0.3s;
+            border-radius: 5px; padding: 0.1rem 0.35rem;
+        }
+        /* Lampeggio breve quando l'aggiornamento arriva da solo: senza, i
+           numeri cambiano sotto gli occhi e sembra di aver letto male. */
+        .ibkr-synced.just-updated {
+            color: #4ade80; background: rgba(74,222,128,0.15);
+        }
         .ibkr-refresh {
             background: transparent; border: 1px solid #415a77; color: #778da9;
             padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.78rem; cursor: pointer;
@@ -1009,6 +1018,11 @@
             });
         }
 
+        // Accordion lasciati aperti dall'utente. Si tiene il simbolo e non
+        // l'indice: con l'aggiornamento automatico la lista si riordina, e un
+        // indice riaprirebbe la scheda sbagliata.
+        const openAccordions = new Set();
+
         function ordersAccordion(row, idx, prefix) {
             const orders = row.orders || [];
             if (!orders.length) {
@@ -1026,7 +1040,9 @@
                         <td style="color:#778da9;">${escapeHtml(o.status || '')}</td>
                     </tr>`;
             }).join('');
-            const id = `${prefix}-orders-${idx}`;
+            const key = `${prefix}:${row.symbol}`;
+            const id = `orders-${prefix}-${row.symbol}`.replace(/[^A-Za-z0-9_-]/g, '_');
+            const open = openAccordions.has(key);
             const buys = orders.filter(o => o.side === 'BUY').length;
             const sells = orders.length - buys;
             const capitale = row.pending_buy_base != null
@@ -1034,12 +1050,13 @@
                 : '';
             return `
                 <div class="orders-acc">
-                    <button type="button" class="orders-toggle" data-target="${id}" aria-expanded="false">
-                        <i class="bi bi-chevron-right"></i>
+                    <button type="button" class="orders-toggle" data-target="${id}"
+                            data-key="${escapeHtml(key)}" aria-expanded="${open}">
+                        <i class="bi bi-chevron-${open ? 'down' : 'right'}"></i>
                         <span>${orders.length} ordini attivi</span>
                         <span class="orders-mix">${buys} acquisto · ${sells} vendita${capitale}</span>
                     </button>
-                    <div class="orders-body" id="${id}" hidden>
+                    <div class="orders-body" id="${id}" ${open ? '' : 'hidden'}>
                         <table class="ibkr-table">
                             <tr><th>Lato</th><th>Tipo</th><th class="num">Qtà</th>
                                 <th class="num">Prezzo</th><th>Validità</th><th>Stato</th></tr>
@@ -1356,6 +1373,8 @@
                     btn.setAttribute('aria-expanded', String(!open));
                     btn.querySelector('i').className = open ? 'bi bi-chevron-right' : 'bi bi-chevron-down';
                     body.hidden = open;
+                    if (open) openAccordions.delete(btn.dataset.key);
+                    else openAccordions.add(btn.dataset.key);
                 });
             });
         }
@@ -1432,7 +1451,63 @@
             btn.addEventListener('click', () => { ibkrSort.key = btn.dataset.sort; paintIbkr(); });
         });
 
-        loadIbkr();
+        // ---- Aggiornamento automatico ----
+        // Si interroga un endpoint che restituisce solo le date di ultima
+        // sincronizzazione, e si ricarica davvero soltanto se sono cambiate:
+        // rifare posizioni e analisi ogni minuto sarebbe una ventina di
+        // chiamate a FMP per scoprire che non è successo niente.
+        const POLL_MS = 60000;
+        let lastPulse = null;
+        let pollTimer = null;
+
+        function pulseKey(p) {
+            return [p.synced_at, p.positions_synced_at, p.orders_synced_at].join('|');
+        }
+
+        function flashUpdated() {
+            const el = document.getElementById('ibkrSynced');
+            el.classList.add('just-updated');
+            setTimeout(() => el.classList.remove('just-updated'), 2000);
+        }
+
+        async function pollIbkr() {
+            // Niente richieste a scheda nascosta: non servono a nessuno e
+            // continuerebbero per ore su un browser lasciato aperto.
+            if (document.hidden) return;
+            try {
+                const res = await fetch('/api/ibkr/pulse');
+                if (!res.ok) return;
+                const pulse = await res.json();
+                const key = pulseKey(pulse);
+                if (lastPulse === null) { lastPulse = key; return; }
+                if (key === lastPulse) return;
+                lastPulse = key;
+                await loadIbkr();
+                flashUpdated();
+            } catch (e) {
+                // Rete assente o sessione scaduta: si riproverà al giro dopo,
+                // lasciando in pagina i dati che ci sono già.
+            }
+        }
+
+        function startPolling() {
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = setInterval(pollIbkr, POLL_MS);
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            // Tornando sulla scheda si controlla subito: è il momento in cui
+            // il dato vecchio si nota di più.
+            if (!document.hidden) pollIbkr();
+        });
+
+        loadIbkr().then(() => {
+            fetch('/api/ibkr/pulse')
+                .then(r => r.ok ? r.json() : null)
+                .then(p => { if (p) lastPulse = pulseKey(p); })
+                .catch(() => {});
+            startPolling();
+        });
         loadPortfolio();
     </script>
     {% include '_release_notes_modal.html' %}

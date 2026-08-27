@@ -5,6 +5,14 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.22.0] — 2026-08-27
+
+### Aggiunto
+- **La pagina portafoglio si aggiorna da sola.** Ogni minuto interroga `/api/ibkr/pulse`, che restituisce solo le date di ultima sincronizzazione — 145 byte, 55 ms — e ricarica davvero soltanto se sono cambiate. Rifare posizioni, ordini e analisi a ogni giro sarebbe stata una ventina di chiamate a FMP per scoprire che non era successo niente.
+  - Niente richieste a scheda nascosta: su un browser lasciato aperto continuerebbero per ore senza che nessuno guardi. Al ritorno sulla scheda il controllo è immediato, perché è il momento in cui un dato vecchio si nota di più.
+  - Quando l'aggiornamento arriva da solo, la data in intestazione lampeggia in verde per due secondi: senza, i numeri cambiano sotto gli occhi e sembra di aver letto male.
+- **Gli accordion aperti restano aperti** attraverso gli aggiornamenti e i riordini. Sono identificati per simbolo e non per posizione nella lista: con l'ordinamento per earnings che rimescola le schede, un indice avrebbe riaperto il titolo sbagliato. Un aggiornamento automatico che chiude quello che stavi leggendo è peggio di nessun aggiornamento.
+
 ## [1.21.0] — 2026-08-27
 
 ### Aggiunto

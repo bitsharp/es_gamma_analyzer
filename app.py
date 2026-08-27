@@ -10945,6 +10945,36 @@ def _analyze_portfolio_ticker_cached(fmp_symbol: str) -> dict:
     return value
 
 
+@app.route('/api/ibkr/pulse', methods=['GET'])
+@login_required
+def api_ibkr_pulse():
+    """Solo le date di ultimo aggiornamento dello snapshot.
+
+    La pagina la interroga ogni minuto per sapere se vale la pena ricaricare:
+    ripescare posizioni, ordini e analisi a ogni giro sarebbe una ventina di
+    chiamate a FMP per scoprire che non è cambiato niente. Qui si legge un
+    documento solo, senza arricchimenti.
+    """
+    owner_email = _current_user_email()
+    if not owner_email:
+        return jsonify({"error": "no user"}), 401
+    coll = _get_mongo_ibkr_collection()
+    if coll is None:
+        return jsonify({"synced_at": None})
+    try:
+        doc = coll.find_one({"owner_email": owner_email},
+                            {"_id": 0, "synced_at": 1, "positions_synced_at": 1,
+                             "orders_synced_at": 1, "positions_source": 1}) or {}
+    except Exception:
+        return jsonify({"synced_at": None})
+    return jsonify({
+        "synced_at": doc.get("synced_at"),
+        "positions_synced_at": doc.get("positions_synced_at"),
+        "orders_synced_at": doc.get("orders_synced_at"),
+        "positions_source": doc.get("positions_source"),
+    })
+
+
 @app.route('/api/screener/earnings', methods=['GET'])
 @login_required
 def api_screener_earnings():
