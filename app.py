@@ -11040,6 +11040,25 @@ _IBKR_PNL_MAX_AGE_SECONDS = int(
     (os.getenv("IBKR_PNL_MAX_AGE") or "14400").strip() or 14400)  # 4h
 
 
+def _ibkr_reset_pnl_days(owner_email: str) -> bool:
+    """Butta via lo storico giornaliero.
+
+    Serve dopo aver cambiato o corretto la query: le giornate raccolte con
+    quella vecchia possono essere incomplete, e siccome la fusione è per data
+    resterebbero lì per sempre — le sovrascrive solo un report che copra la
+    stessa giornata.
+    """
+    coll = _get_mongo_ibkr_collection()
+    if coll is None or not owner_email:
+        return False
+    try:
+        coll.update_one({"owner_email": owner_email},
+                        {"$unset": {"pnl_days": "", "pnl_synced_at": "", "pnl_meta": ""}})
+        return True
+    except Exception:
+        return False
+
+
 def _ibkr_refresh_pnl_history(owner_email: str, force: bool = False) -> dict:
     """Aggiorna lo storico giornaliero, se è ora.
 
@@ -11068,6 +11087,19 @@ def _ibkr_refresh_pnl_history(owner_email: str, force: bool = False) -> dict:
         "trades_seen": fetched.get("trades_seen"),
         "fx_missing": fetched.get("fx_missing"),
     }
+    # Un report senza realizzato produce giornate a zero: non "non ho
+    # guadagnato niente", ma "non lo so". Salvarle vorrebbe dire scrivere in
+    # calendario un numero sicuro di sé che non ha nessuna base, e la fusione
+    # per data lo lascerebbe lì finché non passa un report sulla stessa
+    # giornata. Si tiene solo il meta, che è ciò che fa comparire l'avviso.
+    if not fetched.get("realized_available"):
+        _ibkr_store_pnl_days(owner_email, {}, meta=meta)
+        return {"status": "ok", "days_in_report": len(fetched["days"]),
+                "days_stored": 0, "realized_available": False,
+                "trades_seen": fetched.get("trades_seen"),
+                "fallback_query": fetched.get("fallback_query"),
+                "reason": "il report non porta il realizzato: giornate non salvate"}
+
     merged = _ibkr_store_pnl_days(owner_email, fetched["days"], meta=meta)
     if merged is None:
         return {"status": "error", "error": "mongo non disponibile: storico non salvato"}
@@ -12224,7 +12256,12 @@ def _ibkr_run_daily_job(notify_always: bool = False, notify: bool = True,
         pnl = {"status": "skipped", "reason": "disattivato dalla richiesta"}
     else:
         try:
-            pnl = _ibkr_refresh_pnl_history(owner_email, force=(pnl_mode == "force"))
+            if pnl_mode == "reset":
+                _ibkr_reset_pnl_days(owner_email)
+            pnl = _ibkr_refresh_pnl_history(
+                owner_email, force=pnl_mode in ("force", "reset"))
+            if pnl_mode == "reset":
+                pnl["reset"] = True
         except Exception as error:
             pnl = {"status": "error", "error": str(error)[:200]}
 
@@ -12314,7 +12351,10 @@ def api_ibkr_cron():
     # salta del tutto. Serve dopo aver configurato o corretto la query Flex:
     # senza, per vedere l'effetto di una modifica bisognerebbe aspettare che
     # scada la finestra di quattro ore.
-    pnl_mode = {"force": "force", "1": "force", "0": "off"}.get(
+    # `pnl=reset` butta lo storico e lo rilegge da capo: serve quando si è
+    # cambiata la query e le giornate raccolte con quella vecchia sono
+    # incomplete, perché la fusione per data da sola non le toglierebbe mai.
+    pnl_mode = {"force": "force", "1": "force", "0": "off", "reset": "reset"}.get(
         (request.args.get("pnl") or "").strip().lower(), "auto")
     # `notify=0` per i richiami durante la giornata: aggiornano le posizioni ma
     # non devono rimandare l'alert earnings ogni mezz'ora. La notifica resta
