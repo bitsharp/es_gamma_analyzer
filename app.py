@@ -10294,6 +10294,12 @@ _IBKR_ORDERS_STALE_AFTER_SECONDS = int(
 _IBKR_POSITIONS_STALE_AFTER_SECONDS = int(
     (os.getenv("IBKR_POSITIONS_STALE_AFTER") or "21600").strip() or 21600)  # 6h
 
+# Il P&L giornaliero di IBKR invecchia più in fretta di tutto il resto: è un
+# numero che si muove di continuo, e mostrarlo vecchio di ore come "oggi" è
+# peggio che stimarlo.
+_IBKR_DAILY_PNL_MAX_AGE_SECONDS = int(
+    (os.getenv("IBKR_DAILY_PNL_MAX_AGE") or "7200").strip() or 7200)  # 2h
+
 
 def _ibkr_positions_staleness(doc: Optional[dict]) -> dict:
     """Da quanto non si aggiornano le posizioni.
@@ -10473,6 +10479,11 @@ def _flex_get(url: str) -> Optional[str]:
 def _flex_xml_text(xml: str, tag: str) -> Optional[str]:
     match = re.search(rf"<{tag}>(.*?)</{tag}>", xml, re.S | re.I)
     return match.group(1).strip() if match else None
+
+
+_FLEX_ACTIVITY_CACHE: Dict[str, Any] = {}
+_FLEX_ACTIVITY_TTL_SECONDS = int(
+    (os.getenv("FLEX_ACTIVITY_TTL") or "14400").strip() or 14400)  # 4h
 
 
 def _flex_attrs(xml: str, *element_names: str) -> List[dict]:
@@ -10723,10 +10734,19 @@ def _flex_fetch_positions() -> dict:
     if not _ibkr_api_env("IBKR_FLEX_TOKEN") or not query_id:
         return {"error": "IBKR_FLEX_TOKEN / IBKR_FLEX_QUERY_ID non configurati"}
 
-    fetched = _flex_fetch_statement(query_id)
-    if fetched.get("error"):
-        return fetched
-    activity = _flex_parse_activity(fetched["xml"])
+    # L'Activity fotografa una chiusura già avvenuta: entro la giornata non
+    # cambia, e IBKR stessa dice che non c'è beneficio a rigenerarla più di una
+    # volta al giorno. Durante il giorno si rilegge solo la Trade Confirmation,
+    # che è la parte viva — e si dimezzano le richieste, che il Flex limita.
+    cached = _FLEX_ACTIVITY_CACHE.get("value")
+    if cached and (time.time() - _FLEX_ACTIVITY_CACHE.get("ts", 0)) < _FLEX_ACTIVITY_TTL_SECONDS:
+        activity = cached
+    else:
+        fetched = _flex_fetch_statement(query_id)
+        if fetched.get("error"):
+            return fetched
+        activity = _flex_parse_activity(fetched["xml"])
+        _FLEX_ACTIVITY_CACHE.update({"ts": time.time(), "value": activity})
 
     result = {
         "positions": activity["positions"],
@@ -10911,7 +10931,14 @@ def _ibkr_capital_summary(doc: dict, positions: List[dict], orders_only: List[di
     # realizzato delle posizioni chiuse oggi. Senza gateway si ripiega sulla
     # somma delle variazioni di giornata dei titoli ancora aperti, che è una
     # cosa diversa e va detto: chi ha venduto in giornata non la vedrebbe.
+    # Il numero di IBKR vale solo finché è fresco: il gateway gira una volta la
+    # mattina, e un P&L delle 9:00 mostrato alle 17:00 come "oggi" sarebbe
+    # sbagliato senza sembrarlo. Scaduto, si ripiega sulla stima.
+    account_age = (time.time() - float(doc.get("account_synced_at") or 0)
+                   if doc.get("account_synced_at") else None)
     daily = account.get("daily_pnl")
+    if daily is not None and (account_age is None or account_age > _IBKR_DAILY_PNL_MAX_AGE_SECONDS):
+        daily = None
     daily_source = "ibkr"
     if daily is None:
         parts = []
@@ -11808,7 +11835,7 @@ def _ibkr_fetch_positions_any_source() -> dict:
             "webapi_error": webapi_error}
 
 
-def _ibkr_run_daily_job(notify_always: bool = False) -> dict:
+def _ibkr_run_daily_job(notify_always: bool = False, notify: bool = True) -> dict:
     """Il giro completo: aggiorna le posizioni, calcola l'alert del giorno dopo
     e notifica. Gli ordini non li tocca a meno che la sorgente non li porti —
     restano quelli depositati dal gateway locale, dichiarando quanto sono
@@ -11839,8 +11866,8 @@ def _ibkr_run_daily_job(notify_always: bool = False) -> dict:
         _ibkr_earnings_alert(snapshot, earnings=merged.get("earnings")),
         orders_freshness=freshness)
 
-    should_notify = bool(alert["count"]) or notify_always
-    telegram = _ibkr_maybe_notify(alert, {"notify": True, "notify_always": notify_always})
+    should_notify = notify and (bool(alert["count"]) or notify_always)
+    telegram = _ibkr_maybe_notify(alert, {"notify": notify, "notify_always": notify_always})
     email = {"sent": False, "error": "nessun earning da segnalare"}
     if should_notify:
         email = _send_alert_email(
@@ -11891,7 +11918,11 @@ def api_ibkr_cron():
     if not _ibkr_cron_authorized():
         return jsonify({"error": "unauthorized"}), 401
     notify_always = request.args.get("notify_always") == "1"
-    result = _ibkr_run_daily_job(notify_always=notify_always)
+    # `notify=0` per i richiami durante la giornata: aggiornano le posizioni ma
+    # non devono rimandare l'alert earnings ogni mezz'ora. La notifica resta
+    # attaccata al giro serale.
+    result = _ibkr_run_daily_job(notify_always=notify_always,
+                                 notify=request.args.get("notify") != "0")
     return jsonify(result), (200 if result.get("status") == "ok" else 502)
 
 

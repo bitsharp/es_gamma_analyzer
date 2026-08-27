@@ -91,11 +91,16 @@ def read_sync_token(explicit):
     return ""
 
 
+class GatewayUnavailable(Exception):
+    """Il gateway non c'è o non è autenticato. Non è fatale: le posizioni si
+    aggiornano lo stesso dal Flex, lato server."""
+
+
 def auth_status(gateway):
     status, payload = http_json(f"{gateway}/iserver/auth/status", method="POST",
                                 context=_LOCAL_CTX)
     if status == 0:
-        sys.exit(f"gateway non raggiungibile su {gateway}: è avviato?\n  ({payload})")
+        raise GatewayUnavailable(f"gateway non raggiungibile su {gateway}: è avviato?")
     return payload if isinstance(payload, dict) else {}
 
 
@@ -116,9 +121,10 @@ def ensure_authenticated(gateway):
         if auth_status(gateway).get("authenticated"):
             print("sessione ristabilita")
             return
-    sys.exit("gateway non autenticato: apri https://localhost:5000 e rifai login.\n"
-             "Se dice 'competing', un'altra sessione IBKR (TWS, app, connettore) "
-             "ha preso il posto: IBKR ne ammette una sola per utenza.")
+    raise GatewayUnavailable(
+        "gateway non autenticato: apri https://localhost:5000 e rifai login.\n"
+        "  Se dice 'competing', un'altra sessione IBKR (TWS, app, connettore) "
+        "ha preso il posto: IBKR ne ammette una sola per utenza.")
 
 
 _ORDER_SYMBOL_RE = re.compile(r"^\s*(?:buy|sell)\s+[\d.,]+\s+(\S+)", re.IGNORECASE)
@@ -296,7 +302,66 @@ def main():
     token = read_sync_token(args.token)
     if not token:
         sys.exit("IBKR_SYNC_TOKEN non trovato: passalo con --token o mettilo in .env")
+    base = args.polaris.rstrip("/")
 
+    try:
+        payload = gateway_payload(args)
+    except GatewayUnavailable as motivo:
+        # Il gateway serve solo per gli ordini e il P&L del giorno. Le posizioni
+        # le sa aggiornare il server da solo col Flex, quindi non ci si ferma:
+        # si salta la parte locale e si chiede comunque il giro remoto.
+        print(f"gateway non disponibile: {motivo}")
+        print("procedo col solo aggiornamento posizioni lato server (Flex)")
+        refresh_positions(base, token)
+        return
+
+    status, response = http_json(
+        f"{base}/api/ibkr/sync", method="POST", body=payload,
+        headers={"Authorization": f"Bearer {token}"}, timeout=60)
+    if status != 200:
+        sys.exit(f"sync fallita (HTTP {status}): {str(response)[:300]}")
+    report(payload, response, args.notify)
+    # Anche col gateway vivo conviene il giro Flex: porta gli eseguiti che il
+    # gateway non ha ancora regolato e tiene le posizioni allineate.
+    refresh_positions(base, token)
+
+
+def refresh_positions(base, token):
+    """Chiede al server di rifare il giro Flex.
+
+    `notify=0` perché durante la giornata questo gira ogni mezz'ora e l'alert
+    earnings deve restare attaccato al giro serale, non ripetersi.
+    """
+    status, response = http_json(f"{base}/api/ibkr/cron?notify=0", method="GET",
+                                 headers={"Authorization": f"Bearer {token}"}, timeout=120)
+    if status != 200 or not isinstance(response, dict):
+        print(f"aggiornamento posizioni lato server fallito (HTTP {status}): "
+              f"{str(response)[:200]}")
+        return
+    simboli = ", ".join(response.get("position_symbols") or []) or "nessuna"
+    print(f"posizioni dal server ({response.get('source')}): {simboli}"
+          f"  [{response.get('trades_applied')} eseguiti applicati]")
+    if (response.get("skipped") or {}).get("reason"):
+        print(f"  nota: {response['skipped']['reason']}")
+
+
+def report(payload, response, notify):
+    alert = response.get("alert") or {}
+    print(f"aggiornato: {', '.join(response.get('updated') or [])}")
+    print(f"ordini vivi: {response.get('live_orders')} su {response.get('orders')}")
+    if payload.get("account"):
+        acc = payload["account"]
+        riga = f"capitale (net liq)   : {acc['net_liquidation']:,.0f} {acc.get('currency') or ''}"
+        if acc.get("daily_pnl") is not None:
+            riga += f"   P&L oggi {acc['daily_pnl']:+,.2f}"
+        print(riga)
+    print(f"earnings {alert.get('target_date')}: {alert.get('count')} "
+          f"{', '.join(i['symbol'] for i in alert.get('items') or []) or '-'}")
+    if notify:
+        print(f"telegram: {response.get('telegram')}")
+
+
+def gateway_payload(args):
     ensure_authenticated(args.gateway)
     payload = {"orders": fetch_orders(args.gateway), "source": "gateway"}
     if not args.no_positions:
@@ -321,24 +386,7 @@ def main():
             payload["account"] = merged
     if args.notify:
         payload["notify"] = True
-
-    status, response = http_json(
-        f"{args.polaris.rstrip('/')}/api/ibkr/sync", method="POST", body=payload,
-        headers={"Authorization": f"Bearer {token}"}, timeout=60)
-    if status != 200:
-        sys.exit(f"sync fallita (HTTP {status}): {str(response)[:300]}")
-
-    alert = response.get("alert") or {}
-    print(f"aggiornato: {', '.join(response.get('updated') or [])}")
-    print(f"ordini vivi: {response.get('live_orders')} su {response.get('orders')}")
-    print(f"posizioni in archivio: {response.get('positions')}")
-    if payload.get("account"):
-        print(f"capitale (net liq)   : {payload['account']['net_liquidation']:,.0f} "
-              f"{payload['account'].get('currency') or ''}")
-    print(f"earnings {alert.get('target_date')}: {alert.get('count')} "
-          f"{', '.join(i['symbol'] for i in alert.get('items') or []) or '—'}")
-    if args.notify:
-        print(f"telegram: {response.get('telegram')}")
+    return payload
 
 
 if __name__ == "__main__":

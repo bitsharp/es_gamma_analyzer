@@ -5,6 +5,16 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.25.0] — 2026-08-27
+
+### Modificato
+- **Le posizioni si aggiornano durante la giornata anche senza gateway.** Il cron di Vercel gira una volta al giorno, quindi il percorso Flex — capace di seguire gli eseguiti a dieci minuti — di fatto non veniva mai richiamato fino a sera. Ora l'attività pianificata, oltre a provare il gateway, chiede sempre al server di rifare il giro Flex: se il gateway non c'è o la sessione è scaduta lo dice e prosegue, invece di fermarsi. Verificato col gateway spento: le posizioni si sono aggiornate lo stesso, pescando un titolo comprato in giornata.
+  - I richiami intraday passano `notify=0`: aggiornano le posizioni ma non ripetono l'alert earnings, che resta attaccato al giro serale.
+- **L'Activity Flex viene riletta al massimo ogni 4 ore** (`FLEX_ACTIVITY_TTL`). Fotografa una chiusura già avvenuta e dentro la giornata non cambia — IBKR stessa dice che non c'è beneficio a rigenerarla più di una volta al giorno. Durante il giorno si rilegge solo la Trade Confirmation, che è la parte viva: metà delle richieste, su un servizio che le limita.
+
+### Corretto
+- **Il P&L del giorno di IBKR scade dopo due ore** (`IBKR_DAILY_PNL_MAX_AGE`). Col gateway acceso solo la mattina, un giornaliero delle 9:00 mostrato alle 17:00 come "oggi" sarebbe stato sbagliato senza sembrarlo. Scaduto, si ripiega sulla stima dal listino, che è etichettata.
+
 ## [1.24.0] — 2026-08-27
 
 ### Aggiunto
