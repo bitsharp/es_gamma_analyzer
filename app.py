@@ -10723,6 +10723,10 @@ def _flex_fetch_positions() -> dict:
     }
 
     trades_query = _ibkr_api_env("IBKR_FLEX_TRADES_QUERY_ID")
+    # Va detto se la query non c'è: "zero eseguiti applicati" da solo non
+    # distingue una giornata senza operazioni da una variabile mancante, ed è
+    # la prima cosa che si vuole sapere dopo aver configurato il portale.
+    result["trades_query_configured"] = bool(trades_query)
     if not trades_query:
         return result
 
@@ -11641,7 +11645,14 @@ def _ibkr_fetch_positions_any_source() -> dict:
             "report_date": flex.get("report_date"),
             "source": "flex+trades" if flex.get("trades_applied") else "flex",
             "trades_applied": flex.get("trades_applied"),
+            "trades_seen": flex.get("trades_seen"),
+            "trades_query_configured": flex.get("trades_query_configured"),
             "trades_error": flex.get("trades_error"),
+            "flex_sections": {
+                "nav": bool(flex.get("account")),
+                "rates": len(flex.get("rates") or {}),
+                "positions": len(flex.get("positions") or []),
+            },
             "webapi_error": webapi_error}
 
 
@@ -11690,7 +11701,10 @@ def _ibkr_run_daily_job(notify_always: bool = False) -> dict:
         "account_id": fetched.get("account_id"),
         "report_date": fetched.get("report_date"),
         "trades_applied": fetched.get("trades_applied"),
+        "trades_seen": fetched.get("trades_seen"),
+        "trades_query_configured": fetched.get("trades_query_configured"),
         "trades_error": fetched.get("trades_error"),
+        "flex_sections": fetched.get("flex_sections"),
         "skipped": merged.get("skipped"),
         "position_symbols": sorted({(p.get("symbol") or "") for p in snapshot["positions"]}),
         "positions": len(snapshot["positions"]),
