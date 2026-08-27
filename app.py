@@ -10471,16 +10471,30 @@ def _flex_xml_text(xml: str, tag: str) -> Optional[str]:
     return match.group(1).strip() if match else None
 
 
-def _flex_fetch_positions() -> dict:
-    """Posizioni aperte dal Flex Web Service.
+def _flex_attrs(xml: str, *element_names: str) -> List[dict]:
+    """Attributi di ogni elemento con uno dei nomi indicati.
+
+    Si accettano più nomi perché IBKR non è coerente tra tipi di query — gli
+    eseguiti stanno in `<TradeConfirm>` nella Trade Confirmation e in `<Trade>`
+    nell'Activity — e indovinare il nome sbagliato darebbe una lista vuota
+    indistinguibile da "non c'è niente".
+    """
+    out = []
+    for name in element_names:
+        for match in re.finditer(rf"<{name}\b([^>]*?)/?>", xml, re.S):
+            out.append(dict(re.findall(r'(\w+)="([^"]*)"', match.group(1))))
+    return out
+
+
+def _flex_fetch_statement(query_id: str) -> dict:
+    """Scarica un report Flex. Ritorna {"xml"} oppure {"error"}.
 
     Il report non è pronto subito: si chiede la generazione, si riceve un
-    reference code e si ripassa a ritirarlo. Ritorna {"positions"} o {"error"}.
+    reference code e si ripassa a ritirarlo.
     """
     token = _ibkr_api_env("IBKR_FLEX_TOKEN")
-    query_id = _ibkr_api_env("IBKR_FLEX_QUERY_ID")
     if not token or not query_id:
-        return {"error": "IBKR_FLEX_TOKEN / IBKR_FLEX_QUERY_ID non configurati"}
+        return {"error": "IBKR_FLEX_TOKEN o query id non configurati"}
 
     sent = _flex_get(f"{_FLEX_BASE}/SendRequest?"
                      + urllib.parse.urlencode({"t": token, "q": query_id, "v": "3"}))
@@ -10519,31 +10533,217 @@ def _flex_fetch_positions() -> dict:
             return {"error": "Flex GetStatement: risposta inattesa " + body[:200]}
     if statement is None:
         return {"error": "Flex: report non pronto dopo 6 tentativi"}
+    return {"xml": statement}
 
+
+def _flex_parse_activity(xml: str) -> dict:
+    """Posizioni, capitale e cambi da un Activity Flex.
+
+    Capitale e cambi ci sono solo se le rispettive sezioni sono state aggiunte
+    alla query nel portale: la loro assenza non è un errore, è una query
+    configurata più stretta.
+    """
     positions = []
-    for match in re.finditer(r"<OpenPosition\b([^>]*?)/?>", statement, re.S):
-        attrs = dict(re.findall(r'(\w+)="([^"]*)"', match.group(1)))
+    for attrs in _flex_attrs(xml, "OpenPosition"):
         symbol = (attrs.get("symbol") or "").strip()
         if not symbol:
             continue
+        currency = (attrs.get("currency") or "").upper() or None
+        exchange = (attrs.get("listingExchange") or "").upper() or None
+        scale = _ibkr_price_scale(exchange, currency)
+
+        def price(value, _scale=scale):
+            number = _ibkr_num(value)
+            return number * _scale if number is not None else None
+
         positions.append({
             "symbol": symbol,
             "name": attrs.get("description") or None,
             "quantity": _ibkr_num(attrs.get("position")),
-            "avg_price": _ibkr_num(attrs.get("costBasisPrice") or attrs.get("openPrice")),
-            "market_price": _ibkr_num(attrs.get("markPrice")),
+            "avg_price": price(attrs.get("costBasisPrice") or attrs.get("openPrice")),
+            "market_price": price(attrs.get("markPrice")),
             "market_value": _ibkr_num(attrs.get("positionValue")),
             "unrealized_pnl": _ibkr_num(attrs.get("fifoPnlUnrealized")),
-            "currency": (attrs.get("currency") or "").upper() or None,
+            "currency": currency,
             "asset_class": (attrs.get("assetCategory") or "").upper() or None,
-            "exchange": (attrs.get("listingExchange") or "").upper() or None,
+            "exchange": exchange,
         })
-    # La data del report è un attributo di <FlexStatement>, non un elemento:
-    # serve a dire in pagina quanto è vecchio il dato, visto che il Flex è di
-    # fine giornata e non intraday.
-    report_date = re.search(r'<FlexStatement\b[^>]*\btoDate="([^"]*)"', statement)
-    return {"positions": positions,
+
+    # Sezione "Net Asset Value (NAV) Summary in Base": l'ultima riga per data
+    # di report è il capitale a quella chiusura.
+    account = None
+    nav_rows = _flex_attrs(xml, "EquitySummaryByReportDateInBase", "EquitySummaryInBase")
+    nav_rows = [r for r in nav_rows if r.get("total") or r.get("cash")]
+    if nav_rows:
+        latest = max(nav_rows, key=lambda r: r.get("reportDate") or "")
+        account = {
+            "net_liquidation": _ibkr_num(latest.get("total")),
+            "cash": _ibkr_num(latest.get("cash")),
+            "currency": (latest.get("currency") or "").upper() or _ibkr_base_currency(),
+        }
+
+    # Sezione "Currency Conversion Rate": cambi ufficiali IBKR verso la valuta
+    # base, preferibili a quelli chiesti a FMP.
+    rates = {}
+    for attrs in _flex_attrs(xml, "ConversionRate"):
+        source = (attrs.get("fromCurrency") or "").upper()
+        rate = _ibkr_num(attrs.get("rate"))
+        if source and rate:
+            rates[source] = rate
+
+    report_date = re.search(r'<FlexStatement\b[^>]*\btoDate="([^"]*)"', xml)
+    return {"positions": positions, "account": account, "rates": rates,
             "report_date": report_date.group(1) if report_date else None}
+
+
+def _flex_parse_trades(xml: str) -> List[dict]:
+    """Eseguiti da un Trade Confirmation Flex.
+
+    Si tiene solo l'azionario e si ignorano le righe di annullo: quello che
+    serve è come è cambiata la quantità in portafoglio.
+    """
+    trades = []
+    for attrs in _flex_attrs(xml, "TradeConfirm", "Trade"):
+        symbol = (attrs.get("symbol") or "").strip()
+        quantity = _ibkr_num(attrs.get("quantity"))
+        if not symbol or not quantity:
+            continue
+        currency = (attrs.get("currency") or "").upper() or None
+        exchange = (attrs.get("listingExchange") or attrs.get("exchange") or "").upper() or None
+        price = _ibkr_num(attrs.get("price") or attrs.get("tradePrice"))
+        if price is not None:
+            price *= _ibkr_price_scale(exchange, currency)
+        # `quantity` è già firmata sugli eseguiti IBKR, ma non su tutte le
+        # varianti: se c'è buySell lo si usa come verità.
+        side = (attrs.get("buySell") or "").upper()
+        if side.startswith("SELL") and quantity > 0:
+            quantity = -quantity
+        elif side.startswith("BUY") and quantity < 0:
+            quantity = abs(quantity)
+        trades.append({
+            "symbol": symbol,
+            "name": attrs.get("description") or None,
+            "quantity": quantity,
+            "price": price,
+            "currency": currency,
+            "exchange": exchange,
+            "asset_class": (attrs.get("assetCategory") or "").upper() or None,
+            "trade_date": (attrs.get("tradeDate") or attrs.get("reportDate") or "").replace("-", ""),
+            "order_id": attrs.get("orderID") or attrs.get("ibOrderID") or None,
+        })
+    return trades
+
+
+def _flex_apply_trades(positions: List[dict], trades: List[dict],
+                       after_date: Optional[str] = None) -> dict:
+    """Applica gli eseguiti alle posizioni di chiusura per ottenere quelle correnti.
+
+    È il pezzo che rende il Flex utilizzabile in giornata: l'Activity fotografa
+    la chiusura precedente e da solo non vedrebbe un limit scattato stamattina.
+
+    `after_date` scarta gli eseguiti già compresi nella fotografia — senza,
+    un'operazione di ieri verrebbe contata due volte.
+    """
+    current = {}
+    for position in positions:
+        current[(position.get("symbol") or "").upper()] = {**position}
+
+    applied = 0
+    for trade in sorted(trades, key=lambda t: t.get("trade_date") or ""):
+        date = trade.get("trade_date") or ""
+        if after_date and date and date <= after_date:
+            continue
+        symbol = trade["symbol"].upper()
+        delta = trade["quantity"]
+        existing = current.get(symbol)
+        old_qty = (existing or {}).get("quantity") or 0.0
+        new_qty = old_qty + delta
+        applied += 1
+
+        if abs(new_qty) < 1e-9:
+            current.pop(symbol, None)
+            continue
+
+        if existing is None or old_qty == 0 or (old_qty > 0) != (new_qty > 0):
+            # Posizione nuova, o girata di segno: il carico riparte dal prezzo
+            # di questo eseguito.
+            avg = trade.get("price")
+        elif abs(new_qty) > abs(old_qty):
+            # Si sta aggiungendo: media ponderata.
+            old_avg = (existing or {}).get("avg_price")
+            avg = (((old_qty * old_avg) + (delta * trade["price"])) / new_qty
+                   if old_avg is not None and trade.get("price") is not None else old_avg)
+        else:
+            # Si sta riducendo: il carico non cambia.
+            avg = (existing or {}).get("avg_price")
+
+        # Il prezzo dell'ultimo eseguito è la quotazione più recente che si
+        # abbia: meglio della chiusura di ieri, che è l'alternativa.
+        market_price = trade.get("price") or (existing or {}).get("market_price")
+        current[symbol] = {
+            **(existing or {}),
+            "symbol": symbol,
+            "name": (existing or {}).get("name") or trade.get("name"),
+            "quantity": new_qty,
+            "avg_price": avg,
+            "market_price": market_price,
+            "market_value": (new_qty * market_price) if market_price is not None else None,
+            "currency": (existing or {}).get("currency") or trade.get("currency"),
+            "exchange": (existing or {}).get("exchange") or trade.get("exchange"),
+            "asset_class": (existing or {}).get("asset_class") or trade.get("asset_class"),
+            # Il P&L non è ricalcolabile senza il prezzo di mercato vero.
+            "unrealized_pnl": None if applied else (existing or {}).get("unrealized_pnl"),
+            "derived_from_trades": True,
+        }
+
+    return {"positions": list(current.values()), "applied": applied}
+
+
+def _flex_fetch_positions() -> dict:
+    """Posizioni correnti dal Flex: chiusura precedente più eseguiti di oggi.
+
+    Senza la query degli eseguiti si ottiene comunque la fotografia della
+    chiusura, che è il comportamento di prima.
+    """
+    query_id = _ibkr_api_env("IBKR_FLEX_QUERY_ID")
+    if not _ibkr_api_env("IBKR_FLEX_TOKEN") or not query_id:
+        return {"error": "IBKR_FLEX_TOKEN / IBKR_FLEX_QUERY_ID non configurati"}
+
+    fetched = _flex_fetch_statement(query_id)
+    if fetched.get("error"):
+        return fetched
+    activity = _flex_parse_activity(fetched["xml"])
+
+    result = {
+        "positions": activity["positions"],
+        "account": activity["account"],
+        "rates": activity["rates"],
+        "report_date": activity["report_date"],
+        "trades_applied": 0,
+    }
+
+    trades_query = _ibkr_api_env("IBKR_FLEX_TRADES_QUERY_ID")
+    if not trades_query:
+        return result
+
+    trades_fetched = _flex_fetch_statement(trades_query)
+    if trades_fetched.get("error"):
+        # Gli eseguiti sono un miglioramento, non un requisito: se la query non
+        # risponde restano le posizioni di chiusura, dichiarando perché.
+        result["trades_error"] = trades_fetched["error"]
+        return result
+
+    trades = _flex_parse_trades(trades_fetched["xml"])
+    merged = _flex_apply_trades(activity["positions"], trades,
+                                after_date=activity["report_date"])
+    result["positions"] = merged["positions"]
+    result["trades_applied"] = merged["applied"]
+    result["trades_seen"] = len(trades)
+    if merged["applied"]:
+        # Le posizioni non sono più quelle di chiusura: la data del dato è
+        # adesso, ed è ciò che impedisce al cron di essere scartato come vecchio.
+        result["report_date"] = None
+    return result
 
 
 @app.route('/api/ibkr/sync', methods=['POST'])
@@ -11432,8 +11632,16 @@ def _ibkr_fetch_positions_any_source() -> dict:
     if flex.get("error"):
         return {"error": flex["error"], "error_code": flex.get("error_code"),
                 "hint": flex.get("hint"), "webapi_error": webapi_error}
+    # I cambi ufficiali di IBKR, quando la query li porta, sono migliori di
+    # quelli chiesti a FMP: sono gli stessi con cui il conto è valorizzato.
+    for currency, rate in (flex.get("rates") or {}).items():
+        _FX_CACHE[currency] = {"ts": time.time(), "rate": rate}
     return {"positions": flex["positions"], "orders": None,
-            "report_date": flex.get("report_date"), "source": "flex",
+            "account": flex.get("account"),
+            "report_date": flex.get("report_date"),
+            "source": "flex+trades" if flex.get("trades_applied") else "flex",
+            "trades_applied": flex.get("trades_applied"),
+            "trades_error": flex.get("trades_error"),
             "webapi_error": webapi_error}
 
 
@@ -11457,7 +11665,8 @@ def _ibkr_run_daily_job(notify_always: bool = False) -> dict:
     as_of = _ibkr_report_date_to_epoch(fetched.get("report_date"))
     merged = _ibkr_store_snapshot(owner_email, normalized["positions"], orders,
                                   source=fetched.get("source") or "cron",
-                                  positions_as_of=as_of)
+                                  positions_as_of=as_of,
+                                  account=fetched.get("account"))
     if merged is None:
         return {"status": "error", "error": "mongo non disponibile: snapshot non salvato"}
 
@@ -11480,6 +11689,8 @@ def _ibkr_run_daily_job(notify_always: bool = False) -> dict:
         "source": fetched.get("source"),
         "account_id": fetched.get("account_id"),
         "report_date": fetched.get("report_date"),
+        "trades_applied": fetched.get("trades_applied"),
+        "trades_error": fetched.get("trades_error"),
         "skipped": merged.get("skipped"),
         "position_symbols": sorted({(p.get("symbol") or "") for p in snapshot["positions"]}),
         "positions": len(snapshot["positions"]),
@@ -11556,6 +11767,12 @@ def api_ibkr_flex_status():
         return jsonify({"shape": shape, "note": note,
                         "esito": "credenziali non configurate"})
 
+    shape["trades_query_id"] = _ibkr_api_env("IBKR_FLEX_TRADES_QUERY_ID") or None
+    if not shape["trades_query_id"]:
+        note.append("IBKR_FLEX_TRADES_QUERY_ID non configurato: senza la query "
+                    "Trade Confirmation le posizioni restano ferme alla chiusura "
+                    "precedente e gli eseguiti di oggi non compaiono")
+
     probe = _flex_fetch_positions()
     if probe.get("error"):
         return jsonify({"shape": shape, "note": note, "esito": "fallito",
@@ -11565,8 +11782,27 @@ def api_ibkr_flex_status():
                         # credenziali funzionano dal PC dell'utente, la causa è
                         # una restrizione per IP sul token.
                         "prova_dal_tuo_pc": "python tools/ibkr_flex_check.py"})
-    return jsonify({"shape": shape, "note": note, "esito": "ok",
-                    "posizioni": len(probe["positions"]),
+
+    # Quali sezioni la query porta davvero: è la domanda che ci si pone dopo
+    # averla configurata, e la risposta non si vede da nessun'altra parte.
+    sezioni = {
+        "Open Positions": len(probe["positions"]),
+        "NAV Summary in Base": bool(probe.get("account")),
+        "Currency Conversion Rate": len(probe.get("rates") or {}),
+        "Trade Confirmation": (probe.get("trades_seen")
+                               if probe.get("trades_seen") is not None else "query non configurata"),
+    }
+    mancanti = []
+    if not probe.get("account"):
+        mancanti.append("aggiungi la sezione 'Net Asset Value (NAV) Summary in Base' "
+                        "alla query: senza, il capitale arriva solo dal gateway")
+    if not (probe.get("rates") or {}):
+        mancanti.append("aggiungi la sezione 'Currency Conversion Rate' alla query: "
+                        "senza, i cambi vengono chiesti a FMP")
+    return jsonify({"shape": shape, "note": note + mancanti, "esito": "ok",
+                    "sezioni": sezioni,
+                    "eseguiti_applicati": probe.get("trades_applied"),
+                    "errore_eseguiti": probe.get("trades_error"),
                     "report_date": probe.get("report_date")})
 
 

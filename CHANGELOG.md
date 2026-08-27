@@ -5,6 +5,19 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.21.0] — 2026-08-27
+
+### Aggiunto
+- **Le posizioni si aggiornano da sole, senza PC acceso.** L'Activity Flex fotografa la chiusura precedente e da solo non vedrebbe un limit scattato stamattina — è esattamente il buco che ha lasciato fuori BMW, GRF e WFC. La **Trade Confirmation Flex** invece rende disponibili gli eseguiti entro 5-10 minuti, e l'app ora li applica alla fotografia di chiusura per ricavare le posizioni correnti: quantità, carico medio ponderato sugli incrementi, rimozione dei titoli chiusi del tutto.
+  - Gli eseguiti con data già compresa nella fotografia vengono scartati, altrimenti un'operazione di ieri verrebbe contata due volte.
+  - Se la query degli eseguiti non è configurata o non risponde, restano le posizioni di chiusura: è un miglioramento, non un requisito.
+  - Il prezzo dell'ultimo eseguito diventa la quotazione di riferimento, che è il dato più recente disponibile per un titolo appena comprato.
+- **Capitale e cambi dal Flex.** Con le sezioni *Net Asset Value (NAV) Summary in Base* e *Currency Conversion Rate* aggiunte alla query, l'esposizione funziona anche a PC spento e le conversioni usano i cambi con cui IBKR valorizza davvero il conto, invece di quelli chiesti a FMP.
+- `/api/ibkr/flex-status` elenca ora **quali sezioni la query sta effettivamente portando** e suggerisce quelle mancanti: dopo aver configurato una Flex Query, è la domanda che ci si pone e la risposta non si vede da nessun'altra parte.
+
+### Note
+- Gli **ordini pendenti** restano l'unica cosa che il Flex non può dare: fra le 47 sezioni dell'Activity Flex non ce n'è una per gli ordini di lavoro, perché non sono un'attività contabile. Per quelli serve il gateway, e la segnalazione di dato vecchio in pagina resta il modo di saperlo.
+
 ## [1.20.2] — 2026-08-27
 
 ### Corretto
