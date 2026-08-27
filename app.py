@@ -12265,11 +12265,34 @@ def _ibkr_cron_authorized() -> bool:
     return _ibkr_sync_authorized()
 
 
+# Prefissi delle variabili di cui il cron può elencare i *nomi* con `?diag=1`.
+# Serve a distinguere "non l'ho messa" da "l'ho messa con un nome diverso" e da
+# "l'ho messa sull'ambiente sbagliato": da fuori le tre si somigliano tutte, e
+# su Vercel una variabile aggiunta dopo l'ultimo deploy non esiste comunque
+# finché non se ne fa un altro. Solo i nomi, mai i valori.
+_IBKR_DIAG_PREFIXES = ("IBKR_", "FLEX_")
+
+
+def _ibkr_env_diagnostics() -> dict:
+    names = sorted(k for k in os.environ
+                   if k.startswith(_IBKR_DIAG_PREFIXES))
+    return {
+        "variabili_viste": names,
+        # Il valore no, ma sapere se è vuota o solo spazi sì: è la differenza
+        # fra "manca" e "c'è ma non contiene niente".
+        "pnl_query_valorizzata": bool(_ibkr_api_env("IBKR_FLEX_PNL_QUERY_ID")),
+        "vercel_env": os.getenv("VERCEL_ENV"),
+        "commit": (os.getenv("VERCEL_GIT_COMMIT_SHA") or "")[:8] or None,
+    }
+
+
 @app.route('/api/ibkr/cron', methods=['GET', 'POST'])
 def api_ibkr_cron():
     """Job giornaliero: legge IBKR, salva, notifica. Lo chiama Vercel Cron."""
     if not _ibkr_cron_authorized():
         return jsonify({"error": "unauthorized"}), 401
+    if request.args.get("diag") == "1":
+        return jsonify({"env": _ibkr_env_diagnostics()})
     notify_always = request.args.get("notify_always") == "1"
     # `pnl=force` rilegge lo storico anche se non è ancora scaduto, `pnl=0` lo
     # salta del tutto. Serve dopo aver configurato o corretto la query Flex:
