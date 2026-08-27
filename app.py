@@ -10414,16 +10414,27 @@ def _ibkr_store_snapshot(owner_email: str, positions: Optional[List[dict]] = Non
         # Il net liquidation è il denominatore dell'esposizione: senza, la
         # percentuale non è calcolabile e la pagina lo dichiara invece di
         # inventarsi un totale.
-        update["account"] = {
+        previous = existing.get("account") if isinstance(existing.get("account"), dict) else {}
+        daily = _ibkr_num(account.get("daily_pnl"))
+        merged_account = {
             "net_liquidation": _ibkr_num(account.get("net_liquidation")),
-            "cash": _ibkr_num(account.get("cash")),
-            "currency": (_ibkr_str(account.get("currency"), 8) or "").upper() or None,
-            # Solo il gateway lo porta: il Flex è di fine giornata e il
-            # giornaliero non ce l'ha.
-            "daily_pnl": _ibkr_num(account.get("daily_pnl")),
-            "unrealized_pnl": _ibkr_num(account.get("unrealized_pnl")),
+            "cash": _ibkr_num(account.get("cash")) or previous.get("cash"),
+            "currency": ((_ibkr_str(account.get("currency"), 8) or "").upper()
+                         or previous.get("currency")),
+            # Il giornaliero lo porta solo il gateway: il Flex è di fine
+            # giornata e non ce l'ha. Una scrittura dal Flex non deve
+            # cancellarlo — è lo stesso principio delle posizioni, una fonte
+            # meno informata non sovrascrive una più informata.
+            "daily_pnl": daily if daily is not None else previous.get("daily_pnl"),
+            "unrealized_pnl": (_ibkr_num(account.get("unrealized_pnl"))
+                               or previous.get("unrealized_pnl")),
         }
+        update["account"] = merged_account
         update["account_synced_at"] = now
+        # Timestamp separato per il giornaliero: quello del conto lo rinfresca
+        # anche il Flex, e farebbe sembrare fresco un P&L di ore prima.
+        if daily is not None:
+            update["daily_pnl_at"] = now
 
     # Le date earnings si ricalcolano sull'unione: un titolo può entrare nello
     # snapshot da una sorgente e uscirne dall'altra.
@@ -10934,10 +10945,10 @@ def _ibkr_capital_summary(doc: dict, positions: List[dict], orders_only: List[di
     # Il numero di IBKR vale solo finché è fresco: il gateway gira una volta la
     # mattina, e un P&L delle 9:00 mostrato alle 17:00 come "oggi" sarebbe
     # sbagliato senza sembrarlo. Scaduto, si ripiega sulla stima.
-    account_age = (time.time() - float(doc.get("account_synced_at") or 0)
-                   if doc.get("account_synced_at") else None)
+    stamped_at = doc.get("daily_pnl_at")
+    daily_age = (time.time() - float(stamped_at)) if stamped_at else None
     daily = account.get("daily_pnl")
-    if daily is not None and (account_age is None or account_age > _IBKR_DAILY_PNL_MAX_AGE_SECONDS):
+    if daily is not None and (daily_age is None or daily_age > _IBKR_DAILY_PNL_MAX_AGE_SECONDS):
         daily = None
     daily_source = "ibkr"
     if daily is None:

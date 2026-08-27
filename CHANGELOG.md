@@ -13,6 +13,7 @@ La versione mostrata nell'header dell'app è letta direttamente da questo file: 
 - **L'Activity Flex viene riletta al massimo ogni 4 ore** (`FLEX_ACTIVITY_TTL`). Fotografa una chiusura già avvenuta e dentro la giornata non cambia — IBKR stessa dice che non c'è beneficio a rigenerarla più di una volta al giorno. Durante il giorno si rilegge solo la Trade Confirmation, che è la parte viva: metà delle richieste, su un servizio che le limita.
 
 ### Corretto
+- **Il giro Flex cancellava il P&L del giorno letto dal gateway.** Il Flex scrive il blocco conto ma quel dato non ce l'ha, e sovrascrivendolo lo azzerava pochi secondi dopo che il gateway l'aveva portato. Ora i campi del conto si fondono invece di sostituirsi: è lo stesso principio già applicato alle posizioni, una fonte meno informata non schiaccia una più informata. Il giornaliero ha un proprio timestamp, perché quello del conto lo rinfresca anche il Flex e avrebbe fatto sembrare fresco un numero di ore prima.
 - **Il P&L del giorno di IBKR scade dopo due ore** (`IBKR_DAILY_PNL_MAX_AGE`). Col gateway acceso solo la mattina, un giornaliero delle 9:00 mostrato alle 17:00 come "oggi" sarebbe stato sbagliato senza sembrarlo. Scaduto, si ripiega sulla stima dal listino, che è etichettata.
 
 ## [1.24.0] — 2026-08-27
