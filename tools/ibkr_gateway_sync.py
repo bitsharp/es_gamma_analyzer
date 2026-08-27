@@ -182,6 +182,42 @@ def fetch_orders(gateway):
     return out
 
 
+def fetch_pnl(gateway, account_id):
+    """P&L del giorno e non realizzato, dal conto.
+
+    È l'unica fonte autorevole del giornaliero: comprende anche il realizzato
+    delle posizioni chiuse in giornata, che ricostruito dalle sole posizioni
+    aperte mancherebbe. Come altri endpoint /iserver, la prima chiamata avvia
+    la sottoscrizione e può tornare vuota.
+    """
+    row = None
+    for attempt in range(4):
+        status, payload = http_json(f"{gateway}/iserver/account/pnl/partitioned",
+                                    context=_LOCAL_CTX)
+        if status == 200 and isinstance(payload, dict):
+            entries = payload.get("upnl")
+            if isinstance(entries, dict) and entries:
+                # Le chiavi sono tipo "U1234567.Core": si prende quella del
+                # conto, o l'unica se il nome non combacia.
+                for key, value in entries.items():
+                    if isinstance(value, dict) and str(key).startswith(str(account_id)):
+                        row = value
+                        break
+                if row is None:
+                    row = next((v for v in entries.values() if isinstance(v, dict)), None)
+                if row:
+                    break
+        if attempt < 3:
+            time.sleep(2)
+    if not row:
+        return None
+    return {
+        "daily_pnl": row.get("dpl"),
+        "unrealized_pnl": row.get("upl"),
+        "net_liquidation": row.get("nl"),
+    }
+
+
 def fetch_account(gateway, account_id):
     """Net liquidation e liquidità: il denominatore dell'esposizione.
 
@@ -270,9 +306,19 @@ def main():
         account_id = portfolio_account_id(args.gateway)
         payload["positions"] = fetch_positions(args.gateway, account_id)
         payload["positions_as_of"] = time.time()
-        account = fetch_account(args.gateway, account_id)
-        if account and account.get("net_liquidation"):
-            payload["account"] = account
+        account = fetch_account(args.gateway, account_id) or {}
+        pnl = fetch_pnl(args.gateway, account_id) or {}
+        # Il net liquidation del P&L partizionato è lo stesso del riepilogo:
+        # si tiene quello che c'è, senza pretendere che entrambi rispondano.
+        merged = {
+            "net_liquidation": account.get("net_liquidation") or pnl.get("net_liquidation"),
+            "cash": account.get("cash"),
+            "currency": account.get("currency"),
+            "daily_pnl": pnl.get("daily_pnl"),
+            "unrealized_pnl": pnl.get("unrealized_pnl"),
+        }
+        if merged["net_liquidation"]:
+            payload["account"] = merged
     if args.notify:
         payload["notify"] = True
 

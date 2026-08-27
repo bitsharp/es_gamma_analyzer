@@ -5,6 +5,13 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.24.0] — 2026-08-27
+
+### Aggiunto
+- **P&L del giorno nella barra del capitale**, accanto a investito e ordini in acquisto, in euro e in percentuale sul conto.
+  - Quando il gateway ha sincronizzato, il numero è quello di IBKR (`/iserver/account/pnl/partitioned`) e **comprende il realizzato** delle posizioni chiuse in giornata — che è la parte che una ricostruzione dalle sole posizioni aperte non potrebbe vedere. Oggi, con BMW e WFC chiuse dopo l'apertura, sarebbe stata la differenza fra un numero giusto e uno monco.
+  - Senza gateway si ripiega sulla somma delle variazioni di giornata dei titoli ancora aperti, presa dal listino. È una cosa diversa, quindi viene etichettata **stimato** e il passaggio del mouse spiega cosa manca. Se non c'è nemmeno quella, resta un trattino: nessun numero inventato.
+
 ## [1.23.1] — 2026-08-27
 
 ### Corretto

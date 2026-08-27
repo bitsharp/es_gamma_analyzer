@@ -357,6 +357,11 @@
         .capital-stat .cs-pct {
             font-size: 0.78rem; font-weight: 600; color: #778da9; margin-left: 0.3rem;
         }
+        .capital-stat .cs-approx {
+            font-size: 0.6rem; font-weight: 700; letter-spacing: 0.03em;
+            color: #fbbf24; background: rgba(251,191,36,0.15);
+            border-radius: 4px; padding: 0 0.25rem; text-transform: none;
+        }
         .capital-track {
             display: flex; height: 9px; border-radius: 999px; overflow: hidden;
             background: rgba(119,141,169,0.18);
@@ -1278,6 +1283,33 @@
                 </button>`;
         }
 
+        // P&L del giorno. Quando arriva dal gateway comprende anche il
+        // realizzato di ciò che hai chiuso oggi; quando è stimato dal listino
+        // copre solo le posizioni ancora aperte, e la differenza va segnalata
+        // invece di lasciar credere che siano lo stesso numero.
+        function dailyPnlStat(cap, cur) {
+            const v = cap.daily_pnl;
+            if (v == null) {
+                return `<div class="capital-stat">
+                    <div class="cs-label">P&L oggi</div>
+                    <div class="cs-value" style="color:#6b7e92;" title="Serve una sincronizzazione dal gateway">—</div>
+                </div>`;
+            }
+            const stimato = cap.daily_pnl_source === 'stimato';
+            const colore = v >= 0 ? '#4ade80' : '#f87171';
+            const pctTxt = cap.daily_pnl_pct == null ? '' :
+                `<span class="cs-pct">${(cap.daily_pnl_pct * 100).toFixed(2)}%</span>`;
+            const titolo = stimato
+                ? 'Stimato dalla variazione di giornata dei titoli ancora aperti: '
+                  + 'non comprende il realizzato di quello che hai chiuso oggi'
+                : 'Dal conto IBKR, realizzato compreso';
+            return `<div class="capital-stat">
+                <div class="cs-label">P&L oggi${stimato ? ' <span class="cs-approx">stimato</span>' : ''}</div>
+                <div class="cs-value" style="color:${colore};" title="${escapeHtml(titolo)}">
+                    ${v > 0 ? '+' : ''}${fmtAmount(v, cur)}${pctTxt}</div>
+            </div>`;
+        }
+
         function capitalBar(cap) {
             if (!cap) return '';
             const cur = cap.currency || 'EUR';
@@ -1315,6 +1347,7 @@
                             <div class="cs-value" style="color:#4ade80;">${fmtAmount(cap.invested, cur)}
                                 <span class="cs-pct">${pct(cap.invested_pct)}</span></div>
                         </div>
+                        ${dailyPnlStat(cap, cur)}
                         <div class="capital-stat">
                             <div class="cs-label">Ordini in acquisto</div>
                             <div class="cs-value" style="color:#60a5fa;">${fmtAmount(cap.pending_buy, cur)}

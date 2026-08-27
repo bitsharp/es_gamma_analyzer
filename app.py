@@ -10412,6 +10412,10 @@ def _ibkr_store_snapshot(owner_email: str, positions: Optional[List[dict]] = Non
             "net_liquidation": _ibkr_num(account.get("net_liquidation")),
             "cash": _ibkr_num(account.get("cash")),
             "currency": (_ibkr_str(account.get("currency"), 8) or "").upper() or None,
+            # Solo il gateway lo porta: il Flex è di fine giornata e il
+            # giornaliero non ce l'ha.
+            "daily_pnl": _ibkr_num(account.get("daily_pnl")),
+            "unrealized_pnl": _ibkr_num(account.get("unrealized_pnl")),
         }
         update["account_synced_at"] = now
 
@@ -10903,8 +10907,29 @@ def _ibkr_capital_summary(doc: dict, positions: List[dict], orders_only: List[di
             return None
         return part / total
 
+    # Il giornaliero del conto viene dal gateway e comprende anche il
+    # realizzato delle posizioni chiuse oggi. Senza gateway si ripiega sulla
+    # somma delle variazioni di giornata dei titoli ancora aperti, che è una
+    # cosa diversa e va detto: chi ha venduto in giornata non la vedrebbe.
+    daily = account.get("daily_pnl")
+    daily_source = "ibkr"
+    if daily is None:
+        parts = []
+        for position in positions:
+            value = position.get("daily_pnl")
+            if value is None:
+                continue
+            rate = _fx_to_base(position.get("currency"))
+            if rate:
+                parts.append(value * rate)
+        daily = sum(parts) if parts else None
+        daily_source = "stimato" if daily is not None else None
+
     return {
         "net_liquidation": total,
+        "daily_pnl": daily,
+        "daily_pnl_pct": pct(daily),
+        "daily_pnl_source": daily_source,
         "cash": account.get("cash"),
         "currency": account.get("currency") or _ibkr_base_currency(),
         "as_of": doc.get("account_synced_at"),
@@ -10931,21 +10956,29 @@ _QUOTE_CACHE: Dict[str, dict] = {}
 _QUOTE_CACHE_TTL_SECONDS = int((os.getenv("QUOTE_CACHE_TTL") or "300").strip() or 300)  # 5 min
 
 
-def _fetch_quote_price(fmp_symbol: str) -> Optional[float]:
-    """Ultimo prezzo da FMP. Cache 5 minuti: la pagina si ricarica da sola ogni
-    minuto e non serve interrogare il listino a ogni giro."""
+def _fetch_quote(fmp_symbol: str) -> dict:
+    """Ultimo prezzo e variazione di giornata da FMP.
+
+    Cache 5 minuti: la pagina si ricarica da sola ogni minuto e non serve
+    interrogare il listino a ogni giro.
+    """
     if not fmp_symbol:
-        return None
+        return {}
     cached = _QUOTE_CACHE.get(fmp_symbol)
     now = time.time()
     if cached and (now - cached["ts"]) < _QUOTE_CACHE_TTL_SECONDS:
-        return cached["price"]
-    price = None
+        return cached["quote"]
+    quote = {}
     data = _fmp_get("quote", symbol=fmp_symbol)
     if isinstance(data, list) and data and isinstance(data[0], dict):
-        price = _ibkr_num(data[0].get("price"))
-    _QUOTE_CACHE[fmp_symbol] = {"ts": now, "price": price}
-    return price
+        quote = {"price": _ibkr_num(data[0].get("price")),
+                 "change": _ibkr_num(data[0].get("change"))}
+    _QUOTE_CACHE[fmp_symbol] = {"ts": now, "quote": quote}
+    return quote
+
+
+def _fetch_quote_price(fmp_symbol: str) -> Optional[float]:
+    return _fetch_quote(fmp_symbol).get("price")
 
 
 def _ibkr_revalue_position(row: dict) -> dict:
@@ -10970,11 +11003,19 @@ def _ibkr_revalue_position(row: dict) -> dict:
         return {**row, "revalue_rejected": True}
     quantity = row.get("quantity") or 0
     avg = row.get("avg_price")
+    scale = _ibkr_price_scale(row.get("exchange"), row.get("currency"))
+    change = _fetch_quote(row.get("fmp_symbol")).get("change")
+    if change is not None:
+        change *= scale
     return {
         **row,
         "market_price": price,
         "market_value": quantity * price,
         "unrealized_pnl": ((price - avg) * quantity) if avg is not None else row.get("unrealized_pnl"),
+        # Variazione di giornata del titolo per la quantità detenuta. Su una
+        # posizione aperta oggi sovrastima, perché parte dalla chiusura di ieri
+        # e non dal prezzo d'ingresso: chi la somma deve dirlo.
+        "daily_pnl": (change * quantity) if change is not None else None,
         "revalued": True,
     }
 
