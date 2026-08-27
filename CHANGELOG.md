@@ -5,6 +5,17 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.26.1] — 2026-08-27
+
+### Corretto
+- **Il calendario ripiegava in silenzio su una query che il realizzato non ce l'ha.** La variabile su Vercel era stata scritta `IBKR_FLEX_PNL_QUERY`, senza il suffisso `_ID` che hanno le sorelle (`IBKR_FLEX_QUERY_ID`, `IBKR_FLEX_TRADES_QUERY_ID`). Ora si accettano entrambe le forme: l'errore è naturale e il sintomo — giornate vuote — non assomigliava per niente alla causa.
+- **Le giornate senza realizzato non vengono più salvate.** Un report senza `fifoPnlRealized` non dice "non hai guadagnato niente", dice "non lo so": scriverle in calendario metteva a zero delle giornate con la stessa sicurezza di quelle vere, e siccome lo storico si fonde per data ci sarebbero rimaste finché non passava un report sulla stessa giornata.
+- **Il messaggio diagnostico mandava a correggere la query sbagliata.** Col ripiego attivo, "manca `fifoPnlRealized`" veniva prima di "manca la variabile": ma il realizzato la query di ripiego non ce l'ha per costruzione, quindi la causa a monte è l'altra e ora si legge per prima.
+
+### Tecnico
+- Il cron accetta `?pnl=force` (rilegge lo storico senza aspettare la finestra di quattro ore), `?pnl=reset` (lo butta e lo rilegge da capo, per quando si cambia query e le giornate vecchie sono incomplete) e `?pnl=0` (lo salta).
+- `?diag=1` sul cron elenca i *nomi* delle variabili `IBKR_*` che la funzione vede davvero — mai i valori. Da fuori "non l'ho messa", "l'ho messa con un altro nome" e "l'ho messa sull'ambiente sbagliato" si somigliano tutte, ed è esattamente il bug qui sopra.
+
 ## [1.26.0] — 2026-08-27
 
 ### Aggiunto
