@@ -11097,12 +11097,16 @@ def api_ibkr_pnl_calendar():
             hint = "Storico mai letto: premi Aggiorna, oppure aspetta il prossimo giro schedulato."
         else:
             hint = "Nessun eseguito nel periodo coperto dalla query."
+    # L'ordine conta: il ripiego è la causa a monte. Segnalare per primo il
+    # realizzato mancante manderebbe a correggere la query sbagliata — quella
+    # di ripiego il realizzato non ce l'ha per costruzione.
+    elif meta.get("fallback_query"):
+        hint = ("IBKR_FLEX_PNL_QUERY_ID non configurato: si sta usando la query degli "
+                "eseguiti di oggi, che il realizzato non lo porta. Serve una Activity "
+                "Flex con la sezione Trades su un periodo lungo.")
     elif meta.get("realized_available") is False:
         hint = ("La query porta gli eseguiti ma non il realizzato: aggiungi il campo "
                 "fifoPnlRealized alla sezione Trades, altrimenti le giornate restano a zero.")
-    elif meta.get("fallback_query"):
-        hint = ("IBKR_FLEX_PNL_QUERY_ID non configurato: si sta usando la query degli "
-                "eseguiti di oggi, quindi lo storico si costruisce solo da qui in avanti.")
 
     return jsonify({
         "days": days,
