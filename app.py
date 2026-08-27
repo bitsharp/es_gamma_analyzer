@@ -10947,7 +10947,7 @@ def _flex_pnl_days(trades: List[dict]) -> dict:
             "fx_missing": sorted(fx_missing)}
 
 
-def _flex_fetch_pnl_history() -> dict:
+def _flex_fetch_pnl_history(force: bool = False) -> dict:
     """Storico giornaliero dal Flex. Ritorna {"days", ...} oppure {"error"}.
 
     Vuole una query propria (`IBKR_FLEX_PNL_QUERY_ID`) perché quella degli
@@ -10964,7 +10964,7 @@ def _flex_fetch_pnl_history() -> dict:
         return {"error": "IBKR_FLEX_TOKEN / IBKR_FLEX_PNL_QUERY_ID non configurati"}
 
     cached = _FLEX_PNL_CACHE.get(query_id)
-    if cached and (time.time() - cached.get("ts", 0)) < _FLEX_PNL_TTL_SECONDS:
+    if not force and cached and (time.time() - cached.get("ts", 0)) < _FLEX_PNL_TTL_SECONDS:
         return {**cached["value"], "cached": True}
 
     fetched = _flex_fetch_statement(query_id)
@@ -11041,7 +11041,7 @@ def _ibkr_refresh_pnl_history(owner_email: str, force: bool = False) -> dict:
                     "reason": f"aggiornato {age / 3600:.1f}h fa",
                     "days": len(doc.get("pnl_days") or {})}
 
-    fetched = _flex_fetch_pnl_history()
+    fetched = _flex_fetch_pnl_history(force=force)
     if fetched.get("error"):
         return {"status": "error", "error": fetched["error"],
                 "hint": fetched.get("hint")}
@@ -12170,7 +12170,8 @@ def _ibkr_fetch_positions_any_source() -> dict:
             "webapi_error": webapi_error}
 
 
-def _ibkr_run_daily_job(notify_always: bool = False, notify: bool = True) -> dict:
+def _ibkr_run_daily_job(notify_always: bool = False, notify: bool = True,
+                        pnl_mode: str = "auto") -> dict:
     """Il giro completo: aggiorna le posizioni, calcola l'alert del giorno dopo
     e notifica. Gli ordini non li tocca a meno che la sorgente non li porti —
     restano quelli depositati dal gateway locale, dichiarando quanto sono
@@ -12199,10 +12200,13 @@ def _ibkr_run_daily_job(notify_always: bool = False, notify: bool = True) -> dic
     # quando si chiude qualcosa — quindi si rilegge ogni tot ore e non a ogni
     # giro, e un suo fallimento non deve portarsi via le posizioni appena
     # salvate: quelle sono il motivo per cui il job esiste.
-    try:
-        pnl = _ibkr_refresh_pnl_history(owner_email)
-    except Exception as error:
-        pnl = {"status": "error", "error": str(error)[:200]}
+    if pnl_mode == "off":
+        pnl = {"status": "skipped", "reason": "disattivato dalla richiesta"}
+    else:
+        try:
+            pnl = _ibkr_refresh_pnl_history(owner_email, force=(pnl_mode == "force"))
+        except Exception as error:
+            pnl = {"status": "error", "error": str(error)[:200]}
 
     snapshot = {"positions": merged["positions"], "orders": merged["orders"]}
     freshness = _ibkr_orders_staleness(merged)
@@ -12263,11 +12267,18 @@ def api_ibkr_cron():
     if not _ibkr_cron_authorized():
         return jsonify({"error": "unauthorized"}), 401
     notify_always = request.args.get("notify_always") == "1"
+    # `pnl=force` rilegge lo storico anche se non è ancora scaduto, `pnl=0` lo
+    # salta del tutto. Serve dopo aver configurato o corretto la query Flex:
+    # senza, per vedere l'effetto di una modifica bisognerebbe aspettare che
+    # scada la finestra di quattro ore.
+    pnl_mode = {"force": "force", "1": "force", "0": "off"}.get(
+        (request.args.get("pnl") or "").strip().lower(), "auto")
     # `notify=0` per i richiami durante la giornata: aggiornano le posizioni ma
     # non devono rimandare l'alert earnings ogni mezz'ora. La notifica resta
     # attaccata al giro serale.
     result = _ibkr_run_daily_job(notify_always=notify_always,
-                                 notify=request.args.get("notify") != "0")
+                                 notify=request.args.get("notify") != "0",
+                                 pnl_mode=pnl_mode)
     return jsonify(result), (200 if result.get("status") == "ok" else 502)
 
 
