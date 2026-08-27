@@ -297,12 +297,20 @@ def main():
                         help="manda solo gli ordini, lasciando le posizioni al Flex")
     parser.add_argument("--notify", action="store_true",
                         help="fai calcolare e notificare subito l'alert del giorno dopo")
+    parser.add_argument("--flex-only", action="store_true",
+                        help="salta del tutto il gateway e chiedi solo il giro Flex "
+                             "lato server: e' la modalita' dei richiami ogni mezz'ora, "
+                             "quando il gateway si sa gia' che non e' autenticato")
     args = parser.parse_args()
 
     token = read_sync_token(args.token)
     if not token:
         sys.exit("IBKR_SYNC_TOKEN non trovato: passalo con --token o mettilo in .env")
     base = args.polaris.rstrip("/")
+
+    if args.flex_only:
+        refresh_positions(base, token)
+        return
 
     try:
         payload = gateway_payload(args)

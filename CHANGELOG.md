@@ -5,6 +5,13 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.25.1] — 2026-08-27
+
+### Modificato
+- **Le due sincronizzazioni sono ora attività separate, con ritmi propri.** Il gateway va autenticato a mano e regge poche ore: provarlo ventotto volte al giorno significava ventotto tentativi falliti e un log illeggibile. Ora è una chiamata sola la mattina, quando la sessione è appena stata aperta; le posizioni le rinfresca il giro Flex ogni mezz'ora, che del gateway non ha bisogno.
+  - `tools/ibkr_gateway_sync.py --flex-only` salta del tutto la parte locale e chiede solo il giro lato server.
+  - Il log riporta la modalità di ogni esecuzione, così si distingue a colpo d'occhio quale delle due ha girato.
+
 ## [1.25.0] — 2026-08-27
 
 ### Modificato
