@@ -77,6 +77,29 @@ def http_json(url, method="GET", body=None, headers=None, context=None, timeout=
         return 0, str(error)
 
 
+def start_logging(path, mode):
+    """Dirotta stdout e stderr su file e tronca il log quando cresce troppo.
+
+    Il logging sta qui e non in un .bat perche' l'attivita' pianificata deve
+    girare con pythonw, che non apre nessuna finestra: passando da cmd, Windows
+    faceva comparire una console ogni mezz'ora.
+    """
+    try:
+        if os.path.exists(path) and os.path.getsize(path) > 200_000:
+            with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                coda = handle.readlines()[-200:]
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.writelines(coda)
+        stream = open(path, "a", encoding="utf-8", buffering=1)
+    except Exception:
+        return None
+    sys.stdout = stream
+    sys.stderr = stream
+    stamp = __import__("datetime").datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    print(f"\n===== {stamp} [{mode}] =====")
+    return stream
+
+
 def read_sync_token(explicit):
     if explicit:
         return explicit
@@ -301,7 +324,13 @@ def main():
                         help="salta del tutto il gateway e chiedi solo il giro Flex "
                              "lato server: e' la modalita' dei richiami ogni mezz'ora, "
                              "quando il gateway si sa gia' che non e' autenticato")
+    parser.add_argument("--log", default=None,
+                        help="scrivi l'esito su questo file invece che a schermo "
+                             "(usato dalle attivita' pianificate)")
     args = parser.parse_args()
+
+    if args.log:
+        start_logging(args.log, "solo flex" if args.flex_only else "gateway+flex")
 
     token = read_sync_token(args.token)
     if not token:
@@ -398,4 +427,15 @@ def gateway_payload(args):
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit as uscita:
+        # sys.exit() con messaggio: sotto pythonw non lo vedrebbe nessuno,
+        # quindi finisce nel log come tutto il resto.
+        if uscita.code not in (0, None):
+            print(f"interrotto: {uscita.code}")
+        raise
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        raise

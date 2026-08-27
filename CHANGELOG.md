@@ -5,6 +5,12 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.25.2] — 2026-08-27
+
+### Corretto
+- **Ogni mezz'ora compariva una finestra del prompt dei comandi.** L'attività pianificata passava da un file `.bat` che serviva solo a tenere il log, ma per eseguirlo Windows apriva una console — e la faceva lampeggiare sullo schermo a ogni giro. Il log è stato spostato dentro lo script Python (`--log`) e le attività ora chiamano `pythonw`, che una console non ce l'ha proprio. Il `.bat` è stato rimosso: non serviva più e restava un modo di rifare l'errore.
+  - Sotto `pythonw` nessuno vedrebbe un'eccezione, quindi anche i messaggi di uscita e i traceback finiscono nel log invece di sparire.
+
 ## [1.25.1] — 2026-08-27
 
 ### Modificato
