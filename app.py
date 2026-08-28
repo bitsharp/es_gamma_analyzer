@@ -12968,6 +12968,48 @@ def _ibkr_cron_authorized() -> bool:
 _IBKR_DIAG_PREFIXES = ("IBKR_", "FLEX_")
 
 
+def _flex_report_shape() -> dict:
+    """Che cosa contiene davvero il report della query P&L.
+
+    Serve a rispondere per prove e non per memoria a domande del tipo "il Flex
+    ha lo stop che avevo messo?": la risposta dipende da quali sezioni e quali
+    campi sono spuntati nel portale, e dall'esterno non si vede. Riporta i nomi
+    degli elementi e degli attributi — mai i valori, tranne le enumerazioni
+    (tipo d'ordine, apertura/chiusura), che non sono dati sensibili e sono
+    proprio quelle da guardare.
+    """
+    query_id = _ibkr_pnl_query_id()
+    if not query_id:
+        return {"error": "nessuna query P&L configurata"}
+    fetched = _flex_fetch_statement(query_id)
+    if fetched.get("error"):
+        return fetched
+    xml = fetched["xml"]
+
+    elementi: Dict[str, int] = {}
+    for name in re.findall(r"<(\w+)[\s/>]", xml):
+        elementi[name] = elementi.get(name, 0) + 1
+
+    rows = _flex_trade_rows(xml)
+    attributi = sorted({k for row in rows for k in row})
+
+    def distinti(chiave: str) -> dict:
+        out: Dict[str, int] = {}
+        for row in rows:
+            value = (row.get(chiave) or "").strip().upper() or "(vuoto)"
+            out[value] = out.get(value, 0) + 1
+        return dict(sorted(out.items(), key=lambda kv: -kv[1])[:12])
+
+    return {
+        "elementi_nel_report": dict(sorted(elementi.items(), key=lambda kv: -kv[1])[:40]),
+        "righe_eseguiti": len(rows),
+        "attributi_sugli_eseguiti": attributi,
+        "tipi_ordine": distinti("orderType"),
+        "apertura_chiusura": distinti("openCloseIndicator"),
+        "codici": distinti("notes") or distinti("code"),
+    }
+
+
 def _ibkr_env_diagnostics() -> dict:
     names = sorted(k for k in os.environ
                    if k.startswith(_IBKR_DIAG_PREFIXES))
@@ -12986,8 +13028,11 @@ def api_ibkr_cron():
     """Job giornaliero: legge IBKR, salva, notifica. Lo chiama Vercel Cron."""
     if not _ibkr_cron_authorized():
         return jsonify({"error": "unauthorized"}), 401
-    if request.args.get("diag") == "1":
+    diag = (request.args.get("diag") or "").strip().lower()
+    if diag == "1":
         return jsonify({"env": _ibkr_env_diagnostics()})
+    if diag == "flex":
+        return jsonify({"report": _flex_report_shape()})
     notify_always = request.args.get("notify_always") == "1"
     # `pnl=force` rilegge lo storico anche se non è ancora scaduto, `pnl=0` lo
     # salta del tutto. Serve dopo aver configurato o corretto la query Flex:
