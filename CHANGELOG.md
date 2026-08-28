@@ -5,6 +5,17 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.27.0] — 2026-08-28
+
+### Aggiunto
+- **Import dei trade anche da Tradovate.** Nella checklist il pulsante di import apre ora una finestra con due schede — **Rithmic** (l'export Overcharts di sempre, valido per Apex, AMP e chiunque passi da Rithmic) e **Tradovate** (l'`Orders.csv` esportato dalla piattaforma). Si sceglie la sorgente e poi il file: il resto — filtro sulla giornata, raggruppamento in round trip, P&L — funziona come prima.
+  - Del file Tradovate si leggono solo gli ordini con stato `Filled`: le gambe bracket cancellate, che in un export sono la maggioranza delle righe, vengono ignorate.
+  - Le colonne si riconoscono dall'intestazione e non dalla posizione, perché Tradovate esporta lo stesso contenuto con ordini di colonna diversi a seconda della schermata da cui si parte.
+
+### Tecnico
+- Il tracciamento della posizione, il calcolo del P&L e la forma delle card sono stati estratti in `_fills_to_round_trips()`: le due sorgenti condividono tutto tranne la lettura della riga, che è l'unica cosa che davvero cambia fra un broker e l'altro. Anche il moltiplicatore per punto vive ora in una funzione sua (`_futures_point_multiplier`).
+- `/api/checklist/import-apex` accetta il campo `source` (`rithmic` | `tradovate`) e sceglie il parser da una tabella. Senza il campo si comporta come prima, così un client vecchio continua a funzionare.
+
 ## [1.26.1] — 2026-08-27
 
 ### Corretto

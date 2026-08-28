@@ -215,6 +215,18 @@
             width: 100%; height: 60px; resize: vertical;
         }
 
+        /* import sources tabs (Rithmic / Tradovate) */
+        #importSourceTabs { border-bottom: 1px solid #415a77; }
+        #importSourceTabs .nav-link {
+            color: #94a3b8; border: 1px solid transparent; border-bottom: none;
+            background: transparent; font-size: 0.9rem; padding: 0.4rem 1rem;
+        }
+        #importSourceTabs .nav-link:hover { color: #e2e8f0; border-color: #415a77; }
+        #importSourceTabs .nav-link.active {
+            color: #38bdf8; background: rgba(56,189,248,0.1);
+            border-color: #415a77 #415a77 transparent;
+        }
+
         @media (max-width: 575px) {
             .section-card .card-body { padding: 0.7rem; }
         }
@@ -398,10 +410,10 @@
                         <span class="d-flex align-items-center gap-2">
                             <input type="file" id="apexCsvInput" accept=".csv,.tsv,.txt" style="display:none;">
                             <button class="btn btn-sm btn-outline-info" id="importApexBtn"
-                                onclick="event.stopPropagation(); document.getElementById('apexCsvInput').click()"
+                                onclick="event.stopPropagation(); openImportModal()"
                                 style="padding:0.2rem 0.7rem; font-size:0.82rem;"
-                                title="Importa ordini eseguiti da un export Overcharts (compatibile con Apex, AMP/Rithmic, ecc.)">
-                                <i class="bi bi-upload me-1"></i>Importa CSV Overcharts
+                                title="Importa ordini eseguiti da un export Rithmic/Overcharts o Tradovate">
+                                <i class="bi bi-upload me-1"></i>Importa CSV
                             </button>
                             <button class="btn btn-sm btn-primary" id="addTradeBtn" style="padding:0.2rem 0.7rem; font-size:0.82rem;" onclick="event.stopPropagation();">
                                 <i class="bi bi-plus-lg me-1"></i>Aggiungi Trade
@@ -716,6 +728,63 @@
         </div>
     </template>
 
+    <!-- Import trades modal — one tab per broker source -->
+    <div class="modal fade" id="importTradesModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content" style="background:#1b263b;border:2px solid #38bdf8;">
+                <div class="modal-header" style="border-bottom:1px solid #415a77;">
+                    <h5 class="modal-title" style="color:#38bdf8;">
+                        <i class="bi bi-upload me-2"></i>Importa trade del <span id="importModalDate" style="color:#fbbf24;"></span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" style="color:#e2e8f0;">
+                    <ul class="nav nav-tabs" id="importSourceTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabImportRithmic" type="button" role="tab">
+                                <i class="bi bi-diagram-3 me-1"></i>Rithmic
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabImportTradovate" type="button" role="tab">
+                                <i class="bi bi-lightning-charge me-1"></i>Tradovate
+                            </button>
+                        </li>
+                    </ul>
+                    <div class="tab-content pt-3">
+                        <div class="tab-pane fade show active" id="tabImportRithmic" role="tabpanel">
+                            <p class="small mb-2" style="color:#94a3b8;">
+                                Export ordini <strong>Overcharts</strong> (TSV), compatibile con qualsiasi broker
+                                collegato via Rithmic — Apex, AMP, ecc.<br>
+                                Vengono importati solo gli ordini <strong>Filled</strong> della giornata selezionata.
+                            </p>
+                            <button class="btn btn-sm btn-outline-info" onclick="pickImportFile('rithmic')">
+                                <i class="bi bi-file-earmark-arrow-up me-1"></i>Scegli file Overcharts…
+                            </button>
+                        </div>
+                        <div class="tab-pane fade" id="tabImportTradovate" role="tabpanel">
+                            <p class="small mb-2" style="color:#94a3b8;">
+                                Export ordini <strong>Tradovate</strong> (CSV, es. <code style="color:#cbd5e1;">Orders.csv</code>).
+                                Le colonne vengono riconosciute dall'intestazione, non dalla posizione.<br>
+                                Vengono importati solo gli ordini con stato <strong>Filled</strong> della giornata selezionata:
+                                le gambe bracket cancellate sono ignorate.
+                            </p>
+                            <button class="btn btn-sm btn-outline-info" onclick="pickImportFile('tradovate')">
+                                <i class="bi bi-file-earmark-arrow-up me-1"></i>Scegli file Tradovate…
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-top:1px solid #415a77;">
+                    <span class="small me-auto" style="color:#f59e0b;">
+                        <i class="bi bi-exclamation-triangle me-1"></i>L'import sostituisce i trade già presenti nella giornata.
+                    </span>
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Reset confirmation modal -->
     <div class="modal fade" id="resetModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
@@ -872,11 +941,12 @@
 
         document.getElementById('addTradeBtn').addEventListener('click', addTradeCard);
 
-        // Apex CSV import
+        // Broker CSV import (Rithmic/Overcharts o Tradovate — vedi importTradesModal)
         document.getElementById('apexCsvInput').addEventListener('change', async function () {
             const file = this.files[0];
             if (!file) return;
 
+            const sourceLabel = IMPORT_SOURCE_LABELS[importSource] || importSource;
             const importBtn = document.getElementById('importApexBtn');
             const origHtml = importBtn.innerHTML;
             importBtn.disabled = true;
@@ -886,6 +956,7 @@
                 const formData = new FormData();
                 formData.append('file', file);
                 formData.append('date_key', currentDateKey);
+                formData.append('source', importSource);
 
                 const resp = await fetch('/api/checklist/import-apex', {
                     method: 'POST',
@@ -900,7 +971,7 @@
 
                 if (!data.trades || data.trades.length === 0) {
                     const dateLabel = currentDateKey || 'la data selezionata';
-                    alert(`Nessun trade trovato per il ${dateLabel} nel file.\nAssicurati che il CSV contenga ordini "Filled" per questo giorno.`);
+                    alert(`Nessun trade trovato per il ${dateLabel} nel file.\nAssicurati che sia un export ${sourceLabel} con ordini "Filled" per questo giorno.`);
                     return;
                 }
 
@@ -923,7 +994,7 @@
 
                 updateAccountPnlSummary();
                 scheduleSave();
-                alert(`✅ Importati ${added} trade del ${currentDateKey} da "${file.name}"`);
+                alert(`✅ Importati ${added} trade del ${currentDateKey} da "${file.name}" (${sourceLabel})`);
             } catch (e) {
                 alert('Errore importazione: ' + e.message);
             } finally {
@@ -933,6 +1004,29 @@
             }
         });
     });
+
+    // =====================================================================
+    // IMPORT TRADE — scelta sorgente (tab Rithmic / Tradovate)
+    // =====================================================================
+    const IMPORT_SOURCE_LABELS = { rithmic: 'Rithmic/Overcharts', tradovate: 'Tradovate' };
+    let importSource = 'rithmic';  // tab attivo al momento della scelta file
+
+    function openImportModal() {
+        const el = document.getElementById('importModalDate');
+        if (el) {
+            const d = new Date(currentDateKey + 'T12:00:00');
+            el.textContent = isNaN(d) ? currentDateKey
+                : d.toLocaleDateString('it-IT', {day:'2-digit', month:'2-digit', year:'numeric'});
+        }
+        new bootstrap.Modal(document.getElementById('importTradesModal')).show();
+    }
+
+    function pickImportFile(source) {
+        importSource = source;
+        const modal = bootstrap.Modal.getInstance(document.getElementById('importTradesModal'));
+        if (modal) modal.hide();
+        document.getElementById('apexCsvInput').click();
+    }
 
     function updateDateLabel() {
         const parts = currentDateKey.split('-');
@@ -946,7 +1040,7 @@
             const importBtn = document.getElementById('importApexBtn');
             if (importBtn) {
                 importBtn.innerHTML = `<i class="bi bi-upload me-1"></i>Importa CSV ${shortDate}`;
-                importBtn.title = `Importa solo i trade del ${longDate} da un CSV Overcharts (Apex, AMP/Rithmic, ecc.)`;
+                importBtn.title = `Importa solo i trade del ${longDate} da un export Rithmic/Overcharts o Tradovate`;
             }
         }
     }

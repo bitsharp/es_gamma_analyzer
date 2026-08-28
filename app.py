@@ -6836,96 +6836,48 @@ def api_checklist_reset():
 
 
 # ============================================================================
-# APEX CSV IMPORT — parse Overcharts order export into round-trip trades
+# BROKER CSV IMPORT — parse order exports into round-trip trades
 # ============================================================================
+#
+# Two sources are supported, each with its own row parser:
+#   - "rithmic"   → Overcharts TSV export (Apex, AMP/Rithmic, ...)
+#   - "tradovate" → Tradovate CSV order export
+# Both produce the same list of "fills" and share `_fills_to_round_trips()`
+# for position tracking, P&L and trade-card shaping.
 
-def _parse_apex_csv(content: str, date_filter: str = '') -> list:
-    """Parse an Overcharts TSV order export and return a list of round-trip trades.
 
-    Compatible with any broker connected to Overcharts (Apex, AMP/Rithmic, etc.)
-    since they all share the same column layout. The function is named "apex"
-    only because that was the first broker tested.
+def _futures_point_multiplier(symbol: str) -> float:
+    """Dollar value of one point for a futures contract symbol.
 
-    Only 'Filled' rows are considered.  If date_filter is provided (YYYY-MM-DD),
-    only fills whose fill date matches that day are included — this is essential
-    because Overcharts exports often span multiple trading days.
-
-    Fills are grouped by account, then sorted chronologically within each account.
-    Position tracking (FIFO) groups fills into round trips per account.
-    Each resulting trade is tagged with 'account' and 'imported': True.
-
-    ES multiplier: 1 point = $50 (E-mini S&P 500).
+    Micro contracts must be checked before their full-size counterparts
+    (MNQ before NQ, MES before ES, ...).
     """
-    import csv as _csv
-    import io as _io
+    _sym = (symbol or '').upper()
+    if _sym.startswith('MNQ'):   return 2.0     # Micro E-mini NASDAQ
+    elif _sym.startswith('MES'): return 5.0     # Micro E-mini S&P 500
+    elif _sym.startswith('M2K'): return 5.0     # Micro Russell 2000
+    elif _sym.startswith('MGC'): return 10.0    # Micro Gold
+    elif _sym.startswith('MCL'): return 100.0   # Micro Crude Oil
+    elif _sym.startswith('NQ'):  return 20.0    # E-mini NASDAQ
+    elif _sym.startswith('RTY'): return 50.0    # E-mini Russell 2000
+    elif _sym.startswith('GC'):  return 100.0   # Gold
+    elif _sym.startswith('CL'):  return 1000.0  # Crude Oil
+    return 50.0                                 # ES default $50
+
+
+def _fills_to_round_trips(fills: list) -> list:
+    """Group broker fills into round-trip trades ready for the checklist UI.
+
+    Fills are bucketed by (account, symbol) so e.g. MES and MNQ positions are
+    tracked independently, sorted chronologically, then closed into round trips
+    with net-position tracking. Each fill dict must carry:
+    dt, time_str, side ('Buy'/'Sell'), qty, price, account, symbol.
+    """
     from collections import defaultdict as _defaultdict
-
-    _ES_MULTIPLIER = 50.0
-
-    # Parse date_filter into a date object for comparison
-    filter_date = None
-    if date_filter:
-        try:
-            filter_date = _dt.datetime.strptime(date_filter, '%Y-%m-%d').date()
-        except Exception:
-            pass
-
-    reader = _csv.reader(_io.StringIO(content), delimiter='\t')
-    rows = list(reader)
-
-    if len(rows) < 2:
-        return []
-
-    fills = []
-    for row in rows[1:]:
-        if len(row) < 17:
-            continue
-        state = row[8].strip()
-        if state != 'Filled':
-            continue
-
-        side = row[1].strip()           # 'Buy' or 'Sell'
-        symbol = row[0].strip()         # e.g. 'MESH26', 'MESH26' (ES), 'MESH26' (MES)
-        filled_qty_str = row[5].strip()
-        avg_price_str = row[6].strip()
-        account = row[12].strip() if len(row) > 12 else 'Unknown'
-        fill_date = row[15].strip()     # MM/DD/YYYY
-        fill_time_raw = row[16].strip() # HH:MM:SS.mmm
-
-        try:
-            filled_qty = int(filled_qty_str)
-            avg_price = float(avg_price_str)
-        except (ValueError, TypeError):
-            continue
-
-        if filled_qty <= 0 or avg_price <= 0:
-            continue
-
-        try:
-            dt = _dt.datetime.strptime(
-                f"{fill_date} {fill_time_raw[:8]}", "%m/%d/%Y %H:%M:%S"
-            )
-        except Exception:
-            continue
-
-        # Filter by date if requested
-        if filter_date is not None and dt.date() != filter_date:
-            continue
-
-        fills.append({
-            'dt': dt,
-            'time_str': fill_time_raw[:5],  # HH:MM
-            'side': side,
-            'qty': filled_qty,
-            'price': avg_price,
-            'account': account,
-            'symbol': symbol,
-        })
 
     if not fills:
         return []
 
-    # Group fills by (account, symbol) so MES and MNQ positions are tracked independently
     accounts_fills: dict = _defaultdict(list)
     for f in fills:
         accounts_fills[(f['account'], f['symbol'])].append(f)
@@ -6992,21 +6944,7 @@ def _parse_apex_csv(content: str, date_filter: str = '') -> list:
             else:
                 pnl_points = (avg_entry - avg_exit) * closed_qty
 
-            # Dynamic multiplier based on contract symbol
-            # Micro contracts must be checked before their full-size counterparts
-            _sym = (rt[0].get('symbol') or '').upper()
-            if _sym.startswith('MNQ'):   _mult = 2.0    # Micro E-mini NASDAQ
-            elif _sym.startswith('MES'): _mult = 5.0    # Micro E-mini S&P 500
-            elif _sym.startswith('M2K'): _mult = 5.0    # Micro Russell 2000
-            elif _sym.startswith('MGC'): _mult = 10.0   # Micro Gold
-            elif _sym.startswith('MCL'): _mult = 100.0  # Micro Crude Oil
-            elif _sym.startswith('NQ'):  _mult = 20.0   # E-mini NASDAQ
-            elif _sym.startswith('RTY'): _mult = 50.0   # E-mini Russell 2000
-            elif _sym.startswith('GC'):  _mult = 100.0  # Gold
-            elif _sym.startswith('CL'):  _mult = 1000.0 # Crude Oil
-            else:                        _mult = _ES_MULTIPLIER  # ES default $50
-
-            pnl_dollars = round(pnl_points * _mult, 2)
+            pnl_dollars = round(pnl_points * _futures_point_multiplier(rt[0].get('symbol')), 2)
 
             direction_label = 'Long' if is_long else 'Short'
             _sym_label = rt[0].get('symbol', '')
@@ -7039,14 +6977,215 @@ def _parse_apex_csv(content: str, date_filter: str = '') -> list:
     return result
 
 
+def _parse_apex_csv(content: str, date_filter: str = '') -> list:
+    """Parse an Overcharts TSV order export and return a list of round-trip trades.
+
+    Compatible with any broker connected to Overcharts (Apex, AMP/Rithmic, etc.)
+    since they all share the same column layout. The function is named "apex"
+    only because that was the first broker tested.
+
+    Only 'Filled' rows are considered.  If date_filter is provided (YYYY-MM-DD),
+    only fills whose fill date matches that day are included — this is essential
+    because Overcharts exports often span multiple trading days.
+
+    Fills are grouped by account, then sorted chronologically within each account.
+    Position tracking (FIFO) groups fills into round trips per account.
+    Each resulting trade is tagged with 'account' and 'imported': True.
+
+    ES multiplier: 1 point = $50 (E-mini S&P 500).
+    """
+    import csv as _csv
+    import io as _io
+
+    # Parse date_filter into a date object for comparison
+    filter_date = None
+    if date_filter:
+        try:
+            filter_date = _dt.datetime.strptime(date_filter, '%Y-%m-%d').date()
+        except Exception:
+            pass
+
+    reader = _csv.reader(_io.StringIO(content), delimiter='\t')
+    rows = list(reader)
+
+    if len(rows) < 2:
+        return []
+
+    fills = []
+    for row in rows[1:]:
+        if len(row) < 17:
+            continue
+        state = row[8].strip()
+        if state != 'Filled':
+            continue
+
+        side = row[1].strip()           # 'Buy' or 'Sell'
+        symbol = row[0].strip()         # e.g. 'MESH26', 'MESH26' (ES), 'MESH26' (MES)
+        filled_qty_str = row[5].strip()
+        avg_price_str = row[6].strip()
+        account = row[12].strip() if len(row) > 12 else 'Unknown'
+        fill_date = row[15].strip()     # MM/DD/YYYY
+        fill_time_raw = row[16].strip() # HH:MM:SS.mmm
+
+        try:
+            filled_qty = int(filled_qty_str)
+            avg_price = float(avg_price_str)
+        except (ValueError, TypeError):
+            continue
+
+        if filled_qty <= 0 or avg_price <= 0:
+            continue
+
+        try:
+            dt = _dt.datetime.strptime(
+                f"{fill_date} {fill_time_raw[:8]}", "%m/%d/%Y %H:%M:%S"
+            )
+        except Exception:
+            continue
+
+        # Filter by date if requested
+        if filter_date is not None and dt.date() != filter_date:
+            continue
+
+        fills.append({
+            'dt': dt,
+            'time_str': fill_time_raw[:5],  # HH:MM
+            'side': side,
+            'qty': filled_qty,
+            'price': avg_price,
+            'account': account,
+            'symbol': symbol,
+        })
+
+    return _fills_to_round_trips(fills)
+
+
+# Timestamp layouts seen in Tradovate exports (Orders / Order History / Fills)
+_TRADOVATE_DT_FORMATS = (
+    '%m/%d/%Y %H:%M:%S',
+    '%m/%d/%Y %H:%M',
+    '%m/%d/%y %H:%M:%S',
+    '%Y-%m-%d %H:%M:%S',
+    '%Y-%m-%dT%H:%M:%S',
+)
+
+
+def _parse_tradovate_datetime(raw: str):
+    """Parse a Tradovate timestamp, tolerating fractional seconds and 'Z'."""
+    s = (raw or '').strip().replace('Z', '')
+    if not s:
+        return None
+    if '.' in s:
+        s = s.split('.')[0]
+    for fmt in _TRADOVATE_DT_FORMATS:
+        try:
+            return _dt.datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_tradovate_csv(content: str, date_filter: str = '') -> list:
+    """Parse a Tradovate order export (comma-separated) into round-trip trades.
+
+    Tradovate exports one row per *order*, so only rows whose ``Status`` is
+    ``Filled`` are real fills — cancelled bracket legs are ignored. Columns are
+    matched by header name (not position) because Tradovate ships several
+    export flavours with different column orders.
+
+    If date_filter is provided (YYYY-MM-DD) only fills of that day are kept,
+    since an export usually spans several trading days.
+    """
+    import csv as _csv
+    import io as _io
+
+    filter_date = None
+    if date_filter:
+        try:
+            filter_date = _dt.datetime.strptime(date_filter, '%Y-%m-%d').date()
+        except Exception:
+            pass
+
+    reader = _csv.DictReader(_io.StringIO(content))
+    if not reader.fieldnames:
+        return []
+
+    def _norm(name: str) -> str:
+        return (name or '').strip().lower().replace(' ', '').replace('_', '')
+
+    headers = {_norm(h): h for h in reader.fieldnames if h}
+
+    def _get(row: dict, *names: str) -> str:
+        for n in names:
+            key = headers.get(_norm(n))
+            if key is None:
+                continue
+            val = row.get(key)
+            if val is not None and str(val).strip():
+                return str(val).strip()
+        return ''
+
+    fills = []
+    for row in reader:
+        if _get(row, 'Status').lower() != 'filled':
+            continue
+
+        side_raw = _get(row, 'B/S', 'Side', 'Action').lower()
+        if side_raw.startswith('b'):
+            side = 'Buy'
+        elif side_raw.startswith('s'):
+            side = 'Sell'
+        else:
+            continue
+
+        symbol = _get(row, 'Contract', 'Symbol', 'Product')
+        account = _get(row, 'Account') or 'Unknown'
+
+        try:
+            filled_qty = int(float(_get(row, 'Filled Qty', 'filledQty', 'Quantity')))
+            avg_price = float(_get(row, 'Avg Fill Price', 'decimalFillAvg', 'avgPrice'))
+        except (ValueError, TypeError):
+            continue
+
+        if filled_qty <= 0 or avg_price <= 0:
+            continue
+
+        dt = _parse_tradovate_datetime(_get(row, 'Fill Time', 'Timestamp'))
+        if dt is None:
+            continue
+
+        if filter_date is not None and dt.date() != filter_date:
+            continue
+
+        fills.append({
+            'dt': dt,
+            'time_str': dt.strftime('%H:%M'),
+            'side': side,
+            'qty': filled_qty,
+            'price': avg_price,
+            'account': account,
+            'symbol': symbol,
+        })
+
+    return _fills_to_round_trips(fills)
+
+
+# source key (as sent by the checklist UI) → row parser
+_TRADE_IMPORT_PARSERS = {
+    'rithmic': _parse_apex_csv,
+    'tradovate': _parse_tradovate_csv,
+}
+
+
 @app.route('/api/checklist/import-apex', methods=['POST'])
 @login_required
 def api_import_apex():
-    """Parse an Overcharts/Apex CSV export and return trade objects.
+    """Parse a broker order export (Rithmic/Overcharts or Tradovate) into trades.
 
     Accepts multipart form fields:
       - file: the CSV/TSV file
       - date_key: YYYY-MM-DD — only fills matching this date are imported
+      - source: 'rithmic' (default, Overcharts TSV) or 'tradovate'
     """
     if 'file' not in request.files:
         return jsonify({'error': 'Nessun file caricato'}), 400
@@ -7060,6 +7199,12 @@ def api_import_apex():
     if date_key and not _re.match(r'^\d{4}-\d{2}-\d{2}$', date_key):
         return jsonify({'error': 'date_key non valido'}), 400
 
+    # Default to 'rithmic' so older clients (no `source` field) keep working
+    source = (request.form.get('source') or 'rithmic').strip().lower()
+    parser = _TRADE_IMPORT_PARSERS.get(source)
+    if parser is None:
+        return jsonify({'error': f'Sorgente non supportata: {source}'}), 400
+
     # Accept only plain text / CSV — guard against large uploads
     MAX_SIZE = 2 * 1024 * 1024  # 2 MB
     raw = f.read(MAX_SIZE + 1)
@@ -7072,11 +7217,17 @@ def api_import_apex():
         return jsonify({'error': 'Impossibile decodificare il file'}), 400
 
     try:
-        trades = _parse_apex_csv(content, date_filter=date_key)
+        trades = parser(content, date_filter=date_key)
     except Exception as e:
         return jsonify({'error': f'Errore parsing: {e}'}), 500
 
-    return jsonify({'ok': True, 'trades': trades, 'count': len(trades), 'date_filter': date_key})
+    return jsonify({
+        'ok': True,
+        'trades': trades,
+        'count': len(trades),
+        'date_filter': date_key,
+        'source': source,
+    })
 
 
 # ============================================================================
