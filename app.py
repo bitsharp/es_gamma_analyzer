@@ -11835,6 +11835,12 @@ def _ibkr_refresh_pnl_history(owner_email: str, force: bool = False) -> dict:
         return {"status": "error", "error": "mongo non disponibile: storico non salvato"}
     return {"status": "ok", "days": len(merged),
             "days_in_report": len(fetched["days"]),
+            # Quante righe di registro sono finite in archivio: è il numero che
+            # dice se il documento sta crescendo verso i 16 MB di Mongo, e
+            # l'unico modo da fuori di distinguere un archivio col dettaglio
+            # delle operazioni da uno col solo aggregato.
+            "ops_stored": sum(len(d.get("ops") or []) for d in merged.values()
+                              if isinstance(d, dict)),
             "trades_seen": fetched.get("trades_seen"),
             "realized_available": fetched.get("realized_available"),
             "fallback_query": fetched.get("fallback_query")}
