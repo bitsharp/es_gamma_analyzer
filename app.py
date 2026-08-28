@@ -6840,10 +6840,13 @@ def api_checklist_reset():
 # ============================================================================
 #
 # Two sources are supported, each with its own row parser:
-#   - "rithmic"   → Overcharts TSV export (Apex, AMP/Rithmic, ...)
-#   - "tradovate" → Tradovate CSV order export
-# Both produce the same list of "fills" and share `_fills_to_round_trips()`
-# for position tracking, P&L and trade-card shaping.
+#   - "rithmic"   → Overcharts TSV export (Apex, AMP/Rithmic, ...), one file
+#   - "tradovate" → Orders + Fills + Cash History, uploaded together
+# Both boil down to the same list of "fills" and share `_group_round_trips()` /
+# `_round_trip_to_trade()` for position tracking, P&L and trade-card shaping.
+# What each Tradovate file adds: Orders the bracket levels (stop/target → R:R),
+# Fills the per-fill commission and the broker's session date, Cash History the
+# opening and closing balance with the movements that connect them.
 
 
 def _futures_point_multiplier(symbol: str) -> float:
@@ -6865,116 +6868,119 @@ def _futures_point_multiplier(symbol: str) -> float:
     return 50.0                                 # ES default $50
 
 
-def _fills_to_round_trips(fills: list) -> list:
-    """Group broker fills into round-trip trades ready for the checklist UI.
+def _group_round_trips(fills: list) -> list:
+    """Bucket fills by (account, symbol) and close them into round trips.
 
-    Fills are bucketed by (account, symbol) so e.g. MES and MNQ positions are
-    tracked independently, sorted chronologically, then closed into round trips
-    with net-position tracking. Each fill dict must carry:
+    Separate buckets keep e.g. MES and MNQ positions independent. Within a
+    bucket fills are sorted chronologically (stable, so same-second fills keep
+    file order) and a new round trip is closed every time the net position
+    returns to flat. Each fill dict must carry:
     dt, time_str, side ('Buy'/'Sell'), qty, price, account, symbol.
+
+    Returns a list of fill lists — the caller decides what to do with each.
     """
     from collections import defaultdict as _defaultdict
 
     if not fills:
         return []
 
-    accounts_fills: dict = _defaultdict(list)
+    buckets: dict = _defaultdict(list)
     for f in fills:
-        accounts_fills[(f['account'], f['symbol'])].append(f)
+        buckets[(f['account'], f['symbol'])].append(f)
 
-    result = []
+    groups = []
+    for _key, bucket_fills in buckets.items():
+        bucket_fills.sort(key=lambda x: x['dt'])
 
-    for (account_name, _sym_key), acct_fills in accounts_fills.items():
-        # Sort chronologically within this account+symbol bucket
-        acct_fills.sort(key=lambda x: x['dt'])
-
-        # Group into round-trip trades using net-position tracking
         position = 0
-        current_round: list = []
-        round_trips: list = []
-
-        for f in acct_fills:
-            current_round.append(f)
-            if f['side'] == 'Buy':
-                position += f['qty']
-            else:
-                position -= f['qty']
-
+        current: list = []
+        for f in bucket_fills:
+            current.append(f)
+            position += f['qty'] if f['side'] == 'Buy' else -f['qty']
             if position == 0:
-                round_trips.append(list(current_round))
-                current_round = []
+                groups.append(current)
+                current = []
+        if current:
+            groups.append(current)
 
-        if current_round:
-            round_trips.append(list(current_round))
+    return groups
 
-        for rt in round_trips:
-            buys = [f for f in rt if f['side'] == 'Buy']
-            sells = [f for f in rt if f['side'] == 'Sell']
 
-            if not (buys and sells):
-                # Skip pure directional open positions with no fills on the other side
-                continue
+def _round_trip_to_trade(rt: list):
+    """Shape one round trip into the trade object the checklist UI consumes.
 
-            is_long = rt[0]['side'] == 'Buy'
+    Returns None when the round trip has fills on one side only: that is an
+    open position, not a trade with a result.
+    """
+    buys = [f for f in rt if f['side'] == 'Buy']
+    sells = [f for f in rt if f['side'] == 'Sell']
+    if not (buys and sells):
+        return None
 
-            total_buy_qty = sum(f['qty'] for f in buys)
-            total_sell_qty = sum(f['qty'] for f in sells)
-            closed_qty = min(total_buy_qty, total_sell_qty)
-            is_open = total_buy_qty != total_sell_qty
+    is_long = rt[0]['side'] == 'Buy'
 
-            if is_long:
-                entry_fills, exit_fills = buys, sells
-            else:
-                entry_fills, exit_fills = sells, buys
+    total_buy_qty = sum(f['qty'] for f in buys)
+    total_sell_qty = sum(f['qty'] for f in sells)
+    closed_qty = min(total_buy_qty, total_sell_qty)
+    is_open = total_buy_qty != total_sell_qty
 
-            total_entry_qty = sum(f['qty'] for f in entry_fills)
-            total_exit_qty = sum(f['qty'] for f in exit_fills)
+    entry_fills, exit_fills = (buys, sells) if is_long else (sells, buys)
+    total_entry_qty = sum(f['qty'] for f in entry_fills)
+    total_exit_qty = sum(f['qty'] for f in exit_fills)
 
-            avg_entry = (
-                sum(f['qty'] * f['price'] for f in entry_fills) / total_entry_qty
-                if total_entry_qty else 0.0
-            )
-            avg_exit = (
-                sum(f['qty'] * f['price'] for f in exit_fills) / total_exit_qty
-                if total_exit_qty else 0.0
-            )
+    avg_entry = (
+        sum(f['qty'] * f['price'] for f in entry_fills) / total_entry_qty
+        if total_entry_qty else 0.0
+    )
+    avg_exit = (
+        sum(f['qty'] * f['price'] for f in exit_fills) / total_exit_qty
+        if total_exit_qty else 0.0
+    )
 
-            if is_long:
-                pnl_points = (avg_exit - avg_entry) * closed_qty
-            else:
-                pnl_points = (avg_entry - avg_exit) * closed_qty
+    if is_long:
+        pnl_points = (avg_exit - avg_entry) * closed_qty
+    else:
+        pnl_points = (avg_entry - avg_exit) * closed_qty
 
-            pnl_dollars = round(pnl_points * _futures_point_multiplier(rt[0].get('symbol')), 2)
+    _sym_label = rt[0].get('symbol', '')
+    multiplier = _futures_point_multiplier(_sym_label)
+    pnl_dollars = round(pnl_points * multiplier, 2)
 
-            direction_label = 'Long' if is_long else 'Short'
-            _sym_label = rt[0].get('symbol', '')
-            note_parts = [
-                f"{direction_label} {closed_qty}x {_sym_label}".strip(),
-                f"entry {avg_entry:.2f} → exit {avg_exit:.2f}",
-            ]
-            if is_open:
-                note_parts.append("(posizione aperta)")
+    direction_label = 'Long' if is_long else 'Short'
+    note_parts = [
+        f"{direction_label} {closed_qty}x {_sym_label}".strip(),
+        f"entry {avg_entry:.2f} → exit {avg_exit:.2f}",
+    ]
+    if is_open:
+        note_parts.append("(posizione aperta)")
 
-            # Clean symbol for display: strip exchange suffix (e.g. MESH6.CME -> MESH6)
-            _sym_display = _sym_label.split('.')[0] if _sym_label else ''
+    # Clean symbol for display: strip exchange suffix (e.g. MESH6.CME -> MESH6)
+    _sym_display = _sym_label.split('.')[0] if _sym_label else ''
 
-            result.append({
-                'time': rt[0]['time_str'],
-                'account': account_name,
-                'symbol': _sym_display,
-                'imported': True,
-                'qty': closed_qty,
-                'context': {'trend': 'long' if is_long else 'short'},
-                'result': {
-                    'executed': 'true',
-                    'pnl': '' if is_open else str(pnl_dollars),
-                    'notes': ' | '.join(note_parts),
-                },
-            })
+    return {
+        'time': rt[0]['time_str'],
+        'account': rt[0]['account'],
+        'symbol': _sym_display,
+        'imported': True,
+        'qty': closed_qty,
+        'entry_price': round(avg_entry, 4),
+        'exit_price': round(avg_exit, 4),
+        'multiplier': multiplier,
+        'open': is_open,
+        'context': {'trend': 'long' if is_long else 'short'},
+        'result': {
+            'executed': 'true',
+            'pnl': '' if is_open else str(pnl_dollars),
+            'notes': ' | '.join(note_parts),
+        },
+    }
 
-    # Sort final list by time across all accounts
-    result.sort(key=lambda x: x.get('time', ''))
-    return result
+
+def _fills_to_round_trips(fills: list) -> list:
+    """Group broker fills into round-trip trades ready for the checklist UI."""
+    trades = [t for t in (_round_trip_to_trade(rt) for rt in _group_round_trips(fills)) if t]
+    trades.sort(key=lambda x: x.get('time', ''))
+    return trades
 
 
 def _parse_apex_csv(content: str, date_filter: str = '') -> list:
@@ -7085,33 +7091,37 @@ def _parse_tradovate_datetime(raw: str):
     return None
 
 
-def _parse_tradovate_csv(content: str, date_filter: str = '') -> list:
-    """Parse a Tradovate order export (comma-separated) into round-trip trades.
+def _parse_tradovate_money(raw: str):
+    """Parse a Tradovate money cell: '"50,000.00"' / '-1.55' / '' → float|None."""
+    s = (raw or '').strip().replace('"', '').replace(',', '').replace('$', '')
+    if not s:
+        return None
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return None
 
-    Tradovate exports one row per *order*, so only rows whose ``Status`` is
-    ``Filled`` are real fills — cancelled bracket legs are ignored. Columns are
-    matched by header name (not position) because Tradovate ships several
-    export flavours with different column orders.
 
-    If date_filter is provided (YYYY-MM-DD) only fills of that day are kept,
-    since an export usually spans several trading days.
+def _read_tradovate_rows(content: str):
+    """Read a Tradovate CSV into (rows, getter).
+
+    Columns are matched by header *name*, normalised (case/space/underscore
+    insensitive), because Tradovate ships the same data with different column
+    orders depending on the screen the export starts from. `getter(row, *names)`
+    returns the first non-empty value among the candidate header names.
     """
     import csv as _csv
     import io as _io
 
-    filter_date = None
-    if date_filter:
-        try:
-            filter_date = _dt.datetime.strptime(date_filter, '%Y-%m-%d').date()
-        except Exception:
-            pass
-
     reader = _csv.DictReader(_io.StringIO(content))
     if not reader.fieldnames:
-        return []
+        return [], (lambda row, *names: '')
 
     def _norm(name: str) -> str:
-        return (name or '').strip().lower().replace(' ', '').replace('_', '')
+        # Underscores are kept on purpose: Tradovate ships an internal `_price`
+        # next to the display `Price`, and collapsing them would make which one
+        # wins depend on column order.
+        return (name or '').strip().lower().replace(' ', '')
 
     headers = {_norm(h): h for h in reader.fieldnames if h}
 
@@ -7125,74 +7135,427 @@ def _parse_tradovate_csv(content: str, date_filter: str = '') -> list:
                 return str(val).strip()
         return ''
 
-    fills = []
-    for row in reader:
-        if _get(row, 'Status').lower() != 'filled':
-            continue
+    return list(reader), _get
 
-        side_raw = _get(row, 'B/S', 'Side', 'Action').lower()
-        if side_raw.startswith('b'):
-            side = 'Buy'
-        elif side_raw.startswith('s'):
-            side = 'Sell'
-        else:
-            continue
 
-        symbol = _get(row, 'Contract', 'Symbol', 'Product')
-        account = _get(row, 'Account') or 'Unknown'
+def _classify_tradovate_file(content: str) -> str:
+    """Guess which of the three Tradovate exports a file is, from its header.
 
+    Filenames are unreliable (the user renames them, the browser appends "(1)"),
+    the header row is not: each export has a column no other one carries.
+    """
+    first_line = (content or '').split('\n', 1)[0].lower()
+    if 'cash change type' in first_line:
+        return 'cash'
+    if 'fill id' in first_line:
+        return 'fills'
+    if 'stop price' in first_line or 'limit price' in first_line:
+        return 'orders'
+    return ''
+
+
+def _tradovate_side(raw: str) -> str:
+    """' Sell' / 'B' / 'Buy' → 'Buy' | 'Sell' | ''."""
+    s = (raw or '').strip().lower()
+    if s.startswith('b'):
+        return 'Buy'
+    if s.startswith('s'):
+        return 'Sell'
+    return ''
+
+
+def _parse_tradovate_orders(content: str) -> list:
+    """Read every order row (filled or not) out of a Tradovate Orders export."""
+    rows, _get = _read_tradovate_rows(content)
+
+    orders = []
+    for row in rows:
         try:
-            filled_qty = int(float(_get(row, 'Filled Qty', 'filledQty', 'Quantity')))
-            avg_price = float(_get(row, 'Avg Fill Price', 'decimalFillAvg', 'avgPrice'))
+            order_id = int(_get(row, 'Order ID', 'orderId'))
         except (ValueError, TypeError):
             continue
 
-        if filled_qty <= 0 or avg_price <= 0:
+        version_raw = _get(row, 'Version ID')
+        try:
+            version_id = int(version_raw) if version_raw else order_id
+        except (ValueError, TypeError):
+            version_id = order_id
+
+        orders.append({
+            'order_id': order_id,
+            'version_id': version_id,
+            'side': _tradovate_side(_get(row, 'B/S', 'Side', 'Action')),
+            'type': _get(row, 'Type').strip().lower(),      # limit / stop / market
+            'text': _get(row, 'Text').strip().lower(),      # multibracket / Exit / ...
+            'status': _get(row, 'Status').strip().lower(),
+            'limit_price': _parse_tradovate_money(_get(row, 'decimalLimit', 'Limit Price')),
+            'stop_price': _parse_tradovate_money(_get(row, 'decimalStop', 'Stop Price')),
+            'symbol': _get(row, 'Contract', 'Symbol', 'Product'),
+            'account': _get(row, 'Account') or 'Unknown',
+            'fill_dt': _parse_tradovate_datetime(_get(row, 'Fill Time')),
+            'fill_qty': _parse_tradovate_money(_get(row, 'Filled Qty', 'filledQty')),
+            'fill_price': _parse_tradovate_money(_get(row, 'Avg Fill Price', 'decimalFillAvg', 'avgPrice')),
+        })
+
+    orders.sort(key=lambda o: o['order_id'])
+    return orders
+
+
+def _tradovate_brackets(orders: list) -> dict:
+    """Map each bracket's entry order id to its stop and target legs.
+
+    A Tradovate bracket is three consecutive order ids: the entry, then two
+    protective legs on the *opposite* side — one Limit (the target) and one Stop
+    (the stop loss). Requiring exactly that shape is what keeps a standalone
+    order (a manual market exit, say) from swallowing the next bracket's entry.
+
+    Caveat worth knowing when reading the numbers: the export carries each
+    order's *latest* version, so a stop that was trailed during the trade shows
+    where it ended up, not where it started. `modified` flags that case.
+    """
+    brackets = {}
+    i = 0
+    n = len(orders)
+    while i < n:
+        entry = orders[i]
+        legs = orders[i + 1:i + 3]
+
+        is_bracket = (
+            len(legs) == 2
+            and entry['side'] in ('Buy', 'Sell')
+            and all(leg['side'] and leg['side'] != entry['side'] for leg in legs)
+            and {leg['type'] for leg in legs} == {'limit', 'stop'}
+        )
+        if not is_bracket:
+            i += 1
             continue
 
-        dt = _parse_tradovate_datetime(_get(row, 'Fill Time', 'Timestamp'))
+        target_leg = next(leg for leg in legs if leg['type'] == 'limit')
+        stop_leg = next(leg for leg in legs if leg['type'] == 'stop')
+
+        brackets[entry['order_id']] = {
+            'target': target_leg['limit_price'],
+            'stop': stop_leg['stop_price'],
+            'planned_entry': entry['limit_price'] if entry['type'] == 'limit' else entry['stop_price'],
+            # An order whose latest version isn't the original was moved while live
+            'modified': (
+                target_leg['version_id'] != target_leg['order_id']
+                or stop_leg['version_id'] != stop_leg['order_id']
+            ),
+        }
+        i += 3
+
+    return brackets
+
+
+def _tradovate_fills_from_fills_csv(content: str, filter_date) -> list:
+    """Fills from a Tradovate Fills export — the authoritative per-fill list.
+
+    Preferred over the Orders export because it carries the commission actually
+    charged on each fill and the broker's own trade date, which is not the
+    calendar date of the timestamp for anything traded in the overnight session.
+    """
+    rows, _get = _read_tradovate_rows(content)
+
+    fills = []
+    for row in rows:
+        side = _tradovate_side(_get(row, 'B/S', 'Side', 'Action'))
+        if not side:
+            continue
+
+        qty = _parse_tradovate_money(_get(row, 'Quantity', '_qty'))
+        price = _parse_tradovate_money(_get(row, 'Price', '_price'))
+        if not qty or not price or qty <= 0 or price <= 0:
+            continue
+
+        dt = _parse_tradovate_datetime(_get(row, 'Timestamp', '_timestamp'))
         if dt is None:
             continue
 
-        if filter_date is not None and dt.date() != filter_date:
+        # `_tradeDate` is the session the fill belongs to; the timestamp's own
+        # date is wrong for the overnight session (23:56 on the 26th is the 27th)
+        trade_date = None
+        raw_trade_date = _get(row, '_tradeDate', 'Trade Date')
+        if raw_trade_date:
+            parsed = _parse_tradovate_datetime(raw_trade_date + ' 00:00:00')
+            if parsed is not None:
+                trade_date = parsed.date()
+
+        if filter_date is not None and (trade_date or dt.date()) != filter_date:
             continue
+
+        order_id = None
+        try:
+            order_id = int(_get(row, '_orderId', 'Order ID'))
+        except (ValueError, TypeError):
+            pass
 
         fills.append({
             'dt': dt,
             'time_str': dt.strftime('%H:%M'),
             'side': side,
-            'qty': filled_qty,
-            'price': avg_price,
-            'account': account,
-            'symbol': symbol,
+            'qty': int(qty),
+            'price': price,
+            'account': _get(row, 'Account', '_accountId') or 'Unknown',
+            'symbol': _get(row, 'Contract', 'Symbol', 'Product'),
+            'order_id': order_id,
+            'commission': _parse_tradovate_money(_get(row, 'commission')) or 0.0,
         })
 
-    return _fills_to_round_trips(fills)
+    return fills
 
 
-# source key (as sent by the checklist UI) → row parser
-_TRADE_IMPORT_PARSERS = {
-    'rithmic': _parse_apex_csv,
-    'tradovate': _parse_tradovate_csv,
+def _tradovate_fills_from_orders(orders: list, filter_date) -> list:
+    """Fills reconstructed from the Orders export, when Fills.csv isn't there.
+
+    Only rows with status Filled are real: in a bracket export most rows are
+    cancelled legs. Commissions aren't in this file, so they come out zero.
+    """
+    fills = []
+    for o in orders:
+        if o['status'] != 'filled' or o['fill_dt'] is None:
+            continue
+        if not o['fill_qty'] or not o['fill_price']:
+            continue
+        if not o['side']:
+            continue
+        if filter_date is not None and o['fill_dt'].date() != filter_date:
+            continue
+
+        fills.append({
+            'dt': o['fill_dt'],
+            'time_str': o['fill_dt'].strftime('%H:%M'),
+            'side': o['side'],
+            'qty': int(o['fill_qty']),
+            'price': o['fill_price'],
+            'account': o['account'],
+            'symbol': o['symbol'],
+            'order_id': o['order_id'],
+            'commission': 0.0,
+        })
+
+    return fills
+
+
+def _parse_tradovate_cash(content: str, date_filter: str = '') -> dict:
+    """Per-account cash summary for a day, from a Tradovate Cash History export.
+
+    Every row carries both the movement (`Delta`) and the running balance after
+    it (`Amount`), so the opening balance is the first row's Amount minus its
+    Delta — no need for a separate statement. `Date` is the session date, which
+    is what we filter on.
+
+    Movements are split into deposits, commissions and realized P&L; whatever
+    doesn't fall in those three lands in `other` so the arithmetic
+    start + deposits + realized − commissions + other = end always closes.
+    """
+    rows, _get = _read_tradovate_rows(content)
+
+    per_account: dict = {}
+    for row in rows:
+        account = _get(row, 'Account') or 'Unknown'
+        delta = _parse_tradovate_money(_get(row, 'Delta'))
+        amount = _parse_tradovate_money(_get(row, 'Amount'))
+        if delta is None or amount is None:
+            continue
+
+        day = _get(row, 'Date')
+        if date_filter:
+            parsed = _parse_tradovate_datetime((day or '') + ' 00:00:00')
+            if parsed is None or parsed.strftime('%Y-%m-%d') != date_filter:
+                continue
+
+        try:
+            seq = int(_get(row, 'Transaction ID'))
+        except (ValueError, TypeError):
+            seq = 0
+
+        per_account.setdefault(account, []).append({
+            'seq': seq,
+            'dt': _parse_tradovate_datetime(_get(row, 'Timestamp')),
+            'delta': delta,
+            'amount': amount,
+            'kind': _get(row, 'Cash Change Type').strip().lower(),
+            'currency': _get(row, 'Currency') or 'USD',
+        })
+
+    summary = {}
+    for account, entries in per_account.items():
+        entries.sort(key=lambda e: (e['dt'] or _dt.datetime.min, e['seq']))
+
+        start = entries[0]['amount'] - entries[0]['delta']
+        end = entries[-1]['amount']
+
+        deposits = sum(e['delta'] for e in entries if 'fund' in e['kind'])
+        commissions = -sum(e['delta'] for e in entries if 'commission' in e['kind'] or 'fee' in e['kind'])
+        realized = sum(e['delta'] for e in entries if 'trade' in e['kind'] or 'p&l' in e['kind'])
+
+        summary[account] = {
+            'currency': entries[0]['currency'],
+            'start_cash': round(start, 2),
+            'end_cash': round(end, 2),
+            'deposits': round(deposits, 2),
+            'commissions': round(commissions, 2),
+            'realized': round(realized, 2),
+            'other': round(end - start - deposits - realized + commissions, 2),
+            'movements': len(entries),
+        }
+
+    return summary
+
+
+def _import_tradovate(files: list, date_filter: str = '') -> dict:
+    """Build the day's picture from any subset of the three Tradovate exports.
+
+    Orders alone give the trades and the bracket levels; add Fills and the
+    commissions and the broker's trade date come with them; add Cash History and
+    the account balance is reconciled against the movements instead of inferred.
+    Each file is recognised by its header, so they can be dropped in any order.
+    """
+    filter_date = None
+    if date_filter:
+        try:
+            filter_date = _dt.datetime.strptime(date_filter, '%Y-%m-%d').date()
+        except Exception:
+            pass
+
+    by_kind = {}
+    unknown = []
+    for name, content in files:
+        kind = _classify_tradovate_file(content)
+        if not kind:
+            unknown.append(name)
+            continue
+        by_kind[kind] = (name, content)
+
+    warnings = []
+    if unknown:
+        warnings.append('File non riconosciuti e ignorati: ' + ', '.join(unknown))
+
+    orders = _parse_tradovate_orders(by_kind['orders'][1]) if 'orders' in by_kind else []
+    brackets = _tradovate_brackets(orders)
+
+    if 'fills' in by_kind:
+        fills = _tradovate_fills_from_fills_csv(by_kind['fills'][1], filter_date)
+    else:
+        fills = _tradovate_fills_from_orders(orders, filter_date)
+        if orders:
+            warnings.append('Senza Fills.csv le commissioni per trade non sono disponibili.')
+
+    if not orders and not fills and 'cash' not in by_kind:
+        warnings.append('Nessun file Tradovate riconosciuto (Orders, Fills o Cash History).')
+
+    trades = []
+    for rt in _group_round_trips(fills):
+        trade = _round_trip_to_trade(rt)
+        if trade is None:
+            continue
+
+        trade['commission'] = round(sum(f.get('commission') or 0.0 for f in rt), 2)
+
+        # The bracket belongs to the order that opened the position
+        entry_side = rt[0]['side']
+        bracket = None
+        for f in rt:
+            if f['side'] == entry_side:
+                bracket = brackets.get(f.get('order_id'))
+                if bracket:
+                    break
+
+        if bracket:
+            # `:g` would round 29631.25 to 29631.2 — tick precision matters here
+            def _price(v):
+                return f"{v:.4f}".rstrip('0').rstrip('.') or '0'
+
+            control = {}
+            if bracket['stop'] is not None:
+                control['stop_loss'] = _price(bracket['stop'])
+                control['stop_defined'] = True
+            if bracket['target'] is not None:
+                control['target'] = _price(bracket['target'])
+                control['target_defined'] = True
+
+            # Spunta "R:R ≥ 1:1.5" solo se i due livelli lo dicono davvero. Uno
+            # stop trailato finisce oltre l'entry e rende il rischio negativo:
+            # in quel caso il rapporto non è calcolabile e la casella resta vuota.
+            if bracket['stop'] is not None and bracket['target'] is not None:
+                is_long = trade['context']['trend'] == 'long'
+                entry = trade['entry_price']
+                risk = (entry - bracket['stop']) if is_long else (bracket['stop'] - entry)
+                reward = (bracket['target'] - entry) if is_long else (entry - bracket['target'])
+                if risk > 0 and reward > 0 and reward / risk >= 1.5:
+                    control['rr_ok'] = True
+
+            if control:
+                trade['control'] = control
+            trade['bracket_modified'] = bool(bracket['modified'])
+
+        trades.append(trade)
+
+    trades.sort(key=lambda t: t.get('time', ''))
+
+    accounts = _parse_tradovate_cash(by_kind['cash'][1], date_filter) if 'cash' in by_kind else {}
+    for acct in accounts.values():
+        acct['broker'] = 'Tradovate'
+
+    # Commissions from the fills are a fallback for accounts the cash history
+    # doesn't cover (e.g. Cash History.csv wasn't uploaded)
+    for trade in trades:
+        acct = accounts.setdefault(trade['account'], {'broker': 'Tradovate'})
+        if 'commissions' not in acct:
+            acct['commissions'] = 0.0
+            acct['commissions_from_fills'] = True
+        if acct.get('commissions_from_fills'):
+            acct['commissions'] = round(acct['commissions'] + trade.get('commission', 0.0), 2)
+
+    # Only claim a net liq equal to cash when nothing is left open
+    open_accounts = {t['account'] for t in trades if t.get('open')}
+    for name, acct in accounts.items():
+        acct['flat'] = name not in open_accounts
+
+    return {
+        'trades': trades,
+        'accounts': accounts,
+        'sources': {kind: name for kind, (name, _c) in by_kind.items()},
+        'warnings': warnings,
+    }
+
+
+def _import_rithmic(files: list, date_filter: str = '') -> dict:
+    """Round-trip trades from an Overcharts TSV export (Apex, AMP/Rithmic, ...)."""
+    name, content = files[0]
+    return {
+        'trades': _parse_apex_csv(content, date_filter),
+        'accounts': {},
+        'sources': {'overcharts': name},
+        'warnings': (
+            ['Solo il primo file è stato letto: la sorgente Rithmic accetta un export alla volta.']
+            if len(files) > 1 else []
+        ),
+    }
+
+
+# source key (as sent by the checklist UI) → importer
+_TRADE_IMPORTERS = {
+    'rithmic': _import_rithmic,
+    'tradovate': _import_tradovate,
 }
 
 
 @app.route('/api/checklist/import-apex', methods=['POST'])
 @login_required
 def api_import_apex():
-    """Parse a broker order export (Rithmic/Overcharts or Tradovate) into trades.
+    """Parse a broker export (Rithmic/Overcharts or Tradovate) into trades.
 
     Accepts multipart form fields:
-      - file: the CSV/TSV file
+      - file: one or more CSV/TSV files (Tradovate takes Orders + Fills +
+        Cash History together; each is recognised by its header)
       - date_key: YYYY-MM-DD — only fills matching this date are imported
       - source: 'rithmic' (default, Overcharts TSV) or 'tradovate'
     """
-    if 'file' not in request.files:
+    uploaded = [f for f in request.files.getlist('file') if f and f.filename]
+    if not uploaded:
         return jsonify({'error': 'Nessun file caricato'}), 400
-
-    f = request.files['file']
-    if not f.filename:
-        return jsonify({'error': 'Nome file vuoto'}), 400
 
     date_key = (request.form.get('date_key') or '').strip()
     import re as _re
@@ -7201,30 +7564,34 @@ def api_import_apex():
 
     # Default to 'rithmic' so older clients (no `source` field) keep working
     source = (request.form.get('source') or 'rithmic').strip().lower()
-    parser = _TRADE_IMPORT_PARSERS.get(source)
-    if parser is None:
+    importer = _TRADE_IMPORTERS.get(source)
+    if importer is None:
         return jsonify({'error': f'Sorgente non supportata: {source}'}), 400
 
     # Accept only plain text / CSV — guard against large uploads
-    MAX_SIZE = 2 * 1024 * 1024  # 2 MB
-    raw = f.read(MAX_SIZE + 1)
-    if len(raw) > MAX_SIZE:
-        return jsonify({'error': 'File troppo grande (max 2 MB)'}), 413
+    MAX_SIZE = 2 * 1024 * 1024  # 2 MB per file
+    files = []
+    for f in uploaded:
+        raw = f.read(MAX_SIZE + 1)
+        if len(raw) > MAX_SIZE:
+            return jsonify({'error': f'File troppo grande (max 2 MB): {f.filename}'}), 413
+        try:
+            files.append((f.filename, raw.decode('utf-8-sig', errors='replace')))
+        except Exception:
+            return jsonify({'error': f'Impossibile decodificare il file: {f.filename}'}), 400
 
     try:
-        content = raw.decode('utf-8-sig', errors='replace')
-    except Exception:
-        return jsonify({'error': 'Impossibile decodificare il file'}), 400
-
-    try:
-        trades = parser(content, date_filter=date_key)
+        result = importer(files, date_filter=date_key)
     except Exception as e:
         return jsonify({'error': f'Errore parsing: {e}'}), 500
 
     return jsonify({
         'ok': True,
-        'trades': trades,
-        'count': len(trades),
+        'trades': result['trades'],
+        'count': len(result['trades']),
+        'accounts': result.get('accounts') or {},
+        'sources': result.get('sources') or {},
+        'warnings': result.get('warnings') or [],
         'date_filter': date_key,
         'source': source,
     })

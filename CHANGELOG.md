@@ -5,6 +5,23 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.28.0] — 2026-08-28
+
+### Aggiunto
+- **I tre export Tradovate si caricano insieme e la giornata si ricostruisce da sola.** Nella scheda Tradovate si selezionano `Orders.csv`, `Fills.csv` e `Cash History.csv` in un colpo solo: ogni file viene riconosciuto dall'intestazione, quindi l'ordine con cui si scelgono non conta e ne basta anche uno.
+  - **Saldo di giornata** dai movimenti di conto: apertura, chiusura, versamenti e realizzato. Il saldo iniziale non serve chiederlo — ogni riga porta con sé il saldo dopo il movimento, quindi si ricava dalla prima.
+  - **Commissioni esatte**, quelle addebitate su ogni eseguito, al posto della stima `Cash − Net Liq`: compaiono sul singolo trade e in fondo alla sessione. La stima resta per gli export Overcharts, che le commissioni non ce le hanno.
+  - **Stop loss, target e R:R** presi dal bracket dell'ordine: ogni trade importato arriva con i suoi due livelli già compilati e un riquadro che mostra rischio e rendimento in punti e in dollari. Il rapporto si ricalcola se si correggono stop o target a mano.
+  - Un R:R ≥ 1:1.5 spunta da solo la casella della checklist, ma solo quando i due livelli lo dicono davvero.
+- **Quando lo stop non è più quello iniziale, viene detto.** L'export riporta l'ultima versione di ogni ordine: uno stop trailato durante il trade risulta oltre l'entry e il rischio diventerebbe negativo. In quel caso il riquadro scrive "stop in profitto" e non calcola un R:R, invece di stamparne uno inventato.
+
+### Tecnico
+- Ogni file Tradovate è riconosciuto da una colonna che gli altri due non hanno (`Cash Change Type`, `Fill ID`, `Stop Price`): i nomi dei file non sono affidabili, l'intestazione sì.
+- I bracket si ricostruiscono da tre id d'ordine consecutivi — entry, poi due gambe di segno opposto, una Limit e una Stop. Pretendere esattamente quella forma è ciò che impedisce a un ordine isolato (un'uscita a mercato) di mangiarsi l'entry del bracket successivo.
+- Gli eseguiti si leggono da `Fills.csv` quando c'è: porta la commissione per riga e il `_tradeDate` del broker, che nella sessione notturna non coincide col giorno del timestamp. Senza, si ripiega sulle righe `Filled` degli ordini e le commissioni restano a zero.
+- I movimenti di cassa si riconciliano: quello che non è versamento, commissione o realizzato finisce in `other`, così `inizio + versamenti + realizzato − commissioni + other = fine` torna sempre.
+- `/api/checklist/import-apex` accetta più file sullo stesso campo `file` e risponde anche con `accounts`, `sources` e `warnings`.
+
 ## [1.27.0] — 2026-08-28
 
 ### Aggiunto

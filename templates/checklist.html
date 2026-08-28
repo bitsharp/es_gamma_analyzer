@@ -614,6 +614,12 @@
             <input type="hidden" class="trade-account-input" value="">
             <input type="hidden" class="trade-symbol-input" value="">
             <input type="hidden" class="trade-qty-input" value="0">
+            <!-- Dati d'esecuzione dell'import: alimentano il riquadro R:R e il totale commissioni -->
+            <input type="hidden" class="trade-entry-input" value="">
+            <input type="hidden" class="trade-exit-input" value="">
+            <input type="hidden" class="trade-mult-input" value="">
+            <input type="hidden" class="trade-comm-input" value="">
+            <input type="hidden" class="trade-bracketmod-input" value="">
             <div class="trade-header" onclick="toggleTrade(this)">
                 <span class="trade-num">Trade #<span class="trade-num-val">1</span></span>
                 <input type="time" class="inline-input trade-time" data-field="time" placeholder="09:30"
@@ -694,6 +700,9 @@
                             <input class="form-check-input" type="checkbox" data-trade-field="control.size_ok">
                             <label>Size corretta per account</label>
                         </div>
+                        <!-- Rischio/rendimento: calcolato da entry + stop + target, si aggiorna
+                             anche se stop o target vengono corretti a mano -->
+                        <div class="trade-metrics mt-2" style="display:none;"></div>
                     </div>
 
                     <!-- RESULT -->
@@ -764,13 +773,21 @@
                         </div>
                         <div class="tab-pane fade" id="tabImportTradovate" role="tabpanel">
                             <p class="small mb-2" style="color:#94a3b8;">
-                                Export ordini <strong>Tradovate</strong> (CSV, es. <code style="color:#cbd5e1;">Orders.csv</code>).
-                                Le colonne vengono riconosciute dall'intestazione, non dalla posizione.<br>
-                                Vengono importati solo gli ordini con stato <strong>Filled</strong> della giornata selezionata:
-                                le gambe bracket cancellate sono ignorate.
+                                Carica <strong>tutti e tre gli export insieme</strong> — l'ordine non conta,
+                                ogni file viene riconosciuto dall'intestazione:
+                            </p>
+                            <ul class="small mb-2" style="color:#94a3b8;padding-left:1.1rem;">
+                                <li><code style="color:#cbd5e1;">Orders.csv</code> — stop loss, target e rapporto R:R di ogni trade</li>
+                                <li><code style="color:#cbd5e1;">Fills.csv</code> — eseguiti e commissioni per operazione</li>
+                                <li><code style="color:#cbd5e1;">Cash History.csv</code> — saldo di inizio e fine giornata, versamenti, realizzato</li>
+                            </ul>
+                            <p class="small mb-2" style="color:#94a3b8;">
+                                Ne basta anche uno solo: con i soli ordini mancano le commissioni,
+                                senza i movimenti manca il saldo. Vengono presi solo gli eseguiti
+                                della giornata selezionata.
                             </p>
                             <button class="btn btn-sm btn-outline-info" onclick="pickImportFile('tradovate')">
-                                <i class="bi bi-file-earmark-arrow-up me-1"></i>Scegli file Tradovate…
+                                <i class="bi bi-files me-1"></i>Scegli i file Tradovate…
                             </button>
                         </div>
                     </div>
@@ -941,10 +958,11 @@
 
         document.getElementById('addTradeBtn').addEventListener('click', addTradeCard);
 
-        // Broker CSV import (Rithmic/Overcharts o Tradovate — vedi importTradesModal)
+        // Broker CSV import (Rithmic/Overcharts o Tradovate — vedi importTradesModal).
+        // Tradovate accetta i tre export insieme: il server li riconosce dall'intestazione.
         document.getElementById('apexCsvInput').addEventListener('change', async function () {
-            const file = this.files[0];
-            if (!file) return;
+            const files = Array.from(this.files || []);
+            if (!files.length) return;
 
             const sourceLabel = IMPORT_SOURCE_LABELS[importSource] || importSource;
             const importBtn = document.getElementById('importApexBtn');
@@ -954,7 +972,7 @@
 
             try {
                 const formData = new FormData();
-                formData.append('file', file);
+                files.forEach(f => formData.append('file', f));
                 formData.append('date_key', currentDateKey);
                 formData.append('source', importSource);
 
@@ -969,11 +987,33 @@
                     return;
                 }
 
-                if (!data.trades || data.trades.length === 0) {
+                const accounts = data.accounts || {};
+                const warnings = data.warnings || [];
+
+                if ((!data.trades || !data.trades.length) && !Object.keys(accounts).length) {
                     const dateLabel = currentDateKey || 'la data selezionata';
-                    alert(`Nessun trade trovato per il ${dateLabel} nel file.\nAssicurati che sia un export ${sourceLabel} con ordini "Filled" per questo giorno.`);
+                    alert(`Nessun trade trovato per il ${dateLabel} nei file caricati.\n`
+                        + `Assicurati che siano export ${sourceLabel} con ordini "Filled" per questo giorno.`
+                        + (warnings.length ? '\n\n' + warnings.join('\n') : ''));
                     return;
                 }
+
+                // Saldo, commissioni e realizzato per account (Cash History)
+                Object.entries(accounts).forEach(([acc, a]) => {
+                    if (!accountNetLiq[acc]) accountNetLiq[acc] = { end: '', cash: '' };
+                    const nl = accountNetLiq[acc];
+                    if (a.broker)   nl.broker   = a.broker;
+                    if (a.currency) nl.currency = a.currency;
+                    if (a.end_cash != null) {
+                        nl.cash = a.end_cash.toFixed(2);
+                        // Net Liq = cash solo a posizioni chiuse; con una aperta non lo sappiamo
+                        if (a.flat) nl.end = a.end_cash.toFixed(2);
+                    }
+                    if (a.start_cash   != null) nl.startCash   = a.start_cash.toFixed(2);
+                    if (a.deposits     != null) nl.deposits    = a.deposits.toFixed(2);
+                    if (a.realized     != null) nl.realizedPnl = a.realized.toFixed(2);
+                    if (a.commissions  != null) nl.commissions = a.commissions.toFixed(2);
+                });
 
                 // Remove ALL existing trade cards (full replace on import)
                 document.querySelectorAll('.trade-card').forEach(c => c.remove());
@@ -981,7 +1021,7 @@
 
                 // Add newly imported trades
                 let added = 0;
-                for (const trade of data.trades) {
+                for (const trade of (data.trades || [])) {
                     addTradeCard(null, trade, null);
                     added++;
                 }
@@ -994,7 +1034,12 @@
 
                 updateAccountPnlSummary();
                 scheduleSave();
-                alert(`✅ Importati ${added} trade del ${currentDateKey} da "${file.name}" (${sourceLabel})`);
+
+                const readFiles = Object.entries(data.sources || {})
+                    .map(([kind, name]) => `${IMPORT_FILE_LABELS[kind] || kind}: ${name}`);
+                alert(`✅ Importati ${added} trade del ${currentDateKey} (${sourceLabel})`
+                    + (readFiles.length ? '\n\nFile letti:\n· ' + readFiles.join('\n· ') : '')
+                    + (warnings.length ? '\n\n⚠️ ' + warnings.join('\n⚠️ ') : ''));
             } catch (e) {
                 alert('Errore importazione: ' + e.message);
             } finally {
@@ -1009,6 +1054,9 @@
     // IMPORT TRADE — scelta sorgente (tab Rithmic / Tradovate)
     // =====================================================================
     const IMPORT_SOURCE_LABELS = { rithmic: 'Rithmic/Overcharts', tradovate: 'Tradovate' };
+    const IMPORT_FILE_LABELS = {
+        orders: 'Ordini', fills: 'Eseguiti', cash: 'Movimenti conto', overcharts: 'Overcharts',
+    };
     let importSource = 'rithmic';  // tab attivo al momento della scelta file
 
     function openImportModal() {
@@ -1023,9 +1071,12 @@
 
     function pickImportFile(source) {
         importSource = source;
+        const input = document.getElementById('apexCsvInput');
+        // Tradovate esporta il giorno in tre file: si caricano insieme
+        input.multiple = (source === 'tradovate');
         const modal = bootstrap.Modal.getInstance(document.getElementById('importTradesModal'));
         if (modal) modal.hide();
-        document.getElementById('apexCsvInput').click();
+        input.click();
     }
 
     function updateDateLabel() {
@@ -1207,6 +1258,19 @@
             const qtyEl = card.querySelector('.trade-qty-input');
             if (qtyEl) trade.qty = parseInt(qtyEl.value) || 0;
 
+            // Dati d'esecuzione dell'import — vuoti sui trade inseriti a mano
+            [
+                ['.trade-entry-input', 'entry_price'],
+                ['.trade-exit-input',  'exit_price'],
+                ['.trade-mult-input',  'multiplier'],
+                ['.trade-comm-input',  'commission'],
+            ].forEach(([sel, key]) => {
+                const el = card.querySelector(sel);
+                if (el && el.value !== '') trade[key] = parseFloat(el.value);
+            });
+            const bmEl = card.querySelector('.trade-bracketmod-input');
+            if (bmEl && bmEl.value) trade.bracket_modified = true;
+
             // Imported flag (from dataset)
             trade.imported = card.dataset.imported === '1';
 
@@ -1356,6 +1420,19 @@
         const symbolEl = card.querySelector('.trade-symbol-input');
         if (symbolEl && data.symbol) symbolEl.value = data.symbol;
 
+        // Dati d'esecuzione (import broker): prezzi, moltiplicatore, commissioni
+        [
+            ['.trade-entry-input',      'entry_price'],
+            ['.trade-exit-input',       'exit_price'],
+            ['.trade-mult-input',       'multiplier'],
+            ['.trade-comm-input',       'commission'],
+            ['.trade-bracketmod-input', 'bracket_modified'],
+        ].forEach(([sel, key]) => {
+            const el = card.querySelector(sel);
+            if (!el || data[key] == null || data[key] === '') return;
+            el.value = (typeof data[key] === 'boolean') ? (data[key] ? '1' : '') : data[key];
+        });
+
         const symbolBadge = card.querySelector('.trade-symbol-badge');
         if (symbolBadge) {
             if (data.symbol) {
@@ -1450,7 +1527,91 @@
             pnlBadge.className = 'trade-pnl-badge';
         }
 
+        renderTradeMetrics(card);
         updateAccountPnlSummary();
+    }
+
+    // Rischio, rendimento e R:R di un trade. Entry/moltiplicatore arrivano
+    // dall'import; stop e target sono i campi editabili, così se li si corregge
+    // a mano il rapporto si ricalcola.
+    function renderTradeMetrics(card) {
+        const box = card.querySelector('.trade-metrics');
+        if (!box) return;
+
+        const num = (sel) => {
+            const el = card.querySelector(sel);
+            if (!el || el.value === '') return null;
+            const v = parseFloat(el.value);
+            return isNaN(v) ? null : v;
+        };
+
+        const entry  = num('.trade-entry-input');
+        const exit_  = num('.trade-exit-input');
+        const mult   = num('.trade-mult-input');
+        const comm   = num('.trade-comm-input');
+        const stop   = num('[data-trade-field="control.stop_loss"]');
+        const target = num('[data-trade-field="control.target"]');
+        const qty    = parseInt((card.querySelector('.trade-qty-input') || {}).value) || 0;
+        const trendEl = card.querySelector('[data-trade-field="context.trend"]');
+        const trend   = trendEl ? trendEl.value : '';
+
+        // Long/short: dal trend se c'è, altrimenti da dove sta lo stop
+        let isLong = trend === 'long' ? true : trend === 'short' ? false : null;
+        if (isLong === null && entry != null && stop != null) isLong = stop < entry;
+
+        const parts = [];
+        const money = (v) => `$${Math.abs(v).toFixed(2)}`;
+
+        if (entry != null) {
+            parts.push(exit_ != null
+                ? `<span style="color:#cbd5e1;">${entry} → ${exit_}</span>`
+                : `<span style="color:#cbd5e1;">entry ${entry}</span>`);
+        }
+
+        let riskPts = null, rewardPts = null;
+        if (entry != null && stop != null && isLong !== null) {
+            riskPts = isLong ? entry - stop : stop - entry;
+        }
+        if (entry != null && target != null && isLong !== null) {
+            rewardPts = isLong ? target - entry : entry - target;
+        }
+
+        const toCash = (pts) => (mult != null && qty > 0) ? pts * mult * qty : null;
+
+        if (riskPts != null) {
+            if (riskPts > 0) {
+                const cash = toCash(riskPts);
+                parts.push(`<span style="color:#f87171;">Rischio ${riskPts.toFixed(2)}pt${cash != null ? ' · ' + money(cash) : ''}</span>`);
+            } else {
+                // Stop oltre l'entry: era in profitto quando è stato registrato (trailing)
+                parts.push(`<span style="color:#fbbf24;" title="Lo stop è oltre l'entry: risultava già spostato in profitto">Stop in profitto</span>`);
+            }
+        }
+        if (rewardPts != null && rewardPts > 0) {
+            const cash = toCash(rewardPts);
+            parts.push(`<span style="color:#4ade80;">Target ${rewardPts.toFixed(2)}pt${cash != null ? ' · ' + money(cash) : ''}</span>`);
+        }
+        if (riskPts != null && riskPts > 0 && rewardPts != null && rewardPts > 0) {
+            const rr = rewardPts / riskPts;
+            const col = rr >= 1.5 ? '#4ade80' : '#f87171';
+            parts.push(`<span class="fw-bold" style="color:${col};">R:R 1:${rr.toFixed(2)}</span>`);
+        }
+        if (comm != null && comm > 0) {
+            parts.push(`<span style="color:#94a3b8;">Comm ${money(comm)}</span>`);
+        }
+
+        const bmEl = card.querySelector('.trade-bracketmod-input');
+        if (bmEl && bmEl.value) {
+            parts.push(`<span style="color:#94a3b8;" title="L'export riporta l'ultimo valore dell'ordine: stop o target erano stati spostati mentre il trade era aperto, quindi non sono più quelli iniziali">stop/target modificati <i class="bi bi-info-circle"></i></span>`);
+        }
+
+        if (!parts.length) {
+            box.style.display = 'none';
+            box.innerHTML = '';
+            return;
+        }
+        box.style.display = '';
+        box.innerHTML = `<div class="d-flex flex-wrap gap-2" style="font-size:0.74rem;background:rgba(20,30,48,0.6);border:1px solid rgba(65,90,119,0.6);border-radius:6px;padding:0.35rem 0.5rem;">${parts.join('<span style="color:#415a77;">·</span>')}</div>`;
     }
 
     function toggleTrade(header) {
@@ -1540,15 +1701,34 @@
                        <span class="text-muted" style="font-size:0.72rem;font-weight:400;">(${d.count}T / ${d.contracts}K)</span></span>`
                 : `<span class="text-muted" style="font-size:0.78rem;font-style:italic;">nessun trade</span>`;
 
+            // Saldo di giornata, quando l'import porta i movimenti di conto
+            const curr = nl.currency || 'USD';
+            const startCash = (nl.startCash != null && nl.startCash !== '') ? parseFloat(nl.startCash) : null;
+            const endCash   = (nl.cash     != null && nl.cash     !== '') ? parseFloat(nl.cash)      : null;
+            const deposits  = (nl.deposits != null && nl.deposits !== '') ? parseFloat(nl.deposits)  : null;
+            let cashFlowHtml = '';
+            if (startCash != null && endCash != null && !isNaN(startCash) && !isNaN(endCash)) {
+                const diff = endCash - startCash;
+                const diffCls = diff > 0 ? 'pnl-positive' : diff < 0 ? 'pnl-negative' : '';
+                const depHtml = (deposits && !isNaN(deposits) && deposits !== 0)
+                    ? ` <span style="color:#a78bfa;" title="Versamenti e prelievi della giornata">(vers. ${deposits >= 0 ? '+' : ''}${deposits.toFixed(2)})</span>` : '';
+                cashFlowHtml = `<div class="d-flex gap-2 align-items-center flex-wrap mb-1" style="font-size:0.77rem;color:#64748b;">
+                    <span>Saldo:</span>
+                    <span style="color:#cbd5e1;">${startCash.toFixed(2)} → ${endCash.toFixed(2)} ${curr}</span>
+                    <span class="fw-bold ${diffCls}">${diff >= 0 ? '+' : ''}${diff.toFixed(2)}</span>${depHtml}
+                </div>`;
+            }
+
             return `<div class="px-3 py-2" style="border-bottom:1px solid rgba(65,90,119,0.4);">
                 <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-1">
                     <span class="small" style="color:#93c5fd;">${esc}</span>
                     <div class="d-flex align-items-center gap-3 ms-auto flex-wrap">
-                        ${hasTrades ? `<span class="netliq-comm-display" data-account="${esc}" style="font-size:0.78rem;color:#94a3b8;">Comm: —</span>` : ''}
+                        ${(hasTrades || (nl.commissions != null && nl.commissions !== '')) ? `<span class="netliq-comm-display" data-account="${esc}" style="font-size:0.78rem;color:#94a3b8;">Comm: —</span>` : ''}
                         ${brokerHtml}
                         ${tradePnlHtml}
                     </div>
                 </div>
+                ${cashFlowHtml}
                 <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.77rem;color:#64748b;">
                     <span>Net Liq:</span>
                     <input type="number" class="inline-input netliq-end" data-account="${esc}"
@@ -1597,10 +1777,37 @@
 
         // Refresh displays with already-saved Net Liq data (only for accounts
         // with trade-derived contracts — commission display depends on it).
-        tradeAccounts.forEach(acc => refreshAccountCommDisplay(acc, summary[acc].contracts));
+        allAccounts.forEach(acc => refreshAccountCommDisplay(acc, (summary[acc] || {}).contracts || 0));
         recalcCommissionsFromNetLiq();
         updateSessionFromTrades();
         updateApexTrail();
+    }
+
+    // Commissioni note per account, in ordine di attendibilità: quelle riportate
+    // dal broker (Cash History Tradovate) e, dove mancano, la somma di quelle
+    // addebitate sui singoli eseguiti. Restano un'alternativa alla stima
+    // Cash − Net Liq, che è l'unica cosa disponibile sugli export Overcharts.
+    function knownCommissions() {
+        const byAccount = {};
+
+        document.querySelectorAll('.trade-card').forEach(card => {
+            const execActive = card.querySelector('[data-trade-field="result.executed"].fw-bold');
+            if (execActive && execActive.dataset.value === 'skip') return;
+            const accEl  = card.querySelector('.trade-account-input');
+            const acc    = accEl ? accEl.value.trim() : '';
+            const commEl = card.querySelector('.trade-comm-input');
+            const c = (commEl && commEl.value !== '') ? parseFloat(commEl.value) : NaN;
+            if (!acc || isNaN(c) || c <= 0) return;
+            byAccount[acc] = (byAccount[acc] || 0) + c;
+        });
+
+        Object.entries(accountNetLiq).forEach(([acc, nl]) => {
+            const v = (nl && nl.commissions != null && nl.commissions !== '') ? parseFloat(nl.commissions) : NaN;
+            if (!isNaN(v) && v > 0) byAccount[acc] = v;
+        });
+
+        const total = Object.values(byAccount).reduce((s, v) => s + v, 0);
+        return { byAccount, total, hasData: total > 0 };
     }
 
     function refreshAccountCommDisplay(acc, contracts) {
@@ -1612,18 +1819,38 @@
             if (s.dataset.account === acc) span = s;
         });
         if (!span) return;
+
+        const known = knownCommissions().byAccount[acc];
         const cash = parseFloat(nl.cash);
         const end  = parseFloat(nl.end);
-        if (nl.cash != null && nl.cash !== '' && nl.end != null && nl.end !== '' && !isNaN(cash) && !isNaN(end)) {
-            const comm = cash - end;  // Comm = Cash − Net Liq
-            const perK = (contracts > 0) ? ` | $${(comm / contracts).toFixed(2)}/K` : '';
-            span.innerHTML = `<span class="fw-bold pnl-negative">Comm: $${comm.toFixed(2)}${perK}</span>`;
-        } else {
-            span.textContent = 'Comm: —';
+
+        let comm = null;
+        if (known != null) {
+            comm = known;
+        } else if (nl.cash != null && nl.cash !== '' && nl.end != null && nl.end !== '' && !isNaN(cash) && !isNaN(end)) {
+            comm = cash - end;  // Comm = Cash − Net Liq
         }
+
+        if (comm == null) {
+            span.textContent = 'Comm: —';
+            return;
+        }
+        const perK = (contracts > 0) ? ` | $${(comm / contracts).toFixed(2)}/K` : '';
+        span.innerHTML = `<span class="fw-bold pnl-negative">Comm: $${comm.toFixed(2)}${perK}</span>`;
     }
 
     function recalcCommissionsFromNetLiq() {
+        // Commissioni esatte dal broker: niente da stimare
+        const known = knownCommissions();
+        if (known.hasData) {
+            document.getElementById('sessComm').value = known.total.toFixed(2);
+            updateNetPnl();
+            const tableDiv = document.getElementById('accountPnlTable');
+            const totalSpan = tableDiv ? tableDiv.querySelector('.netliq-total-comm') : null;
+            if (totalSpan) totalSpan.textContent = `Comm tot: $${known.total.toFixed(2)}`;
+            return;
+        }
+
         // Rebuild account summary from DOM
         const summary = {};
         document.querySelectorAll('.trade-card').forEach(card => {
@@ -1946,7 +2173,14 @@
         document.getElementById('sessTrades').value = tradeCount;
         document.getElementById('sessPnl').value    = totalPnl.toFixed(2);
 
-        // Net Liq method takes priority for commissions; commPerContract is fallback
+        // Commissioni: prima quelle del broker, poi Net Liq, infine la tariffa per contratto
+        const known = knownCommissions();
+        if (known.hasData) {
+            document.getElementById('sessComm').value = known.total.toFixed(2);
+            updateNetPnl();
+            return;
+        }
+
         const hasNetLiqData = Object.values(accountNetLiq).some(nl => nl && nl.start !== '' && nl.end !== '');
         if (!hasNetLiqData) {
             const commRateRaw = document.getElementById('commPerContract').value.trim();
