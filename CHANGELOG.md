@@ -5,6 +5,21 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.29.0] — 2026-08-28
+
+### Aggiunto
+- **Calendario del P&L nella checklist.** La pagina si divide in due schede: la giornata da compilare e lo storico, un mese alla volta, una casella per giornata registrata. In ogni casella il risultato netto, quante operazioni e la percentuale chiuse in utile; accanto a ogni riga il totale della settimana, in testa quello del mese con giornate, operazioni e win rate.
+  - Cliccando una giornata si apre il dettaglio per strumento, con la scomposizione lordo − commissioni = netto, e un pulsante per aprire la checklist di quel giorno.
+  - Il numero in grande è il **netto**, la stessa cifra del "Net P&L" di fine sessione: è il risultato della giornata, non il lordo.
+  - Una giornata con operazioni senza P&L registrato è marcata **parziale**: il totale è per difetto e viene detto, invece di darlo per buono.
+- Il P&L del giorno resta quello scritto nella sessione, anche se corretto a mano dopo l'import: si somma dai trade solo quando manca.
+
+### Tecnico
+- Il calendario legge gli stessi documenti che la checklist scrive (`/api/checklist/pnl-calendar`): nessun archivio parallelo da tenere allineato, quindi una giornata corretta si vede corretta anche nel calendario.
+- Lo stile del calendario passa in `_pnl_calendar_style.html`, condiviso con quello del portafoglio: erano centodieci righe destinate a divergere in silenzio.
+- La valuta è quella degli account importati. Se le giornate non sono tutte nella stessa, il calendario lo dichiara invece di sommarle come se lo fossero.
+- Lo storico si legge alla prima apertura della scheda e a ogni ritorno: chi resta sulla checklist non paga una lettura che non guarderà.
+
 ## [1.28.0] — 2026-08-28
 
 ### Aggiunto

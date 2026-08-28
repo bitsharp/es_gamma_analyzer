@@ -6812,6 +6812,130 @@ def api_checklist_history():
     return jsonify({'entries': entries})
 
 
+def _checklist_num(value):
+    """Numbers out of the checklist arrive as form strings: '' and 'null' mean 'not set'."""
+    if value in (None, '', 'null'):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _checklist_day_pnl(checklist: dict) -> dict:
+    """Reduce one day's checklist to the figures the calendar shows.
+
+    The headline is the *net* result — the same number the "Net P&L" of the
+    session shows — because that is the day's bottom line; gross and
+    commissions stay available underneath so it can be taken apart.
+
+    The day's P&L is the one written in the session when it's there: it may
+    have been corrected by hand after the import. Only when it's missing is it
+    summed back from the trades.
+    """
+    session = checklist.get('session') or {}
+    trades = checklist.get('trades') or []
+
+    executed, wins, closed, trades_pnl = 0, 0, 0, 0.0
+    per_symbol: dict = {}
+    for t in trades:
+        if not isinstance(t, dict):
+            continue
+        result = t.get('result') or {}
+        if result.get('executed') == 'skip':
+            continue
+        executed += 1
+        pnl = _checklist_num(result.get('pnl'))
+        if pnl is None:
+            continue
+        closed += 1
+        trades_pnl += pnl
+        if pnl > 0:
+            wins += 1
+        sym = (t.get('symbol') or '—').strip() or '—'
+        bucket = per_symbol.setdefault(sym, {'symbol': sym, 'pnl': 0.0, 'trades': 0})
+        bucket['pnl'] += pnl
+        bucket['trades'] += 1
+
+    gross = _checklist_num(session.get('daily_pnl'))
+    if gross is None:
+        gross = trades_pnl if closed else None
+
+    commissions = _checklist_num(session.get('commissions')) or 0.0
+
+    # Currency: whatever the imported accounts say. Mixed currencies would be
+    # summed as if they were the same, so the day is flagged instead.
+    currencies = {
+        (v or {}).get('currency') for v in (session.get('account_netliq') or {}).values()
+        if isinstance(v, dict) and (v or {}).get('currency')
+    }
+
+    if gross is None and not executed:
+        return {}
+
+    return {
+        'pnl': round((gross or 0.0) - commissions, 2),
+        'gross': round(gross, 2) if gross is not None else None,
+        'commissions': round(commissions, 2),
+        'trades': executed,
+        'closed': closed,
+        'wins': wins,
+        'symbols': sorted(
+            ({'symbol': s['symbol'], 'pnl': round(s['pnl'], 2), 'trades': s['trades']}
+             for s in per_symbol.values()),
+            key=lambda s: s['pnl'],
+        ),
+        'currencies': sorted(c for c in currencies if c),
+        # Una giornata con trade eseguiti ma senza P&L è mezza compilata: il
+        # totale è per difetto e la cella lo dice invece di darlo per zero.
+        'partial': executed > closed,
+    }
+
+
+@app.route('/api/checklist/pnl-calendar', methods=['GET'])
+@login_required
+def api_checklist_pnl_calendar():
+    """Daily P&L of the recorded checklist days, for the calendar tab.
+
+    Reads the same documents the checklist writes: no separate archive to keep
+    in sync, so a day corrected by hand shows corrected here too.
+    """
+    coll = _get_checklist_collection()
+    if coll is None:
+        return jsonify({'days': {}, 'currency': 'EUR',
+                        'hint': 'MongoDB non configurato: lo storico non è disponibile.'})
+
+    try:
+        docs = list(coll.find({}, sort=[("date_key", -1)], limit=800))
+    except TypeError:
+        docs = list(coll.find({}).sort("date_key", -1).limit(800))
+    except Exception as e:
+        return jsonify({'days': {}, 'currency': 'EUR', 'hint': f'Storico non leggibile: {e}'})
+
+    import re as _re
+    days = {}
+    currency_votes: dict = {}
+    for doc in docs:
+        date_key = (doc.get('date_key') or '').strip()
+        if not _re.match(r'^\d{4}-\d{2}-\d{2}$', date_key):
+            continue
+        info = _checklist_day_pnl(doc.get('checklist') or {})
+        if not info:
+            continue
+        for c in info.pop('currencies', []):
+            currency_votes[c] = currency_votes.get(c, 0) + 1
+        days[date_key] = info
+
+    # Una sola valuta per il calendario: le giornate non si sommano fra valute
+    currency = max(currency_votes, key=currency_votes.get) if currency_votes else 'EUR'
+    hint = None
+    if len(currency_votes) > 1:
+        hint = ('Le giornate non sono tutte nella stessa valuta ('
+                + ', '.join(sorted(currency_votes)) + '): i totali le sommano come se lo fossero.')
+
+    return jsonify({'days': days, 'currency': currency, 'hint': hint})
+
+
 @app.route('/api/checklist/reset', methods=['POST'])
 @login_required
 def api_checklist_reset():

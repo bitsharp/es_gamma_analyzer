@@ -1,0 +1,125 @@
+<!-- Stile del calendario del P&L giornaliero.
+
+     Lo usano il portafoglio (realizzato IBKR) e la checklist (P&L delle
+     giornate registrate): due dati diversi, la stessa griglia. Sta in un
+     partial perché ogni divergenza fra le due copie si vedrebbe subito, e
+     tenerle allineate a mano non funziona.
+
+     Il markup che questo stile si aspetta:
+       .pnl-toolbar > .pnl-nav, .pnl-month, .pnl-chip, .pnl-stats > .ps-value
+       .pnl-grid    > .pnl-dow, .pnl-day (.out/.today/.win/.loss/.flat/
+                      .has-data/.selected) > .pd-num, .pd-pnl, .pd-sub,
+                      .pd-partial — e una .pnl-week per riga
+       .pnl-detail  > .pdt-head, .pdt-note
+-->
+<style>
+    .pnl-toolbar {
+        display: flex; align-items: center; gap: 0.55rem;
+        flex-wrap: wrap; margin-bottom: 0.85rem;
+    }
+    .pnl-nav {
+        background: transparent; border: 1px solid #415a77; color: #adb5bd;
+        width: 30px; height: 30px; border-radius: 8px; cursor: pointer;
+        display: flex; align-items: center; justify-content: center; padding: 0;
+    }
+    .pnl-nav:hover { color: #fff; border-color: #778da9; }
+    .pnl-month {
+        font-size: 1.02rem; font-weight: 700; color: #fff;
+        min-width: 168px; text-align: center; text-transform: capitalize;
+    }
+    .pnl-chip {
+        background: rgba(119,141,169,0.18); border: 1px solid rgba(119,141,169,0.35);
+        color: #cbd5e1; border-radius: 999px; padding: 0.2rem 0.7rem;
+        font-size: 0.78rem; font-weight: 600; cursor: pointer;
+    }
+    .pnl-chip:hover { color: #fff; }
+    .pnl-stats {
+        margin-left: auto; display: flex; align-items: center; gap: 0.9rem;
+        flex-wrap: wrap; font-size: 0.8rem; color: #778da9;
+    }
+    .pnl-stats .ps-value {
+        font-weight: 700; color: #e2e8f0; font-variant-numeric: tabular-nums;
+        margin-left: 0.25rem;
+    }
+
+    /* Sette giorni più la colonna del riepilogo settimanale: la stessa
+       griglia regge intestazione, giorni e totali, così le colonne restano
+       allineate senza doverle sincronizzare a mano. */
+    .pnl-grid {
+        display: grid; gap: 0.4rem;
+        grid-template-columns: repeat(7, minmax(0, 1fr)) minmax(108px, 0.92fr);
+    }
+    .pnl-dow {
+        text-align: center; font-size: 0.68rem; text-transform: uppercase;
+        letter-spacing: 0.06em; color: #778da9; font-weight: 700;
+        padding: 0.4rem 0; border: 1px solid rgba(65,90,119,0.35);
+        border-radius: 8px; background: rgba(13,27,42,0.4);
+    }
+    .pnl-dow.spacer { border: none; background: none; }
+    .pnl-day {
+        border: 1px solid rgba(65,90,119,0.35); border-radius: 8px;
+        min-height: 84px; padding: 0.35rem 0.45rem;
+        background: rgba(13,27,42,0.35);
+        display: flex; flex-direction: column;
+    }
+    .pnl-day.out { border-color: rgba(65,90,119,0.12); background: transparent; }
+    .pnl-day .pd-num { font-size: 0.72rem; color: #6b7e92; text-align: right; }
+    .pnl-day.today { border-color: #60a5fa; }
+    .pnl-day.today .pd-num { color: #93c5fd; font-weight: 700; }
+    .pnl-day .pd-pnl {
+        margin-top: auto; font-size: 0.95rem; font-weight: 800;
+        font-variant-numeric: tabular-nums;
+    }
+    .pnl-day .pd-sub { font-size: 0.67rem; color: #94a3b8; }
+    .pnl-day.win  { background: rgba(74,222,128,0.10); border-color: rgba(74,222,128,0.40); }
+    .pnl-day.win .pd-pnl { color: #4ade80; }
+    .pnl-day.loss { background: rgba(248,113,113,0.10); border-color: rgba(248,113,113,0.42); }
+    .pnl-day.loss .pd-pnl { color: #f87171; }
+    .pnl-day.flat .pd-pnl { color: #cbd5e1; }
+    .pnl-day.has-data { cursor: pointer; }
+    .pnl-day.has-data:hover { border-color: #778da9; }
+    .pnl-day.selected { outline: 2px solid #60a5fa; outline-offset: -2px; }
+    /* Giornata con un dato incompleto: il totale è per difetto e va detto
+       dove lo si legge, non solo nel dettaglio. */
+    .pnl-day .pd-partial { color: #fbbf24; font-size: 0.62rem; font-weight: 700; }
+
+    .pnl-week {
+        border: 1px solid rgba(65,90,119,0.35); border-radius: 8px;
+        padding: 0.45rem 0.55rem; background: rgba(27,38,59,0.7);
+        display: flex; flex-direction: column; gap: 0.12rem;
+    }
+    .pnl-week .pw-label { font-size: 0.68rem; color: #778da9; font-weight: 700; }
+    .pnl-week .pw-value {
+        font-size: 1rem; font-weight: 800; font-variant-numeric: tabular-nums;
+    }
+    .pnl-week .pw-days {
+        font-size: 0.66rem; color: #cbd5e1; background: rgba(119,141,169,0.18);
+        border-radius: 999px; padding: 0 0.45rem; align-self: flex-start;
+    }
+
+    .pnl-detail {
+        margin-top: 0.9rem; border-top: 1px solid rgba(65,90,119,0.4);
+        padding-top: 0.7rem;
+    }
+    .pnl-detail .pdt-head {
+        font-size: 0.82rem; color: #e2e8f0; font-weight: 700;
+        margin-bottom: 0.5rem; text-transform: capitalize;
+    }
+    .pnl-detail .pdt-note { font-size: 0.75rem; color: #778da9; margin-top: 0.45rem; }
+
+    @media (max-width: 860px) {
+        /* Con otto colonne su uno schermo stretto le celle diventano
+           illeggibili: il riepilogo settimanale passa sotto la sua riga,
+           disteso in orizzontale. */
+        .pnl-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+        .pnl-dow.spacer { display: none; }
+        .pnl-week {
+            grid-column: 1 / -1; flex-direction: row; align-items: center;
+            gap: 0.6rem; margin-bottom: 0.25rem;
+        }
+        .pnl-week .pw-days { margin-left: auto; align-self: center; }
+        .pnl-day { min-height: 66px; padding: 0.25rem 0.3rem; }
+        .pnl-day .pd-pnl { font-size: 0.78rem; }
+        .pnl-day .pd-sub { font-size: 0.6rem; }
+    }
+</style>

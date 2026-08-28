@@ -215,22 +215,24 @@
             width: 100%; height: 60px; resize: vertical;
         }
 
-        /* import sources tabs (Rithmic / Tradovate) */
-        #importSourceTabs { border-bottom: 1px solid #415a77; }
-        #importSourceTabs .nav-link {
+        /* tab: sorgenti d'import (Rithmic / Tradovate) e viste di pagina */
+        #importSourceTabs, #pageTabs { border-bottom: 1px solid #415a77; }
+        #importSourceTabs .nav-link, #pageTabs .nav-link {
             color: #94a3b8; border: 1px solid transparent; border-bottom: none;
             background: transparent; font-size: 0.9rem; padding: 0.4rem 1rem;
         }
-        #importSourceTabs .nav-link:hover { color: #e2e8f0; border-color: #415a77; }
-        #importSourceTabs .nav-link.active {
+        #importSourceTabs .nav-link:hover, #pageTabs .nav-link:hover { color: #e2e8f0; border-color: #415a77; }
+        #importSourceTabs .nav-link.active, #pageTabs .nav-link.active {
             color: #38bdf8; background: rgba(56,189,248,0.1);
             border-color: #415a77 #415a77 transparent;
         }
+        #pageTabs .nav-link { font-size: 0.95rem; font-weight: 600; }
 
         @media (max-width: 575px) {
             .section-card .card-body { padding: 0.7rem; }
         }
     </style>
+    {% include '_pnl_calendar_style.html' %}
 </head>
 <body>
     <!-- NAVBAR -->
@@ -277,6 +279,24 @@
     </nav>
 
     <div class="container-fluid px-2 px-lg-3">
+
+        <!-- Due viste sugli stessi dati: la giornata da compilare e lo storico
+             delle giornate già registrate. -->
+        <ul class="nav nav-tabs mb-3" id="pageTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabPageChecklist" type="button" role="tab">
+                    <i class="bi bi-check2-square me-1"></i>Checklist del giorno
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tabCalendarBtn" data-bs-toggle="tab" data-bs-target="#tabPageCalendar" type="button" role="tab">
+                    <i class="bi bi-calendar3 me-1"></i>P&amp;L giornaliero
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content">
+        <div class="tab-pane fade show active" id="tabPageChecklist" role="tabpanel">
         <div class="row g-3">
 
             <!-- LEFT: History sidebar -->
@@ -606,6 +626,39 @@
 
             </div><!-- /col right -->
         </div><!-- /row -->
+        </div><!-- /tab checklist -->
+
+        <!-- ============ TAB: CALENDARIO P&L ============ -->
+        <div class="tab-pane fade" id="tabPageCalendar" role="tabpanel">
+            <div class="section-card">
+                <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                    <span><i class="bi bi-calendar3 me-2" style="color:#2dd4bf;"></i>P&amp;L GIORNALIERO</span>
+                    <button type="button" class="btn btn-sm" id="calRefreshBtn"
+                        style="background:rgba(45,212,191,0.1);border:1px solid rgba(45,212,191,0.35);color:#2dd4bf;font-size:0.78rem;padding:0.15rem 0.6rem;"
+                        title="Rilegge le giornate registrate">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Aggiorna
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div id="calHint"></div>
+                    <div class="pnl-toolbar">
+                        <button type="button" class="pnl-nav" id="calPrev" title="Mese precedente">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                        <div class="pnl-month" id="calMonth">—</div>
+                        <button type="button" class="pnl-nav" id="calNext" title="Mese successivo">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                        <button type="button" class="pnl-chip" id="calToday">Questo mese</button>
+                        <div class="pnl-stats" id="calStats"></div>
+                    </div>
+                    <div class="pnl-grid" id="calGrid"></div>
+                    <div id="calDetail"></div>
+                </div>
+            </div>
+        </div>
+
+        </div><!-- /tab-content -->
     </div><!-- /container -->
 
     <!-- =================== TRADE TEMPLATE (hidden) =================== -->
@@ -2231,6 +2284,272 @@
             b.classList.toggle('active', b.textContent.includes(formatHistDate(dateKey)));
         });
     }
+
+    // =====================================================================
+    // CALENDARIO P&L — le giornate registrate, un mese alla volta
+    // =====================================================================
+    // Le giornate arrivano tutte insieme e restano qui: il mese e la settimana
+    // sono tagli di presentazione e non devono costare una chiamata a ogni
+    // freccia. Il dato è quello scritto dalla checklist stessa, quindi una
+    // giornata corretta a mano si vede corretta anche qui.
+    const calState = {
+        days: {}, currency: 'EUR', month: null,
+        hint: null, selected: null, loaded: false,
+    };
+
+    // Lunedì per primo: il weekend finisce in fondo e i cinque giorni di borsa
+    // restano attaccati, che è come si guarda una settimana di trade.
+    const CAL_DOW = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
+    const CAL_SIGN = { USD: '$', EUR: '€', GBP: '£', CHF: 'CHF ', JPY: '¥' };
+
+    // Chiave giorno sui campi locali: toISOString() sposterebbe la giornata di
+    // un fuso e un trade delle 23:30 finirebbe nella casella sbagliata.
+    const calDayKey = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    const calEsc = s => String(s == null ? '' : s).replace(/[&<>"']/g, ch =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+
+    const calAmount = (v, ccy) => {
+        if (v == null) return '—';
+        const sign = CAL_SIGN[ccy] || (ccy ? ccy + ' ' : '');
+        const n = Number(v);
+        return (n < 0 ? '-' : '') + sign +
+            Math.abs(n).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+
+    // Formato corto da calendario: nella cella non c'è spazio per i centesimi,
+    // e a queste cifre non aggiungono niente.
+    const calShort = (v, ccy) => {
+        const sign = CAL_SIGN[ccy] || (ccy ? ccy + ' ' : '');
+        const n = Number(v || 0);
+        const abs = Math.abs(n);
+        const body = abs >= 1000
+            ? (abs / 1000).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'K'
+            : abs.toLocaleString('it-IT', { maximumFractionDigits: 0 });
+        return (n < 0 ? '-' : '') + sign + body;
+    };
+
+    const calWinRate = info => (info && info.closed)
+        ? (info.wins / info.closed * 100).toFixed(1) + '%' : null;
+
+    function calMonthCells(month) {
+        const y = month.getFullYear(), m = month.getMonth();
+        const lead = (new Date(y, m, 1).getDay() + 6) % 7;   // lunedì = 0
+        const length = new Date(y, m + 1, 0).getDate();
+        const total = Math.ceil((lead + length) / 7) * 7;
+        const cells = [];
+        for (let i = 0; i < total; i++) {
+            const d = new Date(y, m, 1 - lead + i);
+            cells.push({ date: d, key: calDayKey(d), inMonth: d.getMonth() === m });
+        }
+        return cells;
+    }
+
+    function calDayTitle(info, cur) {
+        const parts = (info.symbols || []).map(s =>
+            `${s.symbol} ${s.pnl > 0 ? '+' : ''}${calAmount(s.pnl, cur)} (${s.trades})`);
+        if (info.gross != null) parts.push(`lordo ${calAmount(info.gross, cur)}`);
+        if (info.commissions) parts.push(`commissioni ${calAmount(info.commissions, cur)}`);
+        return parts.join('\n');
+    }
+
+    function calDayCell(cell, todayKey, cur) {
+        if (!cell.inMonth) return '<div class="pnl-day out"></div>';
+        const info = calState.days[cell.key];
+        const flags = [cell.key === todayKey ? 'today' : '',
+                       cell.key === calState.selected ? 'selected' : ''];
+        const num = `<div class="pd-num">${cell.date.getDate()}</div>`;
+        if (!info) return `<div class="pnl-day ${flags.join(' ')}">${num}</div>`;
+
+        const tone = info.pnl > 0 ? 'win' : (info.pnl < 0 ? 'loss' : 'flat');
+        const rate = calWinRate(info);
+        return `
+            <div class="pnl-day has-data ${tone} ${flags.join(' ')}"
+                 data-day="${cell.key}" title="${calEsc(calDayTitle(info, cur))}">
+                ${num}
+                <div class="pd-pnl">${info.pnl > 0 ? '+' : ''}${calShort(info.pnl, cur)}</div>
+                <div class="pd-sub">${info.trades} ${info.trades === 1 ? 'operazione' : 'operazioni'}</div>
+                <div class="pd-sub">${rate ? calEsc(rate) : '&nbsp;'}</div>
+                ${info.partial ? '<div class="pd-partial">parziale</div>' : ''}
+            </div>`;
+    }
+
+    function renderCalendar() {
+        const cur = calState.currency;
+        const grid = document.getElementById('calGrid');
+        if (!grid) return;
+        if (!calState.month) calState.month = calDefaultMonth();
+
+        document.getElementById('calMonth').textContent =
+            calState.month.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+
+        const cells = calMonthCells(calState.month);
+        const todayKey = calDayKey(new Date());
+        let html = CAL_DOW.map(d => `<div class="pnl-dow">${d}</div>`).join('')
+                 + '<div class="pnl-dow spacer"></div>';
+        let monthPnl = 0, monthDays = 0, monthTrades = 0, monthWins = 0, monthClosed = 0;
+
+        for (let w = 0; w * 7 < cells.length; w++) {
+            const week = cells.slice(w * 7, w * 7 + 7);
+            let weekPnl = 0, weekDays = 0;
+            week.forEach(cell => {
+                html += calDayCell(cell, todayKey, cur);
+                const info = cell.inMonth ? calState.days[cell.key] : null;
+                if (!info) return;
+                weekPnl += info.pnl; weekDays += 1;
+                monthPnl += info.pnl; monthDays += 1;
+                monthTrades += info.trades;
+                monthWins += info.wins; monthClosed += info.closed;
+            });
+            const colore = weekDays === 0 ? '#6b7e92'
+                : (weekPnl > 0 ? '#4ade80' : (weekPnl < 0 ? '#f87171' : '#cbd5e1'));
+            html += `
+                <div class="pnl-week">
+                    <div class="pw-label">Settimana ${w + 1}</div>
+                    <div class="pw-value" style="color:${colore};">
+                        ${weekDays === 0 ? calShort(0, cur)
+                            : (weekPnl > 0 ? '+' : '') + calShort(weekPnl, cur)}</div>
+                    <div class="pw-days">${weekDays} ${weekDays === 1 ? 'giorno' : 'giorni'}</div>
+                </div>`;
+        }
+        grid.innerHTML = html;
+
+        const rate = monthClosed ? (monthWins / monthClosed * 100).toFixed(1) + '%' : '—';
+        const colore = monthPnl > 0 ? '#4ade80' : (monthPnl < 0 ? '#f87171' : '#cbd5e1');
+        document.getElementById('calStats').innerHTML = `
+            <span>Mese<span class="ps-value" style="color:${colore};">${monthDays ? (monthPnl > 0 ? '+' : '') + calShort(monthPnl, cur) : '—'}</span></span>
+            <span>Giornate<span class="ps-value">${monthDays}</span></span>
+            <span>Operazioni<span class="ps-value">${monthTrades}</span></span>
+            <span>Chiuse in utile<span class="ps-value">${calEsc(rate)}</span></span>`;
+
+        grid.querySelectorAll('.pnl-day.has-data').forEach(el => {
+            el.addEventListener('click', () => {
+                // Secondo clic sulla stessa giornata: si richiude, invece di
+                // lasciare il dettaglio aperto senza modo di toglierlo.
+                calState.selected = calState.selected === el.dataset.day ? null : el.dataset.day;
+                renderCalendar();
+            });
+        });
+        renderCalendarDetail();
+    }
+
+    function renderCalendarDetail() {
+        const box = document.getElementById('calDetail');
+        const info = calState.selected ? calState.days[calState.selected] : null;
+        if (!info) { box.innerHTML = ''; return; }
+        const cur = calState.currency;
+        const giorno = new Date(calState.selected + 'T12:00:00')
+            .toLocaleDateString('it-IT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+
+        const righe = (info.symbols || []).map(s => `
+            <tr>
+                <td style="border-color:#415a77;color:#e2e8f0;">${calEsc(s.symbol)}</td>
+                <td style="border-color:#415a77;color:#cbd5e1;text-align:right;">${s.trades}</td>
+                <td class="${s.pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}" style="border-color:#415a77;text-align:right;font-weight:600;">
+                    ${s.pnl > 0 ? '+' : ''}${calAmount(s.pnl, cur)}</td>
+            </tr>`).join('');
+
+        const note = [];
+        if (info.gross != null) {
+            note.push(`Lordo ${calAmount(info.gross, cur)} − commissioni ${calAmount(info.commissions, cur)} = ${calAmount(info.pnl, cur)} netto.`);
+        }
+        if (info.partial) {
+            note.push(`${info.trades - info.closed} operazioni della giornata non hanno un P&L registrato: il totale è per difetto.`);
+        }
+
+        box.innerHTML = `
+            <div class="pnl-detail">
+                <div class="pdt-head">${calEsc(giorno)} ·
+                    <span class="${info.pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">
+                        ${info.pnl > 0 ? '+' : ''}${calAmount(info.pnl, cur)}</span>
+                    <span style="color:#778da9;font-weight:400;">
+                        · ${info.trades} operazioni · ${info.closed} con P&L
+                        ${calWinRate(info) ? '· ' + calEsc(calWinRate(info)) + ' in utile' : ''}</span>
+                </div>
+                <table class="table table-sm mb-2" style="background:transparent;font-size:0.85rem;">
+                    <tr>
+                        <th style="border-color:#415a77;color:#94a3b8;font-weight:600;">Strumento</th>
+                        <th style="border-color:#415a77;color:#94a3b8;font-weight:600;text-align:right;">Operazioni</th>
+                        <th style="border-color:#415a77;color:#94a3b8;font-weight:600;text-align:right;">P&L</th>
+                    </tr>
+                    ${righe || `<tr><td colspan="3" style="border-color:#415a77;color:#778da9;">Nessuna operazione con P&L registrato.</td></tr>`}
+                </table>
+                ${note.map(n => `<div class="pdt-note">${calEsc(n)}</div>`).join('')}
+                <button type="button" class="btn btn-sm mt-2" onclick="openChecklistDay('${calState.selected}')"
+                    style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.35);color:#38bdf8;font-size:0.78rem;padding:0.15rem 0.6rem;">
+                    <i class="bi bi-box-arrow-in-right me-1"></i>Apri la checklist di questa giornata
+                </button>
+            </div>`;
+    }
+
+    function openChecklistDay(dateKey) {
+        selectHistoryDate(dateKey);
+        const tab = document.querySelector('#pageTabs .nav-link[data-bs-target="#tabPageChecklist"]');
+        if (tab) bootstrap.Tab.getOrCreateInstance(tab).show();
+    }
+
+    function renderCalendarHint() {
+        const box = document.getElementById('calHint');
+        if (!calState.hint) { box.innerHTML = ''; return; }
+        box.innerHTML = `<div class="mb-2 p-2 rounded" style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);color:#fbbf24;font-size:0.8rem;">
+            <i class="bi bi-info-circle me-1"></i>${calEsc(calState.hint)}</div>`;
+    }
+
+    // Il mese da aprire: quello corrente se ci si è operato, altrimenti l'ultimo
+    // con del movimento. Aprire su una griglia vuota farebbe pensare che i dati
+    // non siano arrivati.
+    function calDefaultMonth() {
+        const now = new Date();
+        const currentPrefix = calDayKey(now).slice(0, 7);
+        const keys = Object.keys(calState.days).sort();
+        if (!keys.length || keys.some(k => k.startsWith(currentPrefix))) {
+            return new Date(now.getFullYear(), now.getMonth(), 1);
+        }
+        const last = keys[keys.length - 1];
+        return new Date(Number(last.slice(0, 4)), Number(last.slice(5, 7)) - 1, 1);
+    }
+
+    function shiftCalMonth(delta) {
+        calState.month = new Date(calState.month.getFullYear(),
+                                  calState.month.getMonth() + delta, 1);
+        calState.selected = null;
+        renderCalendar();
+    }
+
+    async function loadCalendar() {
+        try {
+            const res = await fetch('/api/checklist/pnl-calendar');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            calState.days = data.days || {};
+            calState.currency = data.currency || 'EUR';
+            calState.hint = data.hint || null;
+            calState.month = calDefaultMonth();
+            calState.loaded = true;
+            renderCalendarHint();
+            renderCalendar();
+        } catch (err) {
+            calState.hint = 'Calendario non disponibile: ' + err.message;
+            renderCalendarHint();
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('calPrev').addEventListener('click', () => shiftCalMonth(-1));
+        document.getElementById('calNext').addEventListener('click', () => shiftCalMonth(1));
+        document.getElementById('calToday').addEventListener('click', () => {
+            const now = new Date();
+            calState.month = new Date(now.getFullYear(), now.getMonth(), 1);
+            calState.selected = null;
+            renderCalendar();
+        });
+        document.getElementById('calRefreshBtn').addEventListener('click', () => loadCalendar());
+
+        // Si carica alla prima apertura del tab: chi resta sulla checklist non
+        // paga una lettura dello storico che non guarderà. Le volte successive
+        // si rilegge, perché nel frattempo la giornata è cambiata.
+        document.getElementById('tabCalendarBtn').addEventListener('shown.bs.tab', () => loadCalendar());
+    });
     </script>
     {% include '_release_notes_modal.html' %}
 </body>
