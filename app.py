@@ -11285,6 +11285,19 @@ def _flex_trade_rows(xml: str) -> List[dict]:
             if (r.get("levelOfDetail") or "").upper() not in ("CLOSED_LOT", "LOT")]
 
 
+def _flex_trade_clock(attrs: dict) -> Optional[str]:
+    """Ora dell'eseguito, `HH:MM`. IBKR la scrive `YYYYMMDD;HHMMSS` oppure
+    `YYYY-MM-DD HH:MM:SS` a seconda del formato scelto nel portale."""
+    raw = (attrs.get("dateTime") or attrs.get("orderTime") or "").strip()
+    if not raw:
+        return None
+    match = re.search(r"(\d{2}):(\d{2})", raw)
+    if match:
+        return f"{match.group(1)}:{match.group(2)}"
+    match = re.search(r"[;\s](\d{2})(\d{2})\d{2}\s*$", raw)
+    return f"{match.group(1)}:{match.group(2)}" if match else None
+
+
 def _flex_trade_from_attrs(attrs: dict) -> Optional[dict]:
     """Un eseguito dagli attributi della sua riga. None se la riga non lo è."""
     symbol = (attrs.get("symbol") or "").strip()
@@ -11314,6 +11327,17 @@ def _flex_trade_from_attrs(attrs: dict) -> Optional[dict]:
     realized = attrs.get("fifoPnlRealized")
     if realized in (None, ""):
         realized = attrs.get("realizedPnl")
+    # Controvalore dell'eseguito: il capitale che quell'operazione ha mosso.
+    # Si ricava da prezzo e quantità invece che da `tradeMoney` perché il
+    # prezzo qui è già riportato alla valuta piena — il London quota in penny
+    # — e `tradeMoney` no di sicuro. `tradeMoney` resta il ripiego per quando
+    # il prezzo manca del tutto.
+    multiplier = _ibkr_num(attrs.get("multiplier")) or 1.0
+    if price is not None:
+        money = abs(quantity) * price * multiplier
+    else:
+        money = _ibkr_num(attrs.get("tradeMoney"))
+        money = abs(money) if money is not None else None
     return {
         "symbol": symbol,
         "name": attrs.get("description") or None,
@@ -11321,6 +11345,15 @@ def _flex_trade_from_attrs(attrs: dict) -> Optional[dict]:
         "price": price,
         "commission": abs(commission) if commission is not None else 0.0,
         "realized_pnl": _ibkr_num(realized),
+        "trade_money": money,
+        # Con che ordine è stata eseguita: LMT, MKT, STP, STPLMT. Su una
+        # chiusura è l'unica traccia che il Flex conserva del fatto che sia
+        # scattato uno stop invece di un target — gli ordini in sé il report
+        # non li contiene affatto.
+        "order_type": (attrs.get("orderType") or "").strip().upper() or None,
+        # "O" apre, "C" chiude, "C;O" chiude e riapre girando di segno.
+        "open_close": (attrs.get("openCloseIndicator") or "").strip().upper() or None,
+        "clock": _flex_trade_clock(attrs),
         # Cambio verso la valuta base allegato da IBKR: è quello con cui il
         # conto è valorizzato, e vale più di uno chiesto a FMP mesi dopo.
         "fx_rate_to_base": _ibkr_num(attrs.get("fxRateToBase")),
@@ -11501,6 +11534,13 @@ _IBKR_PNL_MAX_DAYS = 1100
 # di quante se ne guardino.
 _IBKR_PNL_MAX_SYMBOLS_PER_DAY = 20
 
+# Quante operazioni si conservano per giornata. Il registro di un giorno serve
+# a rileggere cosa si è fatto, e oltre una sessantina di righe non lo si legge
+# più; il tetto tiene anche il documento lontano dai 16 MB di Mongo — un anno
+# molto attivo sta sulle tremila operazioni, quindi il caso peggiore vero è
+# ordini di grandezza sotto il limite.
+_IBKR_PNL_MAX_OPS_PER_DAY = 60
+
 
 def _flex_trade_day(trade: dict) -> Optional[str]:
     """Data di un eseguito, da `YYYYMMDD` a `YYYY-MM-DD`."""
@@ -11532,6 +11572,9 @@ def _flex_pnl_days(trades: List[dict]) -> dict:
         entry = days.setdefault(day, {
             "date": day, "pnl": 0.0, "trades": 0, "closed": 0,
             "wins": 0, "losses": 0, "commissions": 0.0, "symbols": {},
+            "capital_open": 0.0, "capital_close": 0.0,
+            "exits_stop": 0, "exits_target": 0, "exits_market": 0,
+            "ops": [],
         })
         entry["trades"] += 1
 
@@ -11541,6 +11584,40 @@ def _flex_pnl_days(trades: List[dict]) -> dict:
         commission = trade.get("commission") or 0.0
         if rate is not None:
             entry["commissions"] += commission * rate
+
+        # Capitale mosso dall'operazione, in valuta base. Aperture e chiusure
+        # si sommano a parte: metterle insieme conterebbe due volte lo stesso
+        # capitale su un giro aperto e chiuso in giornata.
+        money = trade.get("trade_money")
+        money_base = money * rate if (money is not None and rate is not None) else None
+        side = trade.get("open_close") or ""
+        if money_base is not None:
+            if "O" in side:
+                entry["capital_open"] += money_base
+            if "C" in side:
+                entry["capital_close"] += money_base
+        # Come si è usciti. Ha senso solo sulle chiusure: il tipo d'ordine di
+        # un'apertura dice come si è entrati, non se è andata bene.
+        if "C" in side:
+            order_type = trade.get("order_type") or ""
+            if order_type.startswith("STP"):
+                entry["exits_stop"] += 1
+            elif order_type.startswith("LMT") or order_type == "MIDPX":
+                entry["exits_target"] += 1
+            else:
+                entry["exits_market"] += 1
+
+        entry["ops"].append({
+            "symbol": (trade.get("symbol") or "").upper(),
+            "quantity": trade.get("quantity"),
+            "price": trade.get("price"),
+            "capital": round(money_base, 2) if money_base is not None else None,
+            "currency": trade.get("currency"),
+            "order_type": trade.get("order_type"),
+            "open_close": trade.get("open_close"),
+            "clock": trade.get("clock"),
+            "realized": None,   # riempito sotto, quando il cambio c'è
+        })
 
         realized = trade.get("realized_pnl")
         if realized is None:
@@ -11555,6 +11632,7 @@ def _flex_pnl_days(trades: List[dict]) -> dict:
             continue
         value = realized * rate
         entry["pnl"] += value
+        entry["ops"][-1]["realized"] = round(value, 2)
         symbol = (trade.get("symbol") or "").upper()
         bucket = entry["symbols"].setdefault(symbol, {"symbol": symbol, "pnl": 0.0, "trades": 0})
         bucket["pnl"] += value
@@ -11572,6 +11650,7 @@ def _flex_pnl_days(trades: List[dict]) -> dict:
     out = {}
     for day, entry in days.items():
         symbols = sorted(entry["symbols"].values(), key=lambda s: -abs(s["pnl"]))
+        ops = sorted(entry["ops"], key=lambda o: (o.get("clock") or "99:99"))
         out[day] = {
             "date": day,
             "pnl": round(entry["pnl"], 2),
@@ -11580,9 +11659,18 @@ def _flex_pnl_days(trades: List[dict]) -> dict:
             "wins": entry["wins"],
             "losses": entry["losses"],
             "commissions": round(entry["commissions"], 2),
+            "capital_open": round(entry["capital_open"], 2),
+            "capital_close": round(entry["capital_close"], 2),
+            "exits_stop": entry["exits_stop"],
+            "exits_target": entry["exits_target"],
+            "exits_market": entry["exits_market"],
             "symbols": [{"symbol": s["symbol"], "pnl": round(s["pnl"], 2),
                          "trades": s["trades"]}
                         for s in symbols[:_IBKR_PNL_MAX_SYMBOLS_PER_DAY]],
+            "ops": ops[:_IBKR_PNL_MAX_OPS_PER_DAY],
+            # Se il registro è stato tagliato va detto: una tabella troncata in
+            # silenzio si legge come se fosse tutta la giornata.
+            "ops_truncated": max(0, len(ops) - _IBKR_PNL_MAX_OPS_PER_DAY),
             "partial": day in fx_missing,
         }
     return {"days": out, "realized_available": realized_seen,
@@ -11772,6 +11860,23 @@ def api_ibkr_pnl_calendar():
     doc = _ibkr_load_snapshot(owner_email) or {}
     days = doc.get("pnl_days") if isinstance(doc.get("pnl_days"), dict) else {}
     meta = doc.get("pnl_meta") if isinstance(doc.get("pnl_meta"), dict) else {}
+
+    # Il registro di una singola giornata. Sta in una richiesta a sé perché un
+    # anno di operazioni sono megabyte di JSON: spedirli a ogni caricamento
+    # della pagina per mostrarne una manciata al clic non ha senso.
+    requested_day = (request.args.get("day") or "").strip()
+    if requested_day:
+        entry = days.get(requested_day)
+        if not entry:
+            return jsonify({"day": requested_day, "found": False,
+                            "currency": meta.get("currency") or _ibkr_base_currency()})
+        return jsonify({"day": requested_day, "found": True, "detail": entry,
+                        "currency": meta.get("currency") or _ibkr_base_currency()})
+
+    # Nella vista mensile il registro non serve: si tiene l'aggregato e il
+    # riepilogo per titolo, che è quello che riempie casella e tooltip.
+    days = {key: {k: v for k, v in entry.items() if k != "ops"}
+            for key, entry in days.items() if isinstance(entry, dict)}
 
     # Perché il calendario è vuoto è la prima domanda che ci si pone, e da fuori
     # le cause si somigliano tutte. Qui si dice quale.

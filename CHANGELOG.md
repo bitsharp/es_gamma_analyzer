@@ -48,6 +48,19 @@ La versione mostrata nell'header dell'app è letta direttamente da questo file: 
 - Il tracciamento della posizione, il calcolo del P&L e la forma delle card sono stati estratti in `_fills_to_round_trips()`: le due sorgenti condividono tutto tranne la lettura della riga, che è l'unica cosa che davvero cambia fra un broker e l'altro. Anche il moltiplicatore per punto vive ora in una funzione sua (`_futures_point_multiplier`).
 - `/api/checklist/import-apex` accetta il campo `source` (`rithmic` | `tradovate`) e sceglie il parser da una tabella. Senza il campo si comporta come prima, così un client vecchio continua a funzionare.
 
+## [1.27.0] — 2026-08-28
+
+### Aggiunto
+- **Registro delle operazioni nel calendario del portafoglio.** Cliccando una giornata non c'è più solo il riepilogo per titolo: c'è la lista degli eseguiti, in ordine di ora, con **quanto capitale ha mosso ciascuno** (in valuta base, col cambio che IBKR allega all'operazione), il prezzo nella valuta dello strumento, se l'operazione apriva o chiudeva, e il realizzato.
+- **Come sei uscito, operazione per operazione.** Sulle chiusure il tipo d'ordine è etichettato: `stop` in rosso quando è scattato uno stop, `target` in verde quando è andato a segno un limite, altrimenti l'uscita è a mercato. In testa alla giornata il conto delle tre cose, accanto a capitale aperto, capitale chiuso e commissioni.
+- **Quello che il Flex non ha, e viene detto invece che lasciato intendere.** Il rischio e il target *impostati* non ci sono: il report contiene 3209 righe di eseguiti e nessuna sezione ordini, quindi uno stop mai scattato — o cancellato quando è andato a segno il target — non lascia traccia. Il pannello lo dichiara e rimanda alla colonna Ordine, che è la traccia che resta.
+
+### Tecnico
+- Il registro di una giornata si chiede a parte (`/api/ibkr/pnl-calendar?day=YYYY-MM-DD`): un anno di operazioni sono megabyte di JSON e spedirli a ogni caricamento della pagina per mostrarne una manciata al clic non aveva senso. La vista mensile continua a ricevere solo gli aggregati.
+- Il capitale per operazione si calcola da prezzo e quantità e non da `tradeMoney`, perché il prezzo qui è già riportato alla valuta piena — il London quota in penny — mentre di `tradeMoney` non è dato saperlo. `tradeMoney` resta il ripiego per quando il prezzo manca.
+- Il registro si ferma a 60 righe per giornata, e quando taglia lo dice: una tabella troncata in silenzio si legge come se fosse tutta la giornata.
+- `?diag=flex` sul cron riporta quali elementi, attributi ed enumerazioni contiene davvero il report configurato — mai i valori. È ciò che ha permesso di rispondere per prove, e non a memoria, alla domanda se il Flex contenga gli stop.
+
 ## [1.26.1] — 2026-08-27
 
 ### Corretto

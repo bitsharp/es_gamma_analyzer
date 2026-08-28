@@ -106,6 +106,31 @@
         margin-bottom: 0.5rem; text-transform: capitalize;
     }
     .pnl-detail .pdt-note { font-size: 0.75rem; color: #778da9; margin-top: 0.45rem; }
+    .pnl-detail .pdt-strip {
+        display: flex; flex-wrap: wrap; gap: 1.2rem;
+        background: rgba(13,27,42,0.45); border: 1px solid rgba(119,141,169,0.22);
+        border-radius: 8px; padding: 0.5rem 0.75rem; margin-bottom: 0.6rem;
+    }
+    .pnl-detail .pdt-strip .cs-label {
+        font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em;
+        color: #778da9; margin-bottom: 0.1rem;
+    }
+    .pnl-detail .pdt-strip .cs-value {
+        font-size: 0.94rem; font-weight: 700; color: #fff;
+        font-variant-numeric: tabular-nums;
+    }
+    /* Con che ordine è stata chiusa l'operazione. Sulle chiusure è l'unica
+       traccia che il Flex conserva del fatto che sia scattato uno stop invece
+       di un target: gli ordini in sé il report non li contiene. */
+    .ord-pill {
+        display: inline-block; padding: 0.05rem 0.45rem; border-radius: 6px;
+        font-size: 0.7rem; font-weight: 700; border: 1px solid; white-space: nowrap;
+    }
+    .ord-stop   { background: rgba(248,113,113,0.15); color: #fca5a5; border-color: rgba(248,113,113,0.45); }
+    .ord-target { background: rgba(74,222,128,0.14); color: #86efac; border-color: rgba(74,222,128,0.42); }
+    .ord-plain  { background: rgba(119,141,169,0.15); color: #cbd5e1; border-color: rgba(119,141,169,0.32); }
+    .op-open  { color: #93c5fd; font-size: 0.7rem; font-weight: 700; }
+    .op-close { color: #cbd5e1; font-size: 0.7rem; font-weight: 700; }
 
     @media (max-width: 860px) {
         /* Con otto colonne su uno schermo stretto le celle diventano

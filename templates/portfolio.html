@@ -1747,10 +1747,94 @@
                     // Secondo clic sulla stessa giornata: si richiude, invece di
                     // lasciare il dettaglio aperto senza modo di toglierlo.
                     pnlState.selected = pnlState.selected === el.dataset.day ? null : el.dataset.day;
+                    if (pnlState.selected) loadPnlDay(pnlState.selected);
                     renderPnlCalendar();
                 });
             });
             renderPnlDetail();
+        }
+
+        // Registro della giornata, chiesto al server solo quando serve: un anno
+        // di operazioni sono megabyte di JSON, e spedirli tutti a ogni
+        // caricamento per mostrarne una manciata al clic non avrebbe senso.
+        const pnlDayCache = {};
+        // L'errore sta fuori dalla cache: tenerlo dentro vorrebbe dire
+        // rimostrare per sempre lo stesso guasto, mentre un secondo clic deve
+        // poter riprovare.
+        let pnlDayError = null;
+
+        async function loadPnlDay(key) {
+            pnlDayError = null;
+            if (pnlDayCache[key] !== undefined) return;
+            pnlDayCache[key] = null;   // "in corso": evita due fetch sullo stesso giorno
+            try {
+                const res = await fetch('/api/ibkr/pnl-calendar?day=' + encodeURIComponent(key));
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                pnlDayCache[key] = data.found ? data.detail : { ops: [] };
+            } catch (err) {
+                delete pnlDayCache[key];
+                pnlDayError = err.message;
+            }
+            if (pnlState.selected === key) renderPnlDetail();
+        }
+
+        // LMT/MKT/STP sono le sigle di IBKR: in italiano dicono poco, e su una
+        // chiusura la cosa che interessa non è la sigla ma se sei uscito per
+        // stop o a target.
+        function ordinePill(op) {
+            const type = (op.order_type || '').toUpperCase();
+            const chiude = (op.open_close || '').includes('C');
+            const label = { LMT: 'limite', MKT: 'mercato', STP: 'stop',
+                            STPLMT: 'stop limite', MIDPX: 'midprice' }[type] || (type || '—');
+            if (!chiude) return `<span class="ord-pill ord-plain">${escapeHtml(label)}</span>`;
+            if (type.startsWith('STP')) return `<span class="ord-pill ord-stop">${escapeHtml(label)}</span>`;
+            if (type === 'LMT' || type === 'MIDPX') return `<span class="ord-pill ord-target">target</span>`;
+            return `<span class="ord-pill ord-plain">${escapeHtml(label)}</span>`;
+        }
+
+        function pnlOpsTable(detail, cur) {
+            if (pnlDayError) {
+                return `<div class="pdt-note" style="color:#f87171;">
+                    Registro non disponibile: ${escapeHtml(pnlDayError)} — riclicca la giornata per riprovare.</div>`;
+            }
+            if (!detail) {
+                return `<div class="pdt-note"><span class="spinner-border spinner-border-sm"></span>
+                    <span class="ms-2">Carico le operazioni…</span></div>`;
+            }
+            const ops = detail.ops || [];
+            if (!ops.length) {
+                return `<div class="pdt-note">Nessuna operazione registrata per questa giornata.</div>`;
+            }
+            const righe = ops.map(o => {
+                const vendita = (o.quantity || 0) < 0;
+                const apre = (o.open_close || '').includes('O');
+                return `
+                <tr>
+                    <td style="color:#94a3b8;">${escapeHtml(o.clock || '—')}</td>
+                    <td class="sym">${escapeHtml(o.symbol)}</td>
+                    <td class="${vendita ? 'side-sell' : 'side-buy'}">${vendita ? 'SELL' : 'BUY'}</td>
+                    <td class="num">${fmtQty(Math.abs(o.quantity || 0))}</td>
+                    <td class="num">${fmtAmount(o.price, o.currency)}</td>
+                    <td class="num">${o.capital == null ? '—' : fmtAmount(o.capital, cur)}</td>
+                    <td><span class="${apre ? 'op-open' : 'op-close'}">${apre ? 'apre' : 'chiude'}</span>
+                        ${ordinePill(o)}</td>
+                    <td class="num ${o.realized == null ? '' : (o.realized >= 0 ? 'pnl-pos' : 'pnl-neg')}">
+                        ${o.realized ? (o.realized > 0 ? '+' : '') + fmtAmount(o.realized, cur) : '—'}</td>
+                </tr>`;
+            }).join('');
+            const tagliate = detail.ops_truncated
+                ? `<div class="pdt-note">Altre ${detail.ops_truncated} operazioni non mostrate: il registro
+                   di una giornata si ferma a ${ops.length} righe.</div>` : '';
+            return `
+                <div class="ibkr-table-wrap">
+                    <table class="ibkr-table">
+                        <tr><th>Ora</th><th>Titolo</th><th>Lato</th><th class="num">Qtà</th>
+                            <th class="num">Prezzo</th><th class="num">Capitale</th>
+                            <th>Ordine</th><th class="num">Realizzato</th></tr>
+                        ${righe}
+                    </table>
+                </div>${tagliate}`;
         }
 
         function renderPnlDetail() {
@@ -1760,13 +1844,15 @@
             const cur = pnlState.currency;
             const giorno = new Date(pnlState.selected + 'T00:00:00')
                 .toLocaleDateString('it-IT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
-            const righe = (info.symbols || []).map(s => `
-                <tr>
-                    <td class="sym">${escapeHtml(s.symbol)}</td>
-                    <td class="num">${s.trades}</td>
-                    <td class="num ${s.pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">
-                        ${s.pnl > 0 ? '+' : ''}${fmtAmount(s.pnl, cur)}</td>
-                </tr>`).join('');
+
+            const uscite = [];
+            if (info.exits_stop) uscite.push(`${info.exits_stop} per stop`);
+            if (info.exits_target) uscite.push(`${info.exits_target} a target`);
+            if (info.exits_market) uscite.push(`${info.exits_market} a mercato`);
+            const stat = (label, value, colore) => `
+                <div><div class="cs-label">${label}</div>
+                     <div class="cs-value" ${colore ? `style="color:${colore};"` : ''}>${value}</div></div>`;
+
             const note = [];
             if (info.commissions) {
                 note.push(`Commissioni della giornata: ${fmtAmount(info.commissions, cur)} — già dedotte dal realizzato che IBKR riporta.`);
@@ -1774,6 +1860,13 @@
             if (info.partial) {
                 note.push('Alcuni eseguiti sono in una valuta di cui non si è potuto stabilire il cambio: il totale è per difetto.');
             }
+            // Va detto una volta sola ma va detto: il Flex è un rendiconto di
+            // ciò che è successo. Lo stop che non è mai scattato, o cancellato
+            // quando è andato a segno il target, non compare da nessuna parte.
+            note.push('Il rischio e il target che avevi impostato non sono nel Flex: il report contiene '
+                    + 'solo gli eseguiti, non gli ordini. Della protezione resta la traccia nella colonna '
+                    + 'Ordine, che dice con che tipo di ordine sei uscito.');
+
             box.innerHTML = `
                 <div class="pnl-detail">
                     <div class="pdt-head">${escapeHtml(giorno)} ·
@@ -1783,14 +1876,13 @@
                             · ${info.trades} operazioni · ${info.closed} chiuse
                             ${pnlWinRate(info) ? '· ' + escapeHtml(pnlWinRate(info)) + ' in utile' : ''}</span>
                     </div>
-                    <div class="ibkr-table-wrap">
-                        <table class="ibkr-table">
-                            <tr><th>Titolo</th><th class="num">Operazioni</th><th class="num">Realizzato</th></tr>
-                            ${righe || `<tr><td colspan="3" style="color:#778da9;">${info.closed
-                                ? 'Dettaglio per titolo non disponibile per questa giornata.'
-                                : 'Nessuna chiusura: solo aperture.'}</td></tr>`}
-                        </table>
+                    <div class="pdt-strip">
+                        ${stat('Capitale aperto', info.capital_open == null ? '—' : fmtAmount(info.capital_open, cur), '#60a5fa')}
+                        ${stat('Capitale chiuso', info.capital_close == null ? '—' : fmtAmount(info.capital_close, cur))}
+                        ${stat('Uscite', uscite.length ? escapeHtml(uscite.join(' · ')) : '—')}
+                        ${stat('Commissioni', info.commissions ? fmtAmount(info.commissions, cur) : '—')}
                     </div>
+                    ${pnlOpsTable(pnlDayCache[pnlState.selected], cur)}
                     ${note.map(n => `<div class="pdt-note">${escapeHtml(n)}</div>`).join('')}
                 </div>`;
         }
@@ -1837,6 +1929,9 @@
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
                 pnlState.days = data.days || {};
+                // I registri già scaricati si riferiscono ai dati di prima:
+                // dopo una rilettura vanno richiesti di nuovo.
+                Object.keys(pnlDayCache).forEach(k => delete pnlDayCache[k]);
                 pnlState.currency = data.currency || 'EUR';
                 pnlState.syncedAt = data.synced_at || null;
                 pnlState.meta = data.meta || {};
