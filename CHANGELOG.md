@@ -5,6 +5,16 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.32.0] — 2026-08-28
+
+### Aggiunto
+- **Il dettaglio di giornata si legge raggruppato per titolo**, dal migliore al peggiore. Una riga per strumento con quanto è stato acquistato e venduto (quantità e prezzo medio), il capitale mosso, come si è usciti e il realizzato complessivo. È la vista predefinita: con quindici eseguiti su sei titoli la sola cronologia non fa vedere com'è andata.
+  - La cronologia degli eseguiti resta, dietro l'interruttore *Cronologia*, e la scelta viene ricordata. Rispondono a due domande diverse: com'è andata, e cosa ho fatto.
+  - Chi ha soltanto aperture finisce in fondo e non in mezzo agli zeri: non avere ancora un risultato non è un pareggio.
+
+### Corretto
+- **Il trattino nella colonna del realizzato confondeva tre casi diversi.** Zero e assenza si scrivevano tutti e due con un trattino, così un'apertura — che su una giornata è metà delle righe — si vedeva identica a un dato mancante. Ora un'apertura mostra un trattino spento con la spiegazione, una chiusura in pareggio mostra lo zero vero, e una riga senza il campo dice `n/d`. Sotto la tabella una didascalia conta le aperture e spiega perché non hanno un realizzato.
+
 ## [1.31.1] — 2026-08-28
 
 ### Corretto

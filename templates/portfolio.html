@@ -1849,6 +1849,133 @@
                     <span class="n">${s.trades}</span></span>`).join('') + `</div>`;
         }
 
+        // Nella colonna del realizzato lo zero e l'assenza si scrivevano
+        // entrambi con un trattino, e i casi sono tre e diversi: un'apertura
+        // non ha niente da realizzare, una chiusura in pareggio ha realizzato
+        // zero davvero, e una riga senza il campo è un dato che manca. Il
+        // primo caso è la norma — su una giornata sono metà delle righe — e
+        // vedersi un trattino uguale a quello di un guasto fa cercare un
+        // guasto che non c'è.
+        function realizzatoCella(o, cur) {
+            const apre = (o.open_close || '').includes('O');
+            if (o.realized == null) {
+                return `<td class="num" style="color:#fbbf24;"
+                    title="Il report non porta il realizzato per questa riga">n/d</td>`;
+            }
+            if (!o.realized) {
+                return apre
+                    ? `<td class="num" style="color:#4b5b6d;"
+                        title="Un'apertura non realizza nulla: il realizzato nasce quando chiudi">—</td>`
+                    : `<td class="num" style="color:#cbd5e1;"
+                        title="Chiusura in pareggio">${fmtAmount(0, cur)}</td>`;
+            }
+            return `<td class="num ${o.realized > 0 ? 'pnl-pos' : 'pnl-neg'}">
+                ${o.realized > 0 ? '+' : ''}${fmtAmount(o.realized, cur)}</td>`;
+        }
+
+        // Due letture della stessa giornata: una riga per titolo — quanto ha
+        // reso ciascuno, dal migliore al peggiore — oppure la cronologia degli
+        // eseguiti. La prima risponde a "com'è andata", la seconda a "cosa ho
+        // fatto"; raggruppata è il default perché con quindici eseguiti su sei
+        // titoli la cronologia da sola non fa vedere il risultato.
+        const opsVista = { key: 'gruppo' };
+        try {
+            const salvata = localStorage.getItem('pnlOpsVista');
+            if (salvata === 'gruppo' || salvata === 'cronologia') opsVista.key = salvata;
+        } catch (e) { /* localStorage inaccessibile: si resta sul raggruppato */ }
+
+        function raggruppaOps(ops) {
+            const gruppi = new Map();
+            ops.forEach(o => {
+                const chiave = o.symbol;
+                let g = gruppi.get(chiave);
+                if (!g) {
+                    g = { symbol: chiave, trades: 0, currency: o.currency,
+                          buyQty: 0, buyCost: 0, sellQty: 0, sellCost: 0,
+                          capital: 0, realized: 0, conRealizzato: false,
+                          exits: { stop: 0, target: 0, market: 0 },
+                          prima: o.clock, ultima: o.clock };
+                    gruppi.set(chiave, g);
+                }
+                g.trades += 1;
+                const qty = Math.abs(o.quantity || 0);
+                if ((o.quantity || 0) < 0) {
+                    g.sellQty += qty;
+                    if (o.price != null) g.sellCost += qty * o.price;
+                } else {
+                    g.buyQty += qty;
+                    if (o.price != null) g.buyCost += qty * o.price;
+                }
+                if (o.capital != null) g.capital += o.capital;
+                if (o.realized != null) {
+                    g.realized += o.realized;
+                    if (o.realized) g.conRealizzato = true;
+                }
+                if ((o.open_close || '').includes('C')) {
+                    const t = (o.order_type || '').toUpperCase();
+                    if (t.startsWith('STP')) g.exits.stop += 1;
+                    else if (t === 'LMT' || t === 'MIDPX') g.exits.target += 1;
+                    else g.exits.market += 1;
+                }
+                if (o.clock) {
+                    if (!g.prima || o.clock < g.prima) g.prima = o.clock;
+                    if (!g.ultima || o.clock > g.ultima) g.ultima = o.clock;
+                }
+            });
+            // P&L decrescente. Chi ha solo aperture non è un pareggio: non ha
+            // ancora un risultato, quindi va in fondo e non in mezzo agli zeri.
+            return [...gruppi.values()].sort((a, b) =>
+                (a.conRealizzato ? 0 : 1) - (b.conRealizzato ? 0 : 1)
+                || b.realized - a.realized
+                || a.symbol.localeCompare(b.symbol));
+        }
+
+        function usciteChip(exits) {
+            const parti = [];
+            if (exits.stop) parti.push(`<span class="ord-pill ord-stop">${exits.stop} stop</span>`);
+            if (exits.target) parti.push(`<span class="ord-pill ord-target">${exits.target} target</span>`);
+            if (exits.market) parti.push(`<span class="ord-pill ord-plain">${exits.market} mercato</span>`);
+            return parti.join(' ') || '<span style="color:#4b5b6d;">—</span>';
+        }
+
+        function pnlGroupTable(ops, cur) {
+            const righe = raggruppaOps(ops).map(g => {
+                const medio = (costo, qty) => qty ? fmtAmount(costo / qty, g.currency) : '—';
+                const orario = g.prima && g.ultima && g.prima !== g.ultima
+                    ? `${g.prima}–${g.ultima}` : (g.prima || '');
+                return `
+                <tr>
+                    <td class="sym">${escapeHtml(g.symbol)}
+                        <span class="row-name">${escapeHtml(orario)} · ${g.trades} ${g.trades === 1 ? 'operazione' : 'operazioni'}</span></td>
+                    <td class="num">${g.buyQty ? fmtQty(g.buyQty) + ' @ ' + medio(g.buyCost, g.buyQty) : '—'}</td>
+                    <td class="num">${g.sellQty ? fmtQty(g.sellQty) + ' @ ' + medio(g.sellCost, g.sellQty) : '—'}</td>
+                    <td class="num">${fmtAmount(g.capital, cur)}</td>
+                    <td>${usciteChip(g.exits)}</td>
+                    <td class="num ${!g.conRealizzato ? '' : (g.realized > 0 ? 'pnl-pos' : (g.realized < 0 ? 'pnl-neg' : ''))}"
+                        ${!g.conRealizzato ? 'style="color:#4b5b6d;" title="Solo aperture: il realizzato nasce quando chiudi"' : ''}>
+                        ${g.conRealizzato ? (g.realized > 0 ? '+' : '') + fmtAmount(g.realized, cur) : '—'}</td>
+                </tr>`;
+            }).join('');
+            return `
+                <div class="ibkr-table-wrap">
+                    <table class="ibkr-table">
+                        <tr><th>Titolo</th><th class="num">Acquistato</th><th class="num">Venduto</th>
+                            <th class="num">Capitale</th><th>Uscite</th><th class="num">Realizzato</th></tr>
+                        ${righe}
+                    </table>
+                </div>`;
+        }
+
+        function vistaOpsToggle() {
+            const btn = (key, label, icon) => `
+                <button type="button" class="sort-btn ops-vista-btn ${opsVista.key === key ? 'active' : ''}"
+                        data-vista="${key}"><i class="bi bi-${icon} me-1"></i>${label}</button>`;
+            return `<div class="sort-bar" style="margin:0.2rem 0 0.6rem;">
+                ${btn('gruppo', 'Per titolo', 'collection')}
+                ${btn('cronologia', 'Cronologia', 'clock-history')}
+            </div>`;
+        }
+
         function pnlOpsTable(detail, cur) {
             if (pnlDayError) {
                 return `<div class="pdt-note" style="color:#f87171;">
@@ -1868,6 +1995,13 @@
                       + 'dettaglio delle operazioni esistesse. Premi Aggiorna per rileggerla dal Flex.'
                     : 'Nessuna operazione registrata per questa giornata.'}</div>`;
             }
+            if (opsVista.key === 'gruppo') {
+                return vistaOpsToggle() + pnlGroupTable(ops, cur)
+                    + (detail.ops_truncated
+                        ? `<div class="pdt-note">Altre ${detail.ops_truncated} operazioni non entrano
+                           nel raggruppamento: il registro di una giornata si ferma a ${ops.length} righe.</div>`
+                        : '');
+            }
             const righe = ops.map(o => {
                 const vendita = (o.quantity || 0) < 0;
                 const apre = (o.open_close || '').includes('O');
@@ -1881,14 +2015,24 @@
                     <td class="num">${o.capital == null ? '—' : fmtAmount(o.capital, cur)}</td>
                     <td><span class="${apre ? 'op-open' : 'op-close'}">${apre ? 'apre' : 'chiude'}</span>
                         ${ordinePill(o)}</td>
-                    <td class="num ${o.realized == null ? '' : (o.realized >= 0 ? 'pnl-pos' : 'pnl-neg')}">
-                        ${o.realized ? (o.realized > 0 ? '+' : '') + fmtAmount(o.realized, cur) : '—'}</td>
+                    ${realizzatoCella(o, cur)}
                 </tr>`;
             }).join('');
             const tagliate = detail.ops_truncated
                 ? `<div class="pdt-note">Altre ${detail.ops_truncated} operazioni non mostrate: il registro
                    di una giornata si ferma a ${ops.length} righe.</div>` : '';
-            return `
+            // Il trattino nella colonna del realizzato è la cosa che si nota di
+            // più in una giornata di aperture: meglio spiegarlo sotto la
+            // tabella che lasciarlo interpretare come un dato mancante.
+            const aperture = ops.filter(o => (o.open_close || '').includes('O')).length;
+            const notaAperture = aperture
+                ? `<div class="pdt-note">${aperture === 1
+                    ? "Un'operazione apre una posizione e non ha un realizzato"
+                    : `${aperture} operazioni aprono una posizione e non hanno un realizzato`}:
+                   il guadagno o la perdita nasce quando chiudi, e viene attribuito
+                   all'operazione di chiusura.</div>`
+                : '';
+            const tabella = `
                 <div class="ibkr-table-wrap">
                     <table class="ibkr-table">
                         <tr><th>Ora</th><th>Titolo</th><th>Lato</th><th class="num">Qtà</th>
@@ -1896,7 +2040,8 @@
                             <th>Ordine</th><th class="num">Realizzato</th></tr>
                         ${righe}
                     </table>
-                </div>${tagliate}`;
+                </div>${notaAperture}${tagliate}`;
+            return vistaOpsToggle() + tabella;
         }
 
         function renderPnlDetail() {
@@ -1948,6 +2093,14 @@
                     ${pnlOpsTable(pnlDayCache[pnlState.selected], cur)}
                     ${note.map(n => `<div class="pdt-note">${escapeHtml(n)}</div>`).join('')}
                 </div>`;
+
+            box.querySelectorAll('.ops-vista-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    opsVista.key = btn.dataset.vista;
+                    try { localStorage.setItem('pnlOpsVista', opsVista.key); } catch (e) {}
+                    renderPnlDetail();
+                });
+            });
         }
 
         function renderPnlHint() {
