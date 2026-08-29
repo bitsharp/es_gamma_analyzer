@@ -103,8 +103,12 @@
     }
     .pnl-detail .pdt-head {
         font-size: 0.82rem; color: #e2e8f0; font-weight: 700;
-        margin-bottom: 0.5rem; text-transform: capitalize;
+        margin-bottom: 0.5rem;
     }
+    /* La maiuscola serve al giorno della settimana, che l'italiano scrive
+       minuscolo ("venerdì"). Sull'intera riga finiva anche su "Operazioni",
+       "Con P&L", "In Utile". */
+    .pnl-detail .pdt-head .pdt-date { text-transform: capitalize; }
     .pnl-detail .pdt-note { font-size: 0.75rem; color: #778da9; margin-top: 0.45rem; }
     .pnl-detail .pdt-strip {
         display: flex; flex-wrap: wrap; gap: 1.2rem;

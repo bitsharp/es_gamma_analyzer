@@ -2076,7 +2076,7 @@
 
             box.innerHTML = `
                 <div class="pnl-detail">
-                    <div class="pdt-head">${escapeHtml(giorno)} ·
+                    <div class="pdt-head"><span class="pdt-date">${escapeHtml(giorno)}</span> ·
                         <span class="${info.pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">
                             ${info.pnl > 0 ? '+' : ''}${fmtAmount(info.pnl, cur)}</span>
                         <span style="color:#778da9;font-weight:400;">

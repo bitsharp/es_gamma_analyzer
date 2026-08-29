@@ -228,6 +228,34 @@
         }
         #pageTabs .nav-link { font-size: 0.95rem; font-weight: 600; }
 
+        /* Bootstrap dipinge le celle di .table con --bs-table-bg, che di suo è
+           il bianco di --bs-body-bg: mettere il background trasparente sul
+           <table> non serve, la regola colpisce le celle. Su una pagina scura
+           il risultato è testo chiaro su fondo bianco, cioè niente. */
+        .table {
+            --bs-table-bg: transparent;
+            --bs-table-color: #e2e8f0;
+        }
+
+        /* Tabella del dettaglio di giornata nel calendario. */
+        .pdt-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        .pdt-table th {
+            text-align: left; font-size: 0.68rem; text-transform: uppercase;
+            letter-spacing: 0.05em; color: #778da9; font-weight: 700;
+            padding: 0.35rem 0.6rem; border-bottom: 1px solid #415a77;
+        }
+        .pdt-table td {
+            padding: 0.45rem 0.6rem; color: #cbd5e1;
+            border-bottom: 1px solid rgba(65,90,119,0.35);
+        }
+        .pdt-table tr:last-child td { border-bottom: none; }
+        .pdt-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .pdt-table td.sym { font-weight: 700; color: #fff; }
+        /* Il colore del P&L deve battere quello di riga: serve la stessa
+           specificità del selettore di cella, o il segno resta grigio. */
+        .pdt-table td.pnl-positive { color: #4ade80; font-weight: 700; }
+        .pdt-table td.pnl-negative { color: #f87171; font-weight: 700; }
+
         @media (max-width: 575px) {
             .section-card .card-body { padding: 0.7rem; }
         }
@@ -2443,9 +2471,9 @@
 
         const righe = (info.symbols || []).map(s => `
             <tr>
-                <td style="border-color:#415a77;color:#e2e8f0;">${calEsc(s.symbol)}</td>
-                <td style="border-color:#415a77;color:#cbd5e1;text-align:right;">${s.trades}</td>
-                <td class="${s.pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}" style="border-color:#415a77;text-align:right;font-weight:600;">
+                <td class="sym">${calEsc(s.symbol)}</td>
+                <td class="num">${s.trades}</td>
+                <td class="num ${s.pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">
                     ${s.pnl > 0 ? '+' : ''}${calAmount(s.pnl, cur)}</td>
             </tr>`).join('');
 
@@ -2459,20 +2487,20 @@
 
         box.innerHTML = `
             <div class="pnl-detail">
-                <div class="pdt-head">${calEsc(giorno)} ·
+                <div class="pdt-head"><span class="pdt-date">${calEsc(giorno)}</span> ·
                     <span class="${info.pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">
                         ${info.pnl > 0 ? '+' : ''}${calAmount(info.pnl, cur)}</span>
                     <span style="color:#778da9;font-weight:400;">
                         · ${info.trades} operazioni · ${info.closed} con P&L
                         ${calWinRate(info) ? '· ' + calEsc(calWinRate(info)) + ' in utile' : ''}</span>
                 </div>
-                <table class="table table-sm mb-2" style="background:transparent;font-size:0.85rem;">
+                <table class="pdt-table mb-2">
                     <tr>
-                        <th style="border-color:#415a77;color:#94a3b8;font-weight:600;">Strumento</th>
-                        <th style="border-color:#415a77;color:#94a3b8;font-weight:600;text-align:right;">Operazioni</th>
-                        <th style="border-color:#415a77;color:#94a3b8;font-weight:600;text-align:right;">P&L</th>
+                        <th>Strumento</th>
+                        <th class="num">Operazioni</th>
+                        <th class="num">P&L</th>
                     </tr>
-                    ${righe || `<tr><td colspan="3" style="border-color:#415a77;color:#778da9;">Nessuna operazione con P&L registrato.</td></tr>`}
+                    ${righe || `<tr><td colspan="3" style="color:#778da9;">Nessuna operazione con P&L registrato.</td></tr>`}
                 </table>
                 ${note.map(n => `<div class="pdt-note">${calEsc(n)}</div>`).join('')}
                 <button type="button" class="btn btn-sm mt-2" onclick="openChecklistDay('${calState.selected}')"

@@ -5,6 +5,12 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.32.1] — 2026-08-28
+
+### Corretto
+- **Nel calendario della checklist il dettaglio per strumento era illeggibile.** La tabella usava la classe `table` di Bootstrap, che dipinge le celle con `--bs-table-bg`: di suo è il bianco di `--bs-body-bg`, quindi su una pagina scura veniva fuori testo chiaro su fondo bianco. Mettere `background:transparent` sul `<table>` non serviva a niente — la regola colpisce le celle, non la tabella. Ora il dettaglio ha uno stile suo, scuro come il resto, e la classe di Bootstrap è neutralizzata a livello di pagina: ne risente in meglio anche la tabella delle regole di rischio, che aveva lo stesso difetto.
+- **L'intestazione del dettaglio non è più maiuscolata parola per parola.** Il `capitalize` serviva al giorno della settimana, che l'italiano scrive minuscolo, ma finiva su tutta la riga: "23 Operazioni · 23 Con P&L · 39.1% In Utile". Ora tocca solo la data. Vale per il calendario del portafoglio come per quello della checklist.
+
 ## [1.32.0] — 2026-08-28
 
 ### Aggiunto
