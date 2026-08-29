@@ -12290,10 +12290,13 @@ def api_screener_earnings():
                     "week": {"from": monday.isoformat(), "to": sunday.isoformat()}})
 
 
-@app.route('/api/ibkr/holdings', methods=['GET'])
-@login_required
-def api_ibkr_holdings():
+def _ibkr_holdings_payload(owner_email: str, analyze: bool = True) -> dict:
     """Posizioni IBKR presentate come le partecipazioni aggiunte a mano.
+
+    Sta fuori dal route handler perché è anche la risposta esatta che riceve la
+    pagina: la diagnostica deve poter guardare quella, non una ricostruzione
+    che potrebbe divergere proprio dove serve.
+
 
     Ogni riga porta l'analisi Damodaran del titolo, la data della prossima
     trimestrale e gli ordini vivi che la riguardano, così la scheda in pagina
@@ -12303,13 +12306,10 @@ def api_ibkr_holdings():
 
     `?analyze=0` salta i fondamentali quando serve solo la struttura.
     """
-    owner_email = _current_user_email()
-    if not owner_email:
-        return jsonify({"error": "no user"}), 401
     doc = _ibkr_load_snapshot(owner_email)
     if not doc:
-        return jsonify({"positions": [], "orders_only": [], "synced_at": None,
-                        "base_currency": _ibkr_base_currency()})
+        return {"positions": [], "orders_only": [], "synced_at": None,
+                "base_currency": _ibkr_base_currency()}
 
     snapshot = {"positions": doc.get("positions") or [], "orders": doc.get("orders") or []}
     earnings = doc.get("earnings") if isinstance(doc.get("earnings"), dict) else {}
@@ -12382,7 +12382,7 @@ def api_ibkr_holdings():
             "pending_buy_base": pending_buy(orders, currency),
         })
 
-    if request.args.get("analyze") != "0":
+    if analyze:
         # Un ticker IBKR non è un ticker FMP: si riusa il simbolo già risolto
         # per gli earnings invece di rifare la traduzione.
         from concurrent.futures import ThreadPoolExecutor
@@ -12397,7 +12397,7 @@ def api_ibkr_holdings():
         for row, analysis in zip(targets, analyses):
             row["analysis"] = analysis
 
-    return jsonify({
+    return {
         "positions": rows,
         "orders_only": orders_only,
         "capital": _ibkr_capital_summary(doc, rows, orders_only),
@@ -12407,7 +12407,19 @@ def api_ibkr_holdings():
         "positions_source": doc.get("positions_source"),
         "orders_freshness": _ibkr_orders_staleness(doc),
         "positions_freshness": _ibkr_positions_staleness(doc),
-    })
+    }
+
+
+@app.route('/api/ibkr/holdings', methods=['GET'])
+@login_required
+def api_ibkr_holdings():
+    """Le posizioni per la pagina portafoglio. `?analyze=0` salta i
+    fondamentali quando serve solo la struttura."""
+    owner_email = _current_user_email()
+    if not owner_email:
+        return jsonify({"error": "no user"}), 401
+    return jsonify(_ibkr_holdings_payload(
+        owner_email, analyze=request.args.get("analyze") != "0"))
 
 
 @app.route('/api/ibkr/earnings-alert', methods=['GET', 'POST'])
@@ -13186,6 +13198,21 @@ def api_ibkr_cron():
     if diag == "pos":
         return jsonify({"posizioni": _ibkr_positions_diagnostics(
             _ibkr_default_owner_email())})
+    if diag == "holdings":
+        # I campi esatti su cui la pagina disegna il Gain/Loss e la barra del
+        # capitale. Guardare la risposta vera è l'unico modo di distinguere
+        # "il numero non c'è" da "il numero c'è ma non viene disegnato".
+        payload = _ibkr_holdings_payload(_ibkr_default_owner_email(), analyze=False)
+        return jsonify({
+            "capital": payload.get("capital"),
+            "base_currency": payload.get("base_currency"),
+            "positions_source": payload.get("positions_source"),
+            "posizioni": [{k: row.get(k) for k in
+                           ("symbol", "quantity", "avg_price", "market_price",
+                            "market_value", "market_value_base", "unrealized_pnl",
+                            "daily_pnl", "currency", "revalued", "revalue_rejected")}
+                          for row in (payload.get("positions") or [])],
+        })
     notify_always = request.args.get("notify_always") == "1"
     # `pnl=force` rilegge lo storico anche se non è ancora scaduto, `pnl=0` lo
     # salta del tutto. Serve dopo aver configurato o corretto la query Flex:
