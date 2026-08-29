@@ -13198,6 +13198,25 @@ def api_ibkr_cron():
     if diag == "pos":
         return jsonify({"posizioni": _ibkr_positions_diagnostics(
             _ibkr_default_owner_email())})
+    if diag == "day":
+        # Una giornata dell'archivio così com'è salvata. Serve a distinguere
+        # "il registro non è stato salvato" da "è salvato ma la pagina non lo
+        # disegna": in pagina i due casi si vedono uguali.
+        doc = _ibkr_load_snapshot(_ibkr_default_owner_email()) or {}
+        stored = doc.get("pnl_days") if isinstance(doc.get("pnl_days"), dict) else {}
+        wanted = (request.args.get("giorno") or "").strip()
+        if not wanted:
+            wanted = max(stored.keys()) if stored else ""
+        entry = stored.get(wanted) or {}
+        ops = entry.get("ops") or []
+        return jsonify({
+            "giorno": wanted or None,
+            "giornate_in_archivio": len(stored),
+            "chiavi_della_giornata": sorted(entry.keys()),
+            "operazioni": len(ops),
+            "operazioni_col_realizzato": sum(1 for o in ops if o.get("realized")),
+            "prime_operazioni": ops[:6],
+        })
     if diag == "holdings":
         # I campi esatti su cui la pagina disegna il Gain/Loss e la barra del
         # capitale. Guardare la risposta vera è l'unico modo di distinguere
