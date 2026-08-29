@@ -5,6 +5,16 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.31.1] — 2026-08-28
+
+### Corretto
+- **Il realizzato per titolo era sparito dal dettaglio di giornata.** Mettendo il registro delle operazioni avevo *sostituito* la tabella per titolo invece di affiancarla: due domande diverse — cosa ha reso cosa, e cosa è successo e quando — di cui era rimasta solo la seconda. Il riepilogo per titolo torna, in forma di pastiglie sopra il registro.
+  - Arriva con la vista mensile e non da una richiesta a parte, quindi c'è anche quando il registro non è ancora in archivio: è esattamente il caso in cui prima non restava niente da leggere.
+- **Una giornata salvata prima che il registro esistesse ora lo dice.** Mostrava "Nessuna operazione registrata", che si legge come "quel giorno non hai operato" mentre in testa alla stessa giornata c'erano quattordici operazioni. Ora distingue i due casi e indica il pulsante Aggiorna.
+
+### Tecnico
+- `?diag=day` sul cron mostra una giornata dell'archivio così com'è salvata — chiavi, numero di operazioni, quante col realizzato, le prime righe. Distingue "il registro non è stato salvato" da "è salvato ma la pagina non lo disegna", che in pagina si vedono uguali.
+
 ## [1.31.0] — 2026-08-28
 
 ### Modificato

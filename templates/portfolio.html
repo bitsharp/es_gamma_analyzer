@@ -1835,6 +1835,20 @@
             return `<span class="ord-pill ord-plain">${escapeHtml(label)}</span>`;
         }
 
+        // Quanto ha reso ciascun titolo nella giornata. Sta accanto al registro
+        // e non al posto suo: rispondono a due domande diverse — cosa ha reso
+        // cosa, e cosa è successo e quando — e questo arriva con la vista
+        // mensile, quindi c'è anche quando il registro non è ancora in archivio.
+        function simboliChip(info, cur) {
+            const symbols = (info.symbols || []).filter(s => s.pnl);
+            if (!symbols.length) return '';
+            return `<div class="pdt-symbols">` + symbols.map(s => `
+                <span class="sym-chip"><b>${escapeHtml(s.symbol)}</b>
+                    <span class="${s.pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">
+                        ${s.pnl > 0 ? '+' : ''}${fmtAmount(s.pnl, cur)}</span>
+                    <span class="n">${s.trades}</span></span>`).join('') + `</div>`;
+        }
+
         function pnlOpsTable(detail, cur) {
             if (pnlDayError) {
                 return `<div class="pdt-note" style="color:#f87171;">
@@ -1846,7 +1860,13 @@
             }
             const ops = detail.ops || [];
             if (!ops.length) {
-                return `<div class="pdt-note">Nessuna operazione registrata per questa giornata.</div>`;
+                // Il riepilogo per titolo qui sopra resta comunque: distinguere
+                // "giornata senza operazioni" da "registro non ancora in
+                // archivio" evita di far cercare un guasto che non c'è.
+                return `<div class="pdt-note">${detail.trades
+                    ? 'Registro non in archivio per questa giornata: è stata salvata prima che il '
+                      + 'dettaglio delle operazioni esistesse. Premi Aggiorna per rileggerla dal Flex.'
+                    : 'Nessuna operazione registrata per questa giornata.'}</div>`;
             }
             const righe = ops.map(o => {
                 const vendita = (o.quantity || 0) < 0;
@@ -1924,6 +1944,7 @@
                         ${stat('Uscite', uscite.length ? escapeHtml(uscite.join(' · ')) : '—')}
                         ${stat('Commissioni', info.commissions ? fmtAmount(info.commissions, cur) : '—')}
                     </div>
+                    ${simboliChip(info, cur)}
                     ${pnlOpsTable(pnlDayCache[pnlState.selected], cur)}
                     ${note.map(n => `<div class="pdt-note">${escapeHtml(n)}</div>`).join('')}
                 </div>`;

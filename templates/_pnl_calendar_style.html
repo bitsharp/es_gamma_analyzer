@@ -129,6 +129,20 @@
     .ord-stop   { background: rgba(248,113,113,0.15); color: #fca5a5; border-color: rgba(248,113,113,0.45); }
     .ord-target { background: rgba(74,222,128,0.14); color: #86efac; border-color: rgba(74,222,128,0.42); }
     .ord-plain  { background: rgba(119,141,169,0.15); color: #cbd5e1; border-color: rgba(119,141,169,0.32); }
+    /* Riepilogo per titolo: risponde a una domanda diversa dal registro —
+       cosa ha reso cosa, invece di cosa è successo e quando — e sopravvive
+       quando il registro non c'è. */
+    .pnl-detail .pdt-symbols {
+        display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.65rem;
+    }
+    .pnl-detail .sym-chip {
+        background: rgba(119,141,169,0.14); border: 1px solid rgba(119,141,169,0.3);
+        border-radius: 999px; padding: 0.12rem 0.6rem; font-size: 0.78rem;
+        white-space: nowrap; font-variant-numeric: tabular-nums;
+    }
+    .pnl-detail .sym-chip b { color: #fff; font-weight: 700; margin-right: 0.35rem; }
+    .pnl-detail .sym-chip .n { color: #6b7e92; font-size: 0.7rem; margin-left: 0.3rem; }
+
     .op-open  { color: #93c5fd; font-size: 0.7rem; font-weight: 700; }
     .op-close { color: #cbd5e1; font-size: 0.7rem; font-weight: 700; }
 
