@@ -390,6 +390,20 @@
         /* Lo stile del calendario del P&L sta in _pnl_calendar_style.html,
            incluso qui sotto: lo condivide con la checklist. */
 
+        /* Le due viste della pagina: cosa ho aperto adesso, e com'è andato il
+           portafoglio nel tempo. Stesso stile dei tab della checklist. */
+        #pageTabs { border-bottom: 1px solid #415a77; }
+        #pageTabs .nav-link {
+            color: #94a3b8; border: 1px solid transparent; border-bottom: none;
+            background: transparent; font-size: 0.95rem; font-weight: 600;
+            padding: 0.4rem 1rem;
+        }
+        #pageTabs .nav-link:hover { color: #e2e8f0; border-color: #415a77; }
+        #pageTabs .nav-link.active {
+            color: #38bdf8; background: rgba(56,189,248,0.1);
+            border-color: #415a77 #415a77 transparent;
+        }
+
         .analysis-missing {
             margin-top: 0.7rem; font-size: 0.78rem; color: #778da9;
             background: rgba(13,27,42,0.4); border: 1px solid rgba(119,141,169,0.2);
@@ -457,9 +471,31 @@
         <div class="toolbar-title mb-3">
             <h4 style="color:#fff; margin-bottom:0.15rem;">Il mio portafoglio</h4>
             <div class="subtitle">
-                Aggiungi titoli, vedi l'analisi Damodaran live e l'esposizione per settore, paese e zona di valutazione.
+                Cosa hai aperto adesso su Interactive Brokers, e com'è andato il portafoglio giorno per giorno.
             </div>
         </div>
+
+        <!-- Due viste sulla stessa pagina: le posizioni di adesso e il
+             portafoglio nel tempo — il calendario del P&L e i titoli che segui
+             a mano. Tenerle una sotto l'altra costringeva a scorrere mezza
+             pagina per passare dall'una all'altra. -->
+        <ul class="nav nav-tabs mb-3" id="pageTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="tabPosizioniBtn" data-bs-toggle="tab"
+                        data-bs-target="#tabPosizioni" type="button" role="tab">
+                    <i class="bi bi-briefcase-fill me-1"></i>Posizioni
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tabPortafoglioBtn" data-bs-toggle="tab"
+                        data-bs-target="#tabPortafoglio" type="button" role="tab">
+                    <i class="bi bi-calendar3 me-1"></i>Portafoglio
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content">
+        <div class="tab-pane fade show active" id="tabPosizioni" role="tabpanel">
 
         <!-- Snapshot Interactive Brokers: scritto dal job delle 20:00 su
              /api/ibkr/sync, letto qui da /api/ibkr/snapshot. -->
@@ -493,6 +529,9 @@
             </div>
             <div id="ibkrBody"></div>
         </div>
+
+        </div><!-- /tabPosizioni -->
+        <div class="tab-pane fade" id="tabPortafoglio" role="tabpanel">
 
         <!-- Calendario del P&L giornaliero. Il dato sono gli eseguiti letti dal
              Flex Web Service: il realizzato di ogni chiusura, sommato per
@@ -589,6 +628,9 @@
                 <div class="mt-3">Carico il portafoglio…</div>
             </div>
         </div>
+
+        </div><!-- /tabPortafoglio -->
+        </div><!-- /tab-content -->
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
@@ -2034,6 +2076,31 @@
         });
         loadPnlCalendar();
         loadPortfolio();
+
+        // ---- Tab della pagina ----
+        // I grafici dell'esposizione nascono dentro un pannello nascosto, dove
+        // Chart.js misura un contenitore alto zero e li disegna schiacciati.
+        // Un resize all'apertura del tab li rimette a posto: serve solo la
+        // prima volta, ma quella volta serve sempre.
+        const TAB_VALIDI = ['#tabPosizioni', '#tabPortafoglio'];
+        const TAB_CHIAVE = 'portfolioTab';
+
+        document.querySelectorAll('#pageTabs .nav-link').forEach(btn => {
+            btn.addEventListener('shown.bs.tab', () => {
+                try { localStorage.setItem(TAB_CHIAVE, btn.dataset.bsTarget); } catch (e) {}
+                Object.values(charts).forEach(c => { if (c) c.resize(); });
+            });
+        });
+
+        // Il tab scelto si ricorda: chi tiene aperto il calendario non vuole
+        // ritrovarsi sulle posizioni a ogni ricaricamento.
+        try {
+            const salvato = localStorage.getItem(TAB_CHIAVE);
+            if (TAB_VALIDI.includes(salvato)) {
+                const btn = document.querySelector(`#pageTabs .nav-link[data-bs-target="${salvato}"]`);
+                if (btn && !btn.classList.contains('active')) new bootstrap.Tab(btn).show();
+            }
+        } catch (e) { /* localStorage inaccessibile: si resta sul primo tab */ }
     </script>
     {% include '_release_notes_modal.html' %}
 </body>

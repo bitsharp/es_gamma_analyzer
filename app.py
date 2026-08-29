@@ -13121,6 +13121,45 @@ def _flex_report_shape() -> dict:
     }
 
 
+def _ibkr_positions_diagnostics(owner_email: str) -> dict:
+    """Perché una posizione mostra il Gain/Loss a trattino.
+
+    Il P&L delle posizioni che arrivano dal Flex non è un dato di IBKR: è
+    ricalcolato col listino, e la catena ha tre anelli — il simbolo FMP
+    risolto dalla mappa earnings, la quotazione, il prezzo di carico. Se ne
+    salta uno il numero sparisce, e da fuori i tre casi si somigliano tutti.
+    """
+    doc = _ibkr_load_snapshot(owner_email) or {}
+    earnings = doc.get("earnings") if isinstance(doc.get("earnings"), dict) else {}
+    source = (doc.get("positions_source") or "")
+    righe = []
+    for position in (doc.get("positions") or []):
+        symbol = (position.get("symbol") or "").upper()
+        fmp_symbol = (earnings.get(symbol) or {}).get("fmp_symbol")
+        quote = _fetch_quote_price(fmp_symbol) if fmp_symbol else None
+        row = {**position, "fmp_symbol": fmp_symbol}
+        revalued = _ibkr_revalue_position(row) if source.startswith("flex") else row
+        righe.append({
+            "symbol": symbol,
+            "quantity": position.get("quantity"),
+            "avg_price": position.get("avg_price"),
+            "pnl_in_archivio": position.get("unrealized_pnl"),
+            "derivata_dagli_eseguiti": bool(position.get("derived_from_trades")),
+            "fmp_symbol": fmp_symbol,
+            "quotazione_fmp": quote,
+            "pnl_dopo_rivalutazione": revalued.get("unrealized_pnl"),
+            "rivalutata": bool(revalued.get("revalued")),
+            "rivalutazione_scartata": bool(revalued.get("revalue_rejected")),
+        })
+    return {
+        "positions_source": source or None,
+        "rivalutazione_attiva": source.startswith("flex"),
+        "fmp_configurata": bool(_ibkr_api_env("FMP_API_KEY")),
+        "simboli_senza_fmp": [r["symbol"] for r in righe if not r["fmp_symbol"]],
+        "posizioni": righe,
+    }
+
+
 def _ibkr_env_diagnostics() -> dict:
     names = sorted(k for k in os.environ
                    if k.startswith(_IBKR_DIAG_PREFIXES))
@@ -13144,6 +13183,9 @@ def api_ibkr_cron():
         return jsonify({"env": _ibkr_env_diagnostics()})
     if diag == "flex":
         return jsonify({"report": _flex_report_shape()})
+    if diag == "pos":
+        return jsonify({"posizioni": _ibkr_positions_diagnostics(
+            _ibkr_default_owner_email())})
     notify_always = request.args.get("notify_always") == "1"
     # `pnl=force` rilegge lo storico anche se non è ancora scaduto, `pnl=0` lo
     # salta del tutto. Serve dopo aver configurato o corretto la query Flex:
