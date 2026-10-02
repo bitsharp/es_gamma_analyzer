@@ -5,6 +5,11 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.37.1] — 2026-10-02
+
+### Modificato
+- **Le note Bookmap non hanno più il prefisso «ZG» e cominciano col prezzo:** `7762.25 - Flip`, `7763.5 - Call Wall`. Il prezzo è quello esatto al tick (0,25) e senza zeri inutili. «Gamma Flip» diventa «Flip».
+
 ## [1.37.0] — 2026-10-02
 
 ### Aggiunto
