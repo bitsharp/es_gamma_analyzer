@@ -5,6 +5,11 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.35.3] — 2026-10-02
+
+### Modificato
+- **Il «Piano operativo» si apre in una finestra modale**, con il testo grande (1,25 rem) e contrasto alto, invece di un riquadro sotto il grafico. Se è aperta mentre premi «Aggiorna», si rigenera con i livelli nuovi.
+
 ## [1.35.2] — 2026-10-02
 
 ### Aggiunto

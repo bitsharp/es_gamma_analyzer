@@ -1011,10 +1011,10 @@
             <style>
                 .zg-card .zg-chart{height:340px;}
                 .zg-badges .badge{font-weight:600;}
-                .zg-plan{color:#e2e8f0;border-left:3px solid #38bdf8;background:rgba(56,189,248,0.07);border-radius:4px;padding:8px 12px;font-size:13px;line-height:1.5;}
-                .zg-plan p{margin:0 0 6px;}
-                .zg-plan .text-muted{color:#94a3b8 !important;}
-                .zg-plan p:last-child{margin-bottom:0;}
+                #zgPlanModal .modal-content{background:#1b263b;color:#f1f5f9;border:1px solid #415a77;}
+                #zgPlanModal .modal-header,#zgPlanModal .modal-footer{border-color:#415a77;}
+                #zgPlanModal .zg-plan-body p{font-size:1.25rem;line-height:1.65;margin:0 0 1.1rem;padding-left:14px;border-left:4px solid #38bdf8;}
+                #zgPlanModal .zg-plan-body p.zg-plan-foot{font-size:.95rem;line-height:1.5;color:#94a3b8;border-left-color:#475569;margin-bottom:0;}
                 .zg-lv{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-variant-numeric:tabular-nums;margin-right:12px;white-space:nowrap;}
                 .zg-lv i{display:inline-block;width:14px;height:0;border-top:2px dashed currentColor;}
             </style>
@@ -1049,13 +1049,12 @@
                         <div><span class="fw-bold">{{ zs }}</span> <span class="fw-bold ms-2" id="zgSpot{{ zs }}">--</span> <span class="text-muted small ms-1" id="zgAsOf{{ zs }}"></span></div>
                         <div class="zg-badges">
                             <span class="badge bg-secondary" id="zgRegime{{ zs }}">--</span> <span class="badge bg-dark border" id="zgGex{{ zs }}">--</span>
-                            <button type="button" class="btn btn-sm btn-outline-info py-0 ms-1 zg-plan-btn" data-sym="{{ zs }}" aria-expanded="false"><i class="bi bi-list-check me-1"></i>Piano operativo</button>
+                            <button type="button" class="btn btn-sm btn-outline-info py-0 ms-1 zg-plan-btn" data-sym="{{ zs }}" ><i class="bi bi-list-check me-1"></i>Piano operativo</button>
                         </div>
                     </div>
                     <div class="card-body p-2">
                         <div class="zg-chart" id="zgChart{{ zs }}"></div>
                         <div class="mt-2" id="zgLegend{{ zs }}"></div>
-                        <div class="zg-plan mt-2" id="zgPlan{{ zs }}" style="display:none;"></div>
                         <div class="text-muted small mt-1" id="zgNote{{ zs }}"></div>
                     </div>
                 </div>
@@ -6162,6 +6161,18 @@
     </script>
     {% include '_release_notes_modal.html' %}
 
+    <div class="modal fade" id="zgPlanModal" tabindex="-1" aria-labelledby="zgPlanTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold" id="zgPlanTitle">Piano operativo</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+                </div>
+                <div class="modal-body zg-plan-body" id="zgPlanBody"></div>
+            </div>
+        </div>
+    </div>
+
     <script>
     // ================= ZeroGEX: livelli gamma ES/NQ (MCP) =================
     (function(){
@@ -6261,22 +6272,25 @@
             }
             return out;
         }
+        let planSym = null;
         function renderPlan(sym){
-            const box = document.getElementById('zgPlan' + sym);
-            if (!box || !last[sym]) return;
+            const body = document.getElementById('zgPlanBody');
+            if (!body || !last[sym]) return;
             const lv = last[sym].levels || {};
             const age = lv.age_seconds != null ? ' Livelli di ' + ageText(lv.age_seconds) + ', ritardo minimo 15 min.' : '';
-            box.innerHTML = planParagraphs(last[sym]).map(t => '<p>' + t + '</p>').join('') +
-                '<p class="text-muted small">Scenari ricavati dai livelli, non una raccomandazione.' + age + '</p>';
+            document.getElementById('zgPlanTitle').textContent = 'Piano operativo ' + sym;
+            body.innerHTML = planParagraphs(last[sym]).map(t => '<p>' + t + '</p>').join('') +
+                '<p class="zg-plan-foot">Scenari ricavati dai livelli, non una raccomandazione.' + age + '</p>';
         }
         function bindPlanButtons(){
+            const el = document.getElementById('zgPlanModal');
+            if (!el || !window.bootstrap) return;
+            const modal = new bootstrap.Modal(el);
+            el.addEventListener('hidden.bs.modal', () => { planSym = null; });
             document.querySelectorAll('.zg-plan-btn').forEach(btn => btn.addEventListener('click', function(){
-                const sym = btn.dataset.sym;
-                const box = document.getElementById('zgPlan' + sym);
-                const open = box.style.display === 'none';
-                box.style.display = open ? '' : 'none';
-                btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-                if (open) renderPlan(sym);
+                planSym = btn.dataset.sym;
+                renderPlan(planSym);
+                modal.show();
             }));
         }
         async function load(force){
@@ -6292,8 +6306,7 @@
                     if (d.error) { failed++; return; }
                     render(sym, d);
                     last[sym] = d;
-                    const pb = document.getElementById('zgPlan' + sym);
-                    if (pb && pb.style.display !== 'none') renderPlan(sym);  // piano aperto: segue il refresh
+                    if (planSym === sym) renderPlan(sym);  // modale aperta: segue il refresh
                 } catch (e) { failed++; }
             }));
             if (status) status.textContent = failed ? 'Errore su ' + failed + ' simbolo/i' : 'Aggiornato ' + new Date().toLocaleTimeString('it-IT');
