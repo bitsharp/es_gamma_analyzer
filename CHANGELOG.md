@@ -5,6 +5,17 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.37.0] — 2026-10-02
+
+### Aggiunto
+- **Storico giornaliero dei livelli ZeroGEX per ES e NQ.** A ogni chiusura (cron alle 21:30 UTC nei giorni feriali) e a ogni visita alla pagina si salva l'ultimo snapshot della seduta: Dealer gamma allo spot, regime, flip e distanza dal prezzo, call wall, put wall, max pain, pin. Una riga per simbolo e seduta, che viene sovrascritta solo da uno snapshot più recente.
+- **Segnalazione delle giornate anomale.** Il Dealer gamma di oggi è confrontato con quello delle sedute precedenti (fino a 60) con uno z-score: da 2 deviazioni standard compare il badge arancione «Giornata anomala», da 3 quello rosso «Giornata estrema», con la direzione («più negativo» o «più positivo del solito»). Il tooltip mostra media, deviazione e z. Servono almeno 10 sedute salvate; prima il badge non compare e il tooltip dice a che punto è lo storico.
+- **Bottone «Storico»**: tabella delle ultime 60 sedute per ES e NQ, con le giornate segnalate evidenziate. Per ogni seduta lo z è calcolato solo sul passato.
+
+### Tecnico
+- Nuova collezione `zerogex_daily` (`MONGODB_ZEROGEX_DAILY_COLLECTION`), indice univoco su simbolo e data di seduta; la data di seduta è l'orario UTC dello snapshot meno 6 ore.
+- Nuovi endpoint `GET /api/zerogex-history` e `GET|POST /api/zerogex/cron` (stessa autenticazione del cron IBKR: `CRON_SECRET`).
+
 ## [1.36.0] — 2026-10-02
 
 ### Aggiunto

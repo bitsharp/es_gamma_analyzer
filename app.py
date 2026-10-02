@@ -380,6 +380,8 @@ def _require_login():
     # la guardia di sessione risponda 401 prima che la rotta veda la richiesta.
     if path.startswith('/api/ibkr/') and _ibkr_cron_authorized():
         return None
+    if path == '/api/zerogex/cron' and _ibkr_cron_authorized():
+        return None
 
     # Bookmap scarica il CSV senza sessione: il token viene verificato dalla rotta.
     if path.startswith('/bookmap/notes/') and _bookmap_authorized():
@@ -5880,6 +5882,169 @@ def bookmap_cloud_notes(symbol: str):
     return resp
 
 
+# ---------------------------------------------------------------------------
+# ZeroGEX: storico giornaliero e segnalazione delle giornate anomale
+# ---------------------------------------------------------------------------
+# Una riga per (simbolo, seduta) con l'ultimo snapshot disponibile: a mercato
+# chiuso ZeroGEX continua a servire quello delle 15:59 ET, quindi basta rileggere
+# dopo la chiusura (cron) o a ogni visita alla pagina. Il confronto e' sul Net
+# GEX allo spot: z-score contro le sedute precedenti.
+
+_MONGO_ZEROGEX_DAILY_COLLECTION = None
+ZEROGEX_ANOMALY_WINDOW = 60       # sedute usate come termine di confronto
+ZEROGEX_ANOMALY_MIN_SAMPLES = 10  # sotto, il confronto non e' affidabile
+ZEROGEX_ANOMALY_Z = 2.0           # |z| >= 2: fuori dal normale; >= 3: estremo
+
+
+def _get_mongo_zerogex_daily_collection():
+    global _MONGO_CLIENT, _MONGO_ZEROGEX_DAILY_COLLECTION
+    if _MONGO_ZEROGEX_DAILY_COLLECTION is not None:
+        return _MONGO_ZEROGEX_DAILY_COLLECTION
+    if MongoClient is None:
+        return None
+    uri = (os.getenv("MONGODB_URI") or "").strip()
+    if not uri:
+        return None
+    db_name = (os.getenv("MONGODB_DB") or "es_gamma_analyzer").strip()
+    coll_name = (os.getenv("MONGODB_ZEROGEX_DAILY_COLLECTION") or "zerogex_daily").strip()
+    try:
+        if _MONGO_CLIENT is None:
+            _MONGO_CLIENT = MongoClient(uri, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+        coll = _MONGO_CLIENT[db_name][coll_name]
+        try:
+            coll.create_index([("symbol", 1), ("session_date", 1)], unique=True)
+        except Exception:
+            pass
+        _MONGO_ZEROGEX_DAILY_COLLECTION = coll
+        return coll
+    except Exception:
+        return None
+
+
+def _zerogex_session_date(as_of: str) -> Optional[str]:
+    """Data di seduta (ET) di uno snapshot. Sottrarre 6 ore all'orario UTC basta:
+    l'ultimo snapshot e' alle 15:59 ET (19:59/20:59 UTC) e l'ora legale non lo
+    sposta oltre la mezzanotte, evitando zoneinfo che su Windows chiede tzdata."""
+    try:
+        dt = _dt.datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
+        return (dt - _dt.timedelta(hours=6)).date().isoformat()
+    except Exception:
+        return None
+
+
+def _zerogex_save_snapshot(symbol: str, levels: Dict[str, Any]) -> bool:
+    """Salva lo snapshot se e' piu' recente di quello gia' presente per la seduta."""
+    coll = _get_mongo_zerogex_daily_collection()
+    as_of = levels.get("as_of") if isinstance(levels, dict) else None
+    session = _zerogex_session_date(as_of) if as_of else None
+    if coll is None or not session or levels.get("net_gex_at_spot") is None:
+        return False
+    try:
+        existing = coll.find_one({"symbol": symbol, "session_date": session}, {"as_of": 1})
+        if existing and str(existing.get("as_of") or "") >= str(as_of):
+            return False
+        spot = levels.get("spot")
+        flip = levels.get("gamma_flip")
+        doc = {
+            "symbol": symbol,
+            "session_date": session,
+            "as_of": str(as_of),
+            "spot": spot,
+            "regime": levels.get("regime"),
+            "net_gex_at_spot": levels.get("net_gex_at_spot"),
+            "gamma_flip": flip,
+            "call_wall": levels.get("call_wall"),
+            "put_wall": levels.get("put_wall"),
+            "max_pain": levels.get("max_pain"),
+            "pin_strike": levels.get("pin_strike"),
+            "put_call_ratio": levels.get("put_call_ratio"),
+            "flip_dist_pct": round((flip - spot) / spot * 100, 3) if (flip is not None and spot) else None,
+            "saved_at": _dt.datetime.utcnow().isoformat(),
+        }
+        coll.replace_one({"symbol": symbol, "session_date": session}, doc, upsert=True)
+        return True
+    except Exception:
+        return False
+
+
+def _zerogex_history(symbol: str, days: int = 120) -> List[Dict[str, Any]]:
+    coll = _get_mongo_zerogex_daily_collection()
+    if coll is None:
+        return []
+    try:
+        rows = list(coll.find({"symbol": symbol}, {"_id": 0}).sort("session_date", -1).limit(days))
+        return sorted(rows, key=lambda r: r.get("session_date") or "")
+    except Exception:
+        return []
+
+
+def _zerogex_zscore(value: Optional[float], history: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """z-score di `value` contro il Net GEX delle sedute in `history`.
+
+    Restituisce None se il campione e' troppo piccolo o senza varianza: meglio
+    nessun segnale di uno costruito su dieci punti."""
+    if value is None:
+        return None
+    sample = [r["net_gex_at_spot"] for r in history[-ZEROGEX_ANOMALY_WINDOW:]
+              if isinstance(r.get("net_gex_at_spot"), (int, float))]
+    if len(sample) < ZEROGEX_ANOMALY_MIN_SAMPLES:
+        return None
+    mean = sum(sample) / len(sample)
+    var = sum((x - mean) ** 2 for x in sample) / (len(sample) - 1)
+    std = var ** 0.5
+    if std <= 0:
+        return None
+    z = (value - mean) / std
+    level = "extreme" if abs(z) >= 3 else ("high" if abs(z) >= ZEROGEX_ANOMALY_Z else "normal")
+    return {"z": round(z, 2), "level": level, "mean": mean, "std": std, "n": len(sample),
+            "direction": "low" if z < 0 else "high"}
+
+
+def _zerogex_anomaly_for(symbol: str, levels: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Segnale per i livelli correnti, confrontati con le sedute *precedenti*."""
+    out: Dict[str, Any] = {"min_samples": ZEROGEX_ANOMALY_MIN_SAMPLES}
+    if not levels or levels.get("net_gex_at_spot") is None:
+        return out
+    session = _zerogex_session_date(levels.get("as_of") or "")
+    history = [r for r in _zerogex_history(symbol, ZEROGEX_ANOMALY_WINDOW + 5) if r.get("session_date") != session]
+    out["history_n"] = len(history)
+    z = _zerogex_zscore(levels.get("net_gex_at_spot"), history)
+    if z:
+        out.update(z)
+    return out
+
+
+@app.route('/api/zerogex-history', methods=['GET'])
+def zerogex_history():
+    """Storico giornaliero con z-score e segnalazione per ogni seduta."""
+    symbol = (request.args.get('symbol') or 'ES').upper()
+    if symbol not in _ZEROGEX_SYMBOLS:
+        return jsonify({"error": "Simbolo non supportato (ES o NQ)"}), 400
+    try:
+        days = max(5, min(int(request.args.get('days') or 60), 365))
+    except ValueError:
+        days = 60
+    rows = _zerogex_history(symbol, days)
+    out = []
+    for i, r in enumerate(rows):
+        z = _zerogex_zscore(r.get("net_gex_at_spot"), rows[:i])  # solo il passato: niente look-ahead
+        out.append({**r, "z": (z or {}).get("z"), "level": (z or {}).get("level")})
+    return jsonify({"symbol": symbol, "days": out, "min_samples": ZEROGEX_ANOMALY_MIN_SAMPLES,
+                    "threshold": ZEROGEX_ANOMALY_Z})
+
+
+@app.route('/api/zerogex/cron', methods=['GET', 'POST'])
+def api_zerogex_cron():
+    """Dopo la chiusura: salva lo snapshot di fine seduta di ES e NQ. Lo chiama Vercel Cron."""
+    if not _ibkr_cron_authorized():
+        return jsonify({"error": "unauthorized"}), 401
+    saved = {}
+    for sym in _ZEROGEX_SYMBOLS:
+        levels = get_zerogex_levels_cached(sym, max_age_seconds=0)
+        saved[sym] = bool(levels) and _zerogex_save_snapshot(sym, levels)
+    return jsonify({"saved": saved})
+
+
 @app.route('/api/zerogex-levels', methods=['GET'])
 def zerogex_levels():
     """Livelli gamma ZeroGEX + candele 5m per ES e NQ. `?force=1` salta la cache."""
@@ -5896,8 +6061,12 @@ def zerogex_levels():
     if not levels and not candles:
         # 200 con payload d'errore, come le altre API di mercato (niente rumore in console).
         return jsonify({"error": "Impossibile leggere i livelli ZeroGEX in questo momento"})
+    anomaly = None
+    if levels and not candles_only:
+        _zerogex_save_snapshot(symbol, levels)  # best effort: l'archivio si riempie anche senza cron
+        anomaly = _zerogex_anomaly_for(symbol, levels)
     return jsonify({"symbol": symbol, "levels": levels, "candles": (candles or {}).get('candles') or [],
-                    "price": (candles or {}).get('price')})
+                    "price": (candles or {}).get('price'), "anomaly": anomaly})
 
 
 @app.route('/api/es-price', methods=['GET'])

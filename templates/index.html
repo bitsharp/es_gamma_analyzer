@@ -1011,8 +1011,13 @@
             <style>
                 .zg-card .zg-chart{height:340px;}
                 .zg-badges .badge{font-weight:600;}
-                #zgPlanModal .modal-content,#zgLegendModal .modal-content{background:#1b263b;color:#f1f5f9;border:1px solid #415a77;}
-                #zgPlanModal .modal-header,#zgLegendModal .modal-header{border-color:#415a77;}
+                #zgPlanModal .modal-content,#zgLegendModal .modal-content,#zgHistoryModal .modal-content{background:#1b263b;color:#f1f5f9;border:1px solid #415a77;}
+                #zgPlanModal .modal-header,#zgLegendModal .modal-header,#zgHistoryModal .modal-header{border-color:#415a77;}
+                #zgHistoryModal table{color:#e2e8f0;font-size:.9rem;font-variant-numeric:tabular-nums;width:100%;}
+                #zgHistoryModal th{color:#94a3b8;font-weight:600;border-bottom:1px solid #415a77;padding:4px 8px;white-space:nowrap;}
+                #zgHistoryModal td{padding:4px 8px;border-bottom:1px solid rgba(65,90,119,.4);white-space:nowrap;}
+                #zgHistoryModal tr.zg-flag-high td{background:rgba(245,158,11,.14);}
+                #zgHistoryModal tr.zg-flag-extreme td{background:rgba(239,68,68,.20);}
                 #zgLegendModal dt{font-size:1.05rem;display:flex;align-items:center;gap:10px;margin-top:1rem;}
                 #zgLegendModal dt .sw{display:inline-block;width:28px;height:0;border-top:3px solid currentColor;}
                 #zgLegendModal dd{margin:.2rem 0 0 38px;font-size:.98rem;line-height:1.55;color:#e2e8f0;}
@@ -1026,6 +1031,7 @@
                 <div class="fw-bold"><i class="bi bi-bullseye me-2"></i>Livelli gamma ZeroGEX <span class="text-muted small">(ES · NQ · ritardo ~15 min)</span></div>
                 <div class="d-flex align-items-center gap-2">
                     <span class="text-muted small" id="zgStatus"></span>
+                    <button type="button" class="btn btn-sm btn-outline-info" id="zgHistoryBtn"><i class="bi bi-clock-history me-1"></i>Storico</button>
                     <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#zgLegendModal"><i class="bi bi-info-circle me-1"></i>Legenda</button>
                     <button type="button" class="btn btn-sm btn-outline-light" id="zgRefreshBtn"><i class="bi bi-arrow-clockwise me-1"></i>Aggiorna</button>
                     {% if is_admin %}
@@ -1053,7 +1059,7 @@
                     <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
                         <div><span class="fw-bold">{{ zs }}</span> <span class="fw-bold ms-2" id="zgSpot{{ zs }}">--</span> <span class="text-muted small ms-1" id="zgAsOf{{ zs }}"></span></div>
                         <div class="zg-badges">
-                            <span class="badge bg-secondary" id="zgRegime{{ zs }}">--</span> <span class="badge bg-dark border" id="zgGex{{ zs }}">--</span>
+                            <span class="badge bg-secondary" id="zgRegime{{ zs }}">--</span> <span class="badge bg-dark border" id="zgGex{{ zs }}">--</span> <span class="badge d-none" id="zgAnom{{ zs }}"></span>
                             <button type="button" class="btn btn-sm btn-outline-info py-0 ms-1 zg-plan-btn" data-sym="{{ zs }}" ><i class="bi bi-list-check me-1"></i>Piano operativo</button>
                         </div>
                     </div>
@@ -6166,6 +6172,18 @@
     </script>
     {% include '_release_notes_modal.html' %}
 
+    <div class="modal fade" id="zgHistoryModal" tabindex="-1" aria-labelledby="zgHistoryTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold" id="zgHistoryTitle">Storico giornaliero dei livelli gamma</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+                </div>
+                <div class="modal-body" id="zgHistoryBody"></div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="zgLegendModal" tabindex="-1" aria-labelledby="zgLegendTitle" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
             <div class="modal-content">
@@ -6303,6 +6321,7 @@
                 rg.className = 'badge ' + (lv.regime ? (short ? 'bg-danger' : 'bg-success') : 'bg-secondary');
             }
             set('zgGex', 'Dealer gamma @ spot ' + fmtB(lv.net_gex_at_spot));
+            renderAnomaly(sym, data.anomaly, lv);
             set('zgAsOf', lv.as_of ? 'livelli ' + ageText(lv.age_seconds) : '');
             set('zgNote', lv.as_of ? 'Livelli calcolati sullo spot ' + fmt(lv.spot) + ' (' + (lv.market_phase || '') + ', ritardo minimo 15 min) · ZeroGEX · derivati dalla catena ' + (sym === 'ES' ? 'SPX' : 'NDX') + ' e già sull’asse del future. Candele 5m Yahoo.' : '');
         }
@@ -6335,6 +6354,54 @@
                 out.push('Sotto il flip (' + n0(F) + ') si torna in gamma negativa e i movimenti si amplificano' + (P != null ? '; il primo obiettivo è la put wall a ' + n0(P) + '.' : '.'));
             }
             return out;
+        }
+        // ---- Segnalazione delle giornate anomale (z-score del Net GEX sulle sedute precedenti) ----
+        function renderAnomaly(sym, an, lv){
+            const el = document.getElementById('zgAnom' + sym);
+            if (!el) return;
+            const flagged = an && (an.level === 'high' || an.level === 'extreme');
+            let tip;
+            if (an && an.z != null) {
+                tip = 'Dealer gamma ' + fmtB(lv.net_gex_at_spot) + ' contro una media di ' + fmtB(an.mean) +
+                      ' (±' + (an.std / 1e9).toFixed(2) + 'B) sulle ultime ' + an.n + ' sedute: z = ' + an.z + '.';
+            } else {
+                const n = an && an.history_n != null ? an.history_n : 0;
+                tip = 'Storico insufficiente per il confronto: ' + n + '/' + (an ? an.min_samples : 10) + ' sedute salvate.';
+            }
+            el.title = tip;
+            if (!flagged) { el.className = 'badge d-none'; return; }
+            const extreme = an.level === 'extreme';
+            el.className = 'badge ' + (extreme ? 'bg-danger' : 'bg-warning text-dark');
+            el.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i>' +
+                (extreme ? 'Giornata estrema' : 'Giornata anomala') + ' · ' + (an.direction === 'low' ? 'più negativo' : 'più positivo') + ' del solito (z ' + an.z + ')';
+        }
+        async function openHistory(){
+            const body = document.getElementById('zgHistoryBody');
+            body.innerHTML = '<p class="text-muted">Caricamento…</p>';
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('zgHistoryModal')).show();
+            let html = '';
+            for (const sym of ['ES', 'NQ']) {
+                try {
+                    const d = await (await fetch('/api/zerogex-history?symbol=' + sym + '&days=60')).json();
+                    const rows = (d.days || []).slice().reverse();
+                    const flagged = rows.filter(r => r.level === 'high' || r.level === 'extreme').length;
+                    html += '<h6 class="fw-bold mt-3">' + sym + ' <span class="text-muted small fw-normal">· ' + rows.length + ' sedute salvate, ' + flagged + ' segnalate</span></h6>';
+                    if (!rows.length) { html += '<p class="text-muted small">Nessuna seduta salvata ancora: lo storico si riempie da solo a ogni chiusura.</p>'; continue; }
+                    if (rows.length < d.min_samples) html += '<p class="text-muted small">Servono almeno ' + d.min_samples + ' sedute per il confronto: ne mancano ' + (d.min_samples - rows.length) + '.</p>';
+                    html += '<table><thead><tr><th>Seduta</th><th>Dealer gamma</th><th>z</th><th>Regime</th><th>Flip</th><th>Dist. flip</th><th>Call wall</th><th>Put wall</th><th>Max pain</th><th>Pin</th></tr></thead><tbody>';
+                    rows.forEach(r => {
+                        const cls = r.level === 'extreme' ? 'zg-flag-extreme' : (r.level === 'high' ? 'zg-flag-high' : '');
+                        const flag = cls ? ' ⚠' : '';
+                        html += '<tr class="' + cls + '"><td>' + r.session_date + flag + '</td><td>' + fmtB(r.net_gex_at_spot) + '</td><td>' +
+                            (r.z != null ? r.z : '–') + '</td><td>' + (r.regime === 'short' ? 'SHORT' : (r.regime === 'long' ? 'LONG' : '–')) + '</td><td>' +
+                            fmt(r.gamma_flip) + '</td><td>' + (r.flip_dist_pct != null ? r.flip_dist_pct.toFixed(2) + '%' : '–') + '</td><td>' +
+                            fmt(r.call_wall) + '</td><td>' + fmt(r.put_wall) + '</td><td>' + fmt(r.max_pain) + '</td><td>' + fmt(r.pin_strike) + '</td></tr>';
+                    });
+                    html += '</tbody></table>';
+                } catch (e) { html += '<p class="text-danger small">Errore nel caricare lo storico ' + sym + '.</p>'; }
+            }
+            html += '<p class="text-muted small mt-3 mb-0">Una seduta è segnalata quando il Dealer gamma si discosta di almeno 2 deviazioni standard (⚠ arancione) o 3 (rosso) dalla media delle sedute precedenti, fino a 60. Il confronto usa solo il passato.</p>';
+            body.innerHTML = html;
         }
         let planSym = null;
         function renderPlan(sym){
@@ -6400,6 +6467,8 @@
             const btn = document.getElementById('zgRefreshBtn');
             if (btn) btn.addEventListener('click', () => load(true));
             bindPlanButtons();
+            const hb = document.getElementById('zgHistoryBtn');
+            if (hb) hb.addEventListener('click', openHistory);
             load(false);
         });
     })();

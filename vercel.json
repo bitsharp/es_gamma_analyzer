@@ -7,6 +7,7 @@
     { "src": "/(.*)", "dest": "api/index.py" }
   ],
   "crons": [
-    { "path": "/api/ibkr/cron", "schedule": "0 18 * * *" }
+    { "path": "/api/ibkr/cron", "schedule": "0 18 * * *" },
+    { "path": "/api/zerogex/cron", "schedule": "30 21 * * 1-5" }
   ]
 }
