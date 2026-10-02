@@ -5,6 +5,15 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.34.0] — 2026-10-02
+
+### Aggiunto
+- **Link per le Cloud Notes di Bookmap, uno per ES e uno per NQ.** Sono due CSV (`/bookmap/notes/ES.csv`, `/bookmap/notes/NQ.csv`) con call wall, gamma flip, max pain, pin e put wall di ZeroGEX, ognuno con il suo colore e la linea orizzontale sul prezzo. Si incollano in «Cloud Notes download URL» di Bookmap; i link pronti, con il token, li vede l'amministratore sopra i due grafici della pagina Gamma. I prezzi sono arrotondati al tick (0,25) e un livello assente non genera righe.
+- Il simbolo di default è il future trimestrale in corso (es. `ESZ6`, con il passaggio al successivo la settimana prima della scadenza); se il feed di Bookmap usa un alias diverso si passa `?symbol=ESZ6.CME@RITHMIC`.
+
+### Tecnico
+- Bookmap scarica l'URL senza sessione, quindi la rotta si autentica con `BOOKMAP_TOKEN` (`?key=`). Senza token configurato resta chiusa.
+
 ## [1.33.0] — 2026-10-02
 
 ### Aggiunto

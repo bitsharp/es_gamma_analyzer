@@ -6,7 +6,7 @@ Flask web application per analisi gamma exposure 0DTE
 # IMPORTS
 # ============================================================================
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response
 import os
 import time
 import csv
@@ -379,6 +379,10 @@ def _require_login():
     # condiviso. Il controllo vero resta dentro la rotta — qui si evita solo che
     # la guardia di sessione risponda 401 prima che la rotta veda la richiesta.
     if path.startswith('/api/ibkr/') and _ibkr_cron_authorized():
+        return None
+
+    # Bookmap scarica il CSV senza sessione: il token viene verificato dalla rotta.
+    if path.startswith('/bookmap/notes/') and _bookmap_authorized():
         return None
 
     if _is_authenticated():
@@ -5480,7 +5484,10 @@ def _checklist_history(limit: int = 30) -> list:
 
 @app.route('/')
 def index():
-    return render_template('index.html', is_admin=_is_admin())
+    admin = _is_admin()
+    # Il token compare nel link da incollare in Bookmap: lo vede solo l'amministratore.
+    bookmap_token = (os.getenv('BOOKMAP_TOKEN') or '').strip() if admin else ''
+    return render_template('index.html', is_admin=admin, bookmap_token=bookmap_token)
 
 
 # ============================================================================
@@ -5784,6 +5791,77 @@ def get_zerogex_candles_cached(symbol: str, max_age_seconds: int = 60) -> Option
         return value
     except Exception:
         return entry.get('value')
+
+
+# ---------------------------------------------------------------------------
+# Bookmap Cloud Notes: i livelli ZeroGEX come CSV leggibile da Bookmap
+# ---------------------------------------------------------------------------
+# Bookmap scarica l'URL da solo, ogni N minuti, senza cookie di sessione: la
+# rotta si autentica con BOOKMAP_TOKEN (`?key=`). Senza token configurato resta
+# chiusa (404), come l'ingest IBKR.
+
+_BOOKMAP_FUT_MONTHS = ((3, 'H'), (6, 'M'), (9, 'U'), (12, 'Z'))
+_BOOKMAP_NOTE_LEVELS = (
+    # (campo, etichetta, colore testo, colore sfondo)
+    ('call_wall', 'Call Wall', '#FFFFFF', '#B91C1C'),
+    ('gamma_flip', 'Gamma Flip', '#FFFFFF', '#1D4ED8'),
+    ('max_pain', 'Max Pain', '#000000', '#FBBF24'),
+    ('pin_strike', 'Pin', '#000000', '#2DD4BF'),
+    ('put_wall', 'Put Wall', '#FFFFFF', '#15803D'),
+)
+
+
+def _bookmap_front_contract(root: str, today: Optional[_dt.date] = None) -> str:
+    """Codice del future trimestrale in scadenza piu' vicina, es. ESZ6.
+
+    Scade il terzo venerdi' del mese; si passa al successivo nella settimana
+    prima (come fa il roll), cosi' il simbolo non punta a un contratto morente."""
+    today = today or _dt.date.today()
+    for year in (today.year, today.year + 1):
+        for month, code in _BOOKMAP_FUT_MONTHS:
+            first = _dt.date(year, month, 1)
+            third_friday = first + _dt.timedelta(days=(4 - first.weekday()) % 7 + 14)
+            if today <= third_friday - _dt.timedelta(days=8):
+                return f"{root}{code}{year % 10}"
+    return root
+
+
+def _bookmap_authorized() -> bool:
+    expected = (os.getenv("BOOKMAP_TOKEN") or "").strip()
+    given = (request.args.get("key") or "").strip()
+    return bool(expected) and bool(given) and hmac.compare_digest(given, expected)
+
+
+@app.route('/bookmap/notes/<symbol>.csv', methods=['GET'])
+def bookmap_cloud_notes(symbol: str):
+    """CSV nel formato Cloud Notes di Bookmap con i livelli gamma di ES o NQ.
+
+    `?key=` il token; `?symbol=` l'alias esatto del grafico Bookmap (es.
+    `ESZ6.CME@RITHMIC`) se il default (contratto trimestrale in corso) non
+    combacia con quello del tuo feed."""
+    if not _bookmap_authorized():
+        return Response("Not found\n", status=404, mimetype='text/plain')
+    root = (symbol or '').upper()
+    if root not in _ZEROGEX_SYMBOLS:
+        return Response("Simbolo non supportato (ES o NQ)\n", status=404, mimetype='text/plain')
+
+    levels = get_zerogex_levels_cached(root) or {}
+    alias = (request.args.get('symbol') or '').strip() or _bookmap_front_contract(root)
+
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator='\n')
+    writer.writerow(['Automap command', 'Symbol', 'Price Level', 'Note', 'Foreground Color',
+                     'Background Color', 'Text Alignment', 'Diameter', 'Draw Note Price Horizontal Line'])
+    for field, label, fg, bg in _BOOKMAP_NOTE_LEVELS:
+        value = levels.get(field)
+        if value is None:  # livello non supportato ora: non e' zero, non si disegna
+            continue
+        price = round(float(value) * 4) / 4  # tick ES/NQ = 0.25
+        writer.writerow(['', alias, f"{price:.2f}", f"ZG {label}", fg, bg, 'left', 1, 'TRUE'])
+
+    resp = Response(out.getvalue(), mimetype='text/csv')
+    resp.headers['Cache-Control'] = 'public, max-age=60'
+    return resp
 
 
 @app.route('/api/zerogex-levels', methods=['GET'])

@@ -1023,6 +1023,20 @@
                     {% endif %}
                 </div>
             </div>
+            {% if is_admin %}
+            <div class="col-12">
+                <div class="small text-muted">
+                    <i class="bi bi-link-45deg me-1"></i>Bookmap · Cloud Notes (incolla l'URL in «Cloud Notes download URL», intervallo 5 min):
+                    {% if bookmap_token %}
+                        {% for zs in ['ES', 'NQ'] %}
+                        <div><b>{{ zs }}</b> <code class="user-select-all">{{ request.host_url }}bookmap/notes/{{ zs }}.csv?key={{ bookmap_token }}</code></div>
+                        {% endfor %}
+                    {% else %}
+                        imposta <code>BOOKMAP_TOKEN</code> nell'ambiente per attivare i link.
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
             {% for zs in ['ES', 'NQ'] %}
             <div class="col-12 col-lg-6">
                 <div class="card zg-card" id="zgCard{{ zs }}">
