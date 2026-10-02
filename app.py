@@ -5805,11 +5805,11 @@ def get_zerogex_candles_cached(symbol: str, max_age_seconds: int = 60) -> Option
 _BOOKMAP_FUT_MONTHS = ((3, 'H'), (6, 'M'), (9, 'U'), (12, 'Z'))
 _BOOKMAP_NOTE_LEVELS = (
     # (campo, etichetta, colore testo, colore sfondo)
-    ('call_wall', 'Call W', '#FFFFFF', '#B91C1C'),
+    ('call_wall', 'CallW', '#FFFFFF', '#B91C1C'),
     ('gamma_flip', 'Flip', '#FFFFFF', '#1D4ED8'),
-    ('max_pain', 'Max Pain', '#000000', '#FBBF24'),
+    ('max_pain', 'MaxPain', '#000000', '#FBBF24'),
     ('pin_strike', 'Pin', '#000000', '#2DD4BF'),
-    ('put_wall', 'Put W', '#FFFFFF', '#15803D'),
+    ('put_wall', 'PutW', '#FFFFFF', '#15803D'),
 )
 
 
@@ -5875,9 +5875,9 @@ def bookmap_cloud_notes(symbol: str):
         if value is None:  # livello non supportato ora: non e' zero, non si disegna
             continue
         price = round(float(value) * 4) / 4  # tick ES/NQ = 0.25
-        # Nota "7762.25 - Flip": prezzo esatto (al tick, senza zeri inutili) e poi il nome.
+        # Nota "7762.25-Flip": prezzo esatto (al tick, senza zeri inutili) e poi il nome.
         shown = f"{price:.2f}".rstrip('0').rstrip('.')
-        writer.writerow(['', alias, f"{price:.2f}", f"{shown} - {label}", fg, bg, 'left', 1, 'TRUE'])
+        writer.writerow(['', alias, f"{price:.2f}", f"{shown}-{label}", fg, bg, 'left', 1, 'TRUE'])
 
     resp = Response(out.getvalue(), mimetype='text/csv')
     resp.headers['Cache-Control'] = 'public, max-age=60'

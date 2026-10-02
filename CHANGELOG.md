@@ -5,6 +5,11 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.37.3] — 2026-10-02
+
+### Modificato
+- **Le note Bookmap sono senza spazi** per occupare meno posto sul grafico: `7763.5-CallW`, `7762.25-Flip`, `7748.5-MaxPain`, `7763.5-Pin`, `7728.25-PutW`.
+
 ## [1.37.2] — 2026-10-02
 
 ### Modificato
