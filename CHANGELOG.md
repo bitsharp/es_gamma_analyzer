@@ -5,6 +5,11 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.37.2] — 2026-10-02
+
+### Modificato
+- **Nelle note Bookmap «Call Wall» e «Put Wall» sono abbreviate in «Call W» e «Put W»** (`7763.5 - Call W`, `7728.25 - Put W`).
+
 ## [1.37.1] — 2026-10-02
 
 ### Modificato

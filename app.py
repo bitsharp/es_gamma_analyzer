@@ -5805,11 +5805,11 @@ def get_zerogex_candles_cached(symbol: str, max_age_seconds: int = 60) -> Option
 _BOOKMAP_FUT_MONTHS = ((3, 'H'), (6, 'M'), (9, 'U'), (12, 'Z'))
 _BOOKMAP_NOTE_LEVELS = (
     # (campo, etichetta, colore testo, colore sfondo)
-    ('call_wall', 'Call Wall', '#FFFFFF', '#B91C1C'),
+    ('call_wall', 'Call W', '#FFFFFF', '#B91C1C'),
     ('gamma_flip', 'Flip', '#FFFFFF', '#1D4ED8'),
     ('max_pain', 'Max Pain', '#000000', '#FBBF24'),
     ('pin_strike', 'Pin', '#000000', '#2DD4BF'),
-    ('put_wall', 'Put Wall', '#FFFFFF', '#15803D'),
+    ('put_wall', 'Put W', '#FFFFFF', '#15803D'),
 )
 
 
