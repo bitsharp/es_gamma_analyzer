@@ -5,6 +5,11 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.36.0] — 2026-10-02
+
+### Aggiunto
+- **Bottone «Legenda» accanto ad «Aggiorna».** Apre una finestra che spiega ogni elemento dei grafici ES e NQ: call wall, put wall, gamma flip, max pain, pin, le etichette Gamma SHORT/LONG e Dealer gamma @ spot, l'età dei livelli, le candele e il piano operativo. Ogni voce ha il colore della sua linea sul grafico e la finestra ricorda che i livelli sono modellati e in ritardo di almeno 15 minuti.
+
 ## [1.35.3] — 2026-10-02
 
 ### Modificato

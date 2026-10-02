@@ -1011,8 +1011,12 @@
             <style>
                 .zg-card .zg-chart{height:340px;}
                 .zg-badges .badge{font-weight:600;}
-                #zgPlanModal .modal-content{background:#1b263b;color:#f1f5f9;border:1px solid #415a77;}
-                #zgPlanModal .modal-header,#zgPlanModal .modal-footer{border-color:#415a77;}
+                #zgPlanModal .modal-content,#zgLegendModal .modal-content{background:#1b263b;color:#f1f5f9;border:1px solid #415a77;}
+                #zgPlanModal .modal-header,#zgLegendModal .modal-header{border-color:#415a77;}
+                #zgLegendModal dt{font-size:1.05rem;display:flex;align-items:center;gap:10px;margin-top:1rem;}
+                #zgLegendModal dt .sw{display:inline-block;width:28px;height:0;border-top:3px solid currentColor;}
+                #zgLegendModal dd{margin:.2rem 0 0 38px;font-size:.98rem;line-height:1.55;color:#e2e8f0;}
+                #zgLegendModal .lg-sec{margin-top:1.4rem;font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;color:#94a3b8;border-bottom:1px solid #415a77;padding-bottom:4px;}
                 #zgPlanModal .zg-plan-body p{font-size:1.25rem;line-height:1.65;margin:0 0 1.1rem;padding-left:14px;border-left:4px solid #38bdf8;}
                 #zgPlanModal .zg-plan-body p.zg-plan-foot{font-size:.95rem;line-height:1.5;color:#94a3b8;border-left-color:#475569;margin-bottom:0;}
                 .zg-lv{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-variant-numeric:tabular-nums;margin-right:12px;white-space:nowrap;}
@@ -1022,6 +1026,7 @@
                 <div class="fw-bold"><i class="bi bi-bullseye me-2"></i>Livelli gamma ZeroGEX <span class="text-muted small">(ES · NQ · ritardo ~15 min)</span></div>
                 <div class="d-flex align-items-center gap-2">
                     <span class="text-muted small" id="zgStatus"></span>
+                    <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#zgLegendModal"><i class="bi bi-info-circle me-1"></i>Legenda</button>
                     <button type="button" class="btn btn-sm btn-outline-light" id="zgRefreshBtn"><i class="bi bi-arrow-clockwise me-1"></i>Aggiorna</button>
                     {% if is_admin %}
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#legacyLevelsWrap, #uploadWrap" aria-expanded="false" aria-controls="legacyLevelsWrap uploadWrap"><i class="bi bi-shield-lock me-1"></i>Admin: Upload PDF, Key Levels, Net GEX, VIX</button>
@@ -6160,6 +6165,65 @@
         })();
     </script>
     {% include '_release_notes_modal.html' %}
+
+    <div class="modal fade" id="zgLegendModal" tabindex="-1" aria-labelledby="zgLegendTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold" id="zgLegendTitle">Legenda dei livelli gamma</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-0" style="font-size:.98rem;line-height:1.55;color:#cbd5e1;">I livelli descrivono dove i <b>dealer</b> (i market maker che vendono le opzioni) devono comprare o vendere future per coprirsi. Sono <b>modellati</b> da ZeroGEX sulla catena opzioni di SPX (per ES) e NDX (per NQ) e già riportati sul prezzo del future. Servono a leggere la struttura del mercato, non a prevedere la direzione.</p>
+
+                    <div class="lg-sec">Le linee sul grafico</div>
+                    <dl class="mb-0">
+                        <dt style="color:#ef4444"><span class="sw"></span><b>Call wall</b></dt>
+                        <dd>Lo strike con più gamma sulle call: di solito fa da <b>tetto</b>. Avvicinandosi i dealer tendono a vendere, quindi il prezzo spesso rallenta o respinge. Sopra la call wall non ci sono altri livelli gamma.</dd>
+
+                        <dt style="color:#22c55e"><span class="sw"></span><b>Put wall</b></dt>
+                        <dd>Lo strike con più gamma sulle put: di solito fa da <b>pavimento</b>. Può fermare i ribassi; se viene rotta in gamma negativa il movimento tende ad accelerare.</dd>
+
+                        <dt style="color:#60a5fa"><span class="sw" style="border-top-style:dashed"></span><b>Gamma Flip</b></dt>
+                        <dd>Il prezzo in cui il gamma netto dei dealer cambia segno. <b>Sopra</b> il flip il gamma è positivo: i dealer smorzano i movimenti (vendono sulle salite, comprano sui cali) e il mercato tende a restare in range. <b>Sotto</b> è negativo: i dealer inseguono il prezzo e i movimenti si amplificano.</dd>
+
+                        <dt style="color:#fbbf24"><span class="sw" style="border-top-style:dotted"></span><b>Max pain</b></dt>
+                        <dd>Il prezzo di scadenza a cui chi ha comprato opzioni perderebbe di più in totale. Viene letto come una <b>calamita</b> verso la scadenza, più utile nelle ore finali della giornata.</dd>
+
+                        <dt style="color:#2dd4bf"><span class="sw" style="border-top-style:dotted"></span><b>Pin</b> (pin strike)</dt>
+                        <dd>Lo strike dove è più probabile che il prezzo resti «inchiodato» nella seduta in corso, per l'effetto delle coperture sulle opzioni a scadenza di giornata. Spesso coincide con una wall.</dd>
+                    </dl>
+
+                    <div class="lg-sec">Le etichette in alto</div>
+                    <dl class="mb-0">
+                        <dt style="color:#ef4444"><b>Gamma SHORT</b></dt>
+                        <dd>Il gamma netto dei dealer allo spot è negativo: le coperture amplificano i movimenti, quindi intervalli più ampi e livelli che tengono meno.</dd>
+
+                        <dt style="color:#22c55e"><b>Gamma LONG</b></dt>
+                        <dd>Il gamma netto è positivo: le coperture smorzano i movimenti, quindi più pinning e ritorni verso la media.</dd>
+
+                        <dt style="color:#e2e8f0"><b>Dealer gamma @ spot</b></dt>
+                        <dd>Il gamma netto dei dealer al prezzo corrente, in miliardi di dollari ($B). Il segno decide il regime (negativo = SHORT, positivo = LONG); più è grande in valore assoluto, più l'effetto è forte.</dd>
+
+                        <dt style="color:#e2e8f0"><b>«livelli X fa»</b></dt>
+                        <dd>L'età dei livelli. Hanno <b>almeno 15 minuti di ritardo</b> e a mercato chiuso restano quelli dell'ultima sessione. Il mercato può essere già oltre un livello prima che il dato si aggiorni.</dd>
+                    </dl>
+
+                    <div class="lg-sec">Il grafico</div>
+                    <dl class="mb-0">
+                        <dt style="color:#e2e8f0"><b>Candele 5 minuti</b></dt>
+                        <dd>Prezzo del future da Yahoo, con circa 10 minuti di ritardo, aggiornato da solo ogni 10 minuti. Il prezzo in tempo reale lo vedi sulla tua piattaforma.</dd>
+
+                        <dt style="color:#e2e8f0"><b>Livello assente</b></dt>
+                        <dd>Se un livello non compare, il modello non lo supporta in quel momento: non vale zero e non viene disegnato.</dd>
+
+                        <dt style="color:#38bdf8"><b>Piano operativo</b></dt>
+                        <dd>Tre scenari scritti applicando regole fisse ai livelli e al regime. Non sono previsioni né consigli di investimento.</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <div class="modal fade" id="zgPlanModal" tabindex="-1" aria-labelledby="zgPlanTitle" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
