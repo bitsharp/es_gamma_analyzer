@@ -5826,6 +5826,18 @@ def _bookmap_front_contract(root: str, today: Optional[_dt.date] = None) -> str:
     return root
 
 
+def _bookmap_dxfeed_alias(root: str) -> str:
+    """Alias dxFeed del future in corso, es. `/ESZ26:XCME@DXFEED` (anno a due cifre).
+
+    Il codice contratto e' quello di `_bookmap_front_contract`, che ha l'anno a una
+    cifra: qui si ricostruisce l'anno intero cosi' il roll resta in un posto solo."""
+    code = _bookmap_front_contract(root)  # es. ESZ6
+    today = _dt.date.today()
+    digit = int(code[-1]) if code[-1:].isdigit() else today.year % 10
+    year = today.year if digit == today.year % 10 else today.year + 1
+    return f"/{code[:-1]}{year % 100:02d}:XCME@DXFEED"
+
+
 def _bookmap_authorized() -> bool:
     expected = (os.getenv("BOOKMAP_TOKEN") or "").strip()
     given = (request.args.get("key") or "").strip()
@@ -5846,7 +5858,11 @@ def bookmap_cloud_notes(symbol: str):
         return Response("Simbolo non supportato (ES o NQ)\n", status=404, mimetype='text/plain')
 
     levels = get_zerogex_levels_cached(root) or {}
-    alias = (request.args.get('symbol') or '').strip() or _bookmap_front_contract(root)
+    feed = (request.args.get('feed') or '').strip().lower()
+    alias = (request.args.get('symbol') or '').strip()
+    if not alias:
+        # `feed=dxfeed`: l'alias segue da solo il roll trimestrale, l'URL non va piu' ritoccato.
+        alias = _bookmap_dxfeed_alias(root) if feed == 'dxfeed' else _bookmap_front_contract(root)
 
     out = io.StringIO()
     writer = csv.writer(out, lineterminator='\n')

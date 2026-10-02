@@ -5,6 +5,11 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.35.2] — 2026-10-02
+
+### Aggiunto
+- **I link Bookmap seguono da soli il roll del contratto.** Con `&feed=dxfeed` l'alias diventa `/ESZ26:XCME@DXFEED` e passa al trimestre successivo la settimana prima della scadenza, quindi l'URL incollato in Bookmap non va più ritoccato a ogni trimestre. `&symbol=` resta valido e ha la precedenza.
+
 ## [1.35.1] — 2026-10-02
 
 ### Modificato
