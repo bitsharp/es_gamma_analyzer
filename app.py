@@ -5480,7 +5480,7 @@ def _checklist_history(limit: int = 30) -> list:
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', is_admin=_is_admin())
 
 
 # ============================================================================
@@ -5701,6 +5701,105 @@ def spx_index_price():
         return jsonify({"error": "Impossibile recuperare il prezzo SPX in questo momento"})
 
     return jsonify(data)
+
+
+# ============================================================================
+# ZEROGEX - livelli gamma ES/NQ (server MCP pubblico, gratuito, ritardo >= 15 min)
+# ============================================================================
+
+ZEROGEX_MCP_URL = (os.getenv('ZEROGEX_MCP_URL') or 'https://zerogex.io/mcp').strip()
+_ZEROGEX_SYMBOLS = {'ES': 'ES=F', 'NQ': 'NQ=F'}
+_ZEROGEX_LEVELS_CACHE: Dict[str, Dict[str, Any]] = {}
+_ZEROGEX_CANDLES_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def _zerogex_mcp_call(tool: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Chiama uno strumento del server MCP ZeroGEX (JSON-RPC su HTTP, nessuna chiave)."""
+    body = json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": tool, "arguments": arguments},
+    }).encode("utf-8")
+    req = urllib.request.Request(ZEROGEX_MCP_URL, data=body, method="POST", headers={
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "User-Agent": "Polaris/1.0",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        payload = json.loads(raw)
+        result = payload.get("result") or {}
+        structured = result.get("structuredContent")
+        return structured if isinstance(structured, dict) else None
+    except Exception:
+        return None
+
+
+def get_zerogex_levels_cached(symbol: str, max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
+    symbol = (symbol or '').upper()
+    if symbol not in _ZEROGEX_SYMBOLS:
+        return None
+    now = time.time()
+    entry = _ZEROGEX_LEVELS_CACHE.get(symbol) or {}
+    if entry.get('value') and (now - float(entry.get('fetched_at') or 0.0)) <= max_age_seconds:
+        return entry['value']
+    data = _zerogex_mcp_call('get_gamma_levels', {'symbol': symbol})
+    if data:
+        _ZEROGEX_LEVELS_CACHE[symbol] = {'value': data, 'fetched_at': now}
+        return data
+    # Stale-tolerant: meglio un dato vecchio (con la sua eta') che nessun dato.
+    return entry.get('value')
+
+
+def get_zerogex_candles_cached(symbol: str, max_age_seconds: int = 60) -> Optional[Dict[str, Any]]:
+    """Candele 5m del future (Yahoo ES=F / NQ=F), ultime ~2 sessioni."""
+    symbol = (symbol or '').upper()
+    yahoo = _ZEROGEX_SYMBOLS.get(symbol)
+    if not yahoo:
+        return None
+    now = time.time()
+    entry = _ZEROGEX_CANDLES_CACHE.get(symbol) or {}
+    if entry.get('value') and (now - float(entry.get('fetched_at') or 0.0)) <= max_age_seconds:
+        return entry['value']
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(yahoo)}?interval=5m&range=2d"
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+            "Accept": "application/json, text/plain, */*",
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+        res = payload["chart"]["result"][0]
+        q = res["indicators"]["quote"][0]
+        candles = []
+        for i, ts in enumerate(res.get("timestamp") or []):
+            o, h, l, c = q["open"][i], q["high"][i], q["low"][i], q["close"][i]
+            if None in (o, h, l, c):
+                continue
+            candles.append({"time": int(ts), "open": o, "high": h, "low": l, "close": c})
+        if not candles:
+            raise ValueError("no candles")
+        value = {"symbol": symbol, "candles": candles, "price": (res.get("meta") or {}).get("regularMarketPrice")}
+        _ZEROGEX_CANDLES_CACHE[symbol] = {'value': value, 'fetched_at': now}
+        return value
+    except Exception:
+        return entry.get('value')
+
+
+@app.route('/api/zerogex-levels', methods=['GET'])
+def zerogex_levels():
+    """Livelli gamma ZeroGEX + candele 5m per ES e NQ. `?force=1` salta la cache."""
+    symbol = (request.args.get('symbol') or 'ES').upper()
+    if symbol not in _ZEROGEX_SYMBOLS:
+        return jsonify({"error": "Simbolo non supportato (ES o NQ)"}), 400
+    ttl = 0 if (request.args.get('force') or '').strip() == '1' else 60
+    levels = get_zerogex_levels_cached(symbol, max_age_seconds=ttl)
+    candles = get_zerogex_candles_cached(symbol, max_age_seconds=ttl)
+    if not levels and not candles:
+        # 200 con payload d'errore, come le altre API di mercato (niente rumore in console).
+        return jsonify({"error": "Impossibile leggere i livelli ZeroGEX in questo momento"})
+    return jsonify({"symbol": symbol, "levels": levels, "candles": (candles or {}).get('candles') or [],
+                    "price": (candles or {}).get('price')})
 
 
 @app.route('/api/es-price', methods=['GET'])

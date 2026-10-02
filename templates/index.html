@@ -1006,6 +1006,43 @@
 
         <!-- Levels Row: ES/SPX + Market Pressure on same row -->
         <div class="row g-2 mb-4" id="levelsRow">
+            <!-- ZeroGEX: livelli gamma ES/NQ sul grafico (MCP, ritardo >= 15 min) -->
+            <style>
+                .zg-card .zg-chart{height:340px;}
+                .zg-badges .badge{font-weight:600;}
+                .zg-lv{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-variant-numeric:tabular-nums;margin-right:12px;white-space:nowrap;}
+                .zg-lv i{display:inline-block;width:14px;height:0;border-top:2px dashed currentColor;}
+            </style>
+            <div class="col-12 d-flex align-items-center justify-content-between">
+                <div class="fw-bold"><i class="bi bi-bullseye me-2"></i>Livelli gamma ZeroGEX <span class="text-muted small">(ES · NQ · ritardo ~15 min)</span></div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="text-muted small" id="zgStatus"></span>
+                    <button type="button" class="btn btn-sm btn-outline-light" id="zgRefreshBtn"><i class="bi bi-arrow-clockwise me-1"></i>Aggiorna</button>
+                    {% if is_admin %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#legacyLevelsWrap" aria-expanded="false" aria-controls="legacyLevelsWrap"><i class="bi bi-shield-lock me-1"></i>Admin: Key Levels, Net GEX, VIX</button>
+                    {% endif %}
+                </div>
+            </div>
+            {% for zs in ['ES', 'NQ'] %}
+            <div class="col-12 col-lg-6">
+                <div class="card zg-card" id="zgCard{{ zs }}">
+                    <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+                        <div><span class="fw-bold">{{ zs }}</span> <span class="fw-bold ms-2" id="zgSpot{{ zs }}">--</span> <span class="text-muted small ms-1" id="zgAsOf{{ zs }}"></span></div>
+                        <div class="zg-badges"><span class="badge bg-secondary" id="zgRegime{{ zs }}">--</span> <span class="badge bg-dark border" id="zgGex{{ zs }}">--</span></div>
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="zg-chart" id="zgChart{{ zs }}"></div>
+                        <div class="mt-2" id="zgLegend{{ zs }}"></div>
+                        <div class="text-muted small mt-1" id="zgNote{{ zs }}"></div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+
+            <!-- Sezione riservata all'amministratore: resta nel DOM (gli script la popolano) ma chiusa -->
+            <div class="col-12">
+              <div class="collapse" id="legacyLevelsWrap">
+                <div class="row g-2">
             <!-- ES Key Levels -->
             <div class="col-12 col-md-3">
                 <div class="card" id="esKeyLevelsCard">
@@ -1252,6 +1289,10 @@
                         </div>
                     </div>
                 </div>
+            </div>
+
+                </div>
+              </div>
             </div>
 
             <!-- SPX OI→ES Levels -->
@@ -6097,5 +6138,99 @@
         })();
     </script>
     {% include '_release_notes_modal.html' %}
+
+    <script>
+    // ================= ZeroGEX: livelli gamma ES/NQ (MCP) =================
+    (function(){
+        const LEVELS = [
+            {k:'call_wall', label:'Call wall', color:'#ef4444', style:0},
+            {k:'gamma_flip', label:'Flip', color:'#60a5fa', style:2},
+            {k:'max_pain', label:'Max pain', color:'#fbbf24', style:1},
+            {k:'pin_strike', label:'Pin', color:'#2dd4bf', style:1},
+            {k:'put_wall', label:'Put wall', color:'#22c55e', style:0}
+        ];
+        const charts = {};
+        const fmt = v => (v == null ? '--' : Number(v).toLocaleString('it-IT', {minimumFractionDigits:2, maximumFractionDigits:2}));
+        const fmtB = v => (v == null ? '--' : (v < 0 ? '−' : '+') + '$' + Math.abs(v / 1e9).toFixed(2) + 'B');
+        function ageText(sec){
+            if (sec == null) return '';
+            if (sec < 3600) return Math.round(sec / 60) + ' min fa';
+            return (sec / 3600).toFixed(1) + ' h fa';
+        }
+        function ensure(sym){
+            if (charts[sym]) return charts[sym];
+            const el = document.getElementById('zgChart' + sym);
+            if (!el || !window.LightweightCharts) return null;
+            const chart = LightweightCharts.createChart(el, {
+                autoSize: true,
+                layout: {background: {color: 'transparent'}, textColor: '#cbd5e1'},
+                grid: {vertLines: {color: 'rgba(148,163,184,0.08)'}, horzLines: {color: 'rgba(148,163,184,0.08)'}},
+                rightPriceScale: {borderColor: 'rgba(148,163,184,0.3)'},
+                timeScale: {borderColor: 'rgba(148,163,184,0.3)', timeVisible: true, secondsVisible: false}
+            });
+            const series = chart.addCandlestickSeries({
+                upColor: '#22c55e', downColor: '#ef4444', borderVisible: false,
+                wickUpColor: '#22c55e', wickDownColor: '#ef4444'
+            });
+            charts[sym] = {chart, series, lines: []};
+            return charts[sym];
+        }
+        function render(sym, data){
+            const c = ensure(sym);
+            if (!c) return;
+            const lv = data.levels || {};
+            const set = (id, t) => { const e = document.getElementById(id + sym); if (e) e.textContent = t; };
+            if (data.candles && data.candles.length) {
+                c.series.setData(data.candles);
+                c.chart.timeScale().fitContent();
+            }
+            c.lines.forEach(l => c.series.removePriceLine(l));
+            c.lines = [];
+            let legend = '';
+            LEVELS.forEach(def => {
+                const v = lv[def.k];
+                if (v == null) return;  // null = livello non supportato ora, non zero
+                c.lines.push(c.series.createPriceLine({
+                    price: v, color: def.color, lineWidth: 1, lineStyle: def.style,
+                    axisLabelVisible: true, title: def.label
+                }));
+                legend += '<span class="zg-lv" style="color:' + def.color + '"><i></i>' + def.label + ' <b>' + fmt(v) + '</b></span>';
+            });
+            document.getElementById('zgLegend' + sym).innerHTML = legend || '<span class="text-muted small">Nessun livello disponibile</span>';
+            set('zgSpot', fmt(data.price != null ? data.price : lv.spot));
+            const rg = document.getElementById('zgRegime' + sym);
+            if (rg) {
+                const short = lv.regime === 'short';
+                rg.textContent = lv.regime ? (short ? 'Gamma SHORT' : 'Gamma LONG') : '--';
+                rg.className = 'badge ' + (lv.regime ? (short ? 'bg-danger' : 'bg-success') : 'bg-secondary');
+            }
+            set('zgGex', 'Dealer gamma @ spot ' + fmtB(lv.net_gex_at_spot));
+            set('zgAsOf', lv.as_of ? 'livelli ' + ageText(lv.age_seconds) : '');
+            set('zgNote', lv.as_of ? 'Livelli calcolati sullo spot ' + fmt(lv.spot) + ' (' + (lv.market_phase || '') + ', ritardo minimo 15 min) · ZeroGEX · derivati dalla catena ' + (sym === 'ES' ? 'SPX' : 'NDX') + ' e già sull’asse del future. Candele 5m Yahoo.' : '');
+        }
+        async function load(force){
+            const btn = document.getElementById('zgRefreshBtn');
+            const status = document.getElementById('zgStatus');
+            if (btn) btn.disabled = true;
+            if (status) status.textContent = 'Aggiornamento…';
+            let failed = 0;
+            await Promise.all(['ES', 'NQ'].map(async sym => {
+                try {
+                    const r = await fetch('/api/zerogex-levels?symbol=' + sym + (force ? '&force=1' : ''));
+                    const d = await r.json();
+                    if (d.error) { failed++; return; }
+                    render(sym, d);
+                } catch (e) { failed++; }
+            }));
+            if (status) status.textContent = failed ? 'Errore su ' + failed + ' simbolo/i' : 'Aggiornato ' + new Date().toLocaleTimeString('it-IT');
+            if (btn) btn.disabled = false;
+        }
+        document.addEventListener('DOMContentLoaded', function(){
+            const btn = document.getElementById('zgRefreshBtn');
+            if (btn) btn.addEventListener('click', () => load(true));
+            load(false);
+        });
+    })();
+    </script>
 </body>
 </html>

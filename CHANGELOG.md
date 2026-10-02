@@ -5,6 +5,18 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.33.0] — 2026-10-02
+
+### Aggiunto
+- **Pagina Gamma: due grafici, ES e NQ, con i livelli di ZeroGEX tracciati sopra.** Candele a 5 minuti del future con flip, call wall, put wall, max pain e pin strike come linee orizzontali, più regime di gamma e Net GEX dei dealer allo spot. I livelli arrivano dal server MCP pubblico di ZeroGEX (gratuito, senza chiave né account): sono in ritardo di almeno 15 minuti e la pagina mostra l'età del dato. Un livello assente non è zero: semplicemente non viene disegnato.
+- **Bottone «Aggiorna»** per rileggere livelli e candele saltando la cache.
+
+### Modificato
+- **ES Key Levels, Net GEX e Volatilità (VIX) sono ora in un menu riservato all'amministratore**, chiuso di default. Restano nella pagina, quindi gli script che le popolano continuano a funzionare.
+
+### Tecnico
+- Nuovo endpoint `GET /api/zerogex-levels?symbol=ES|NQ[&force=1]`, cache di 60 s e tolleranza al dato vecchio se ZeroGEX non risponde. Le candele vengono da Yahoo (`ES=F`, `NQ=F`).
+
 ## [1.32.1] — 2026-08-28
 
 ### Corretto
