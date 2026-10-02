@@ -5871,8 +5871,12 @@ def zerogex_levels():
     if symbol not in _ZEROGEX_SYMBOLS:
         return jsonify({"error": "Simbolo non supportato (ES o NQ)"}), 400
     ttl = 0 if (request.args.get('force') or '').strip() == '1' else 60
-    levels = get_zerogex_levels_cached(symbol, max_age_seconds=ttl)
+    # `only=candles`: refresh automatico del grafico, i livelli (ritardo >= 15 min) non si rileggono.
+    candles_only = (request.args.get('only') or '').strip() == 'candles'
+    levels = None if candles_only else get_zerogex_levels_cached(symbol, max_age_seconds=ttl)
     candles = get_zerogex_candles_cached(symbol, max_age_seconds=ttl)
+    if candles_only and not candles:
+        return jsonify({"error": "Impossibile leggere le candele in questo momento"})
     if not levels and not candles:
         # 200 con payload d'errore, come le altre API di mercato (niente rumore in console).
         return jsonify({"error": "Impossibile leggere i livelli ZeroGEX in questo momento"})

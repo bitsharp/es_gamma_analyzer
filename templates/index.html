@@ -6298,6 +6298,26 @@
             if (status) status.textContent = failed ? 'Errore su ' + failed + ' simbolo/i' : 'Aggiornato ' + new Date().toLocaleTimeString('it-IT');
             if (btn) btn.disabled = false;
         }
+        // Refresh automatico delle sole candele ogni 10 minuti: i livelli ZeroGEX hanno almeno
+        // 15 minuti di ritardo, rileggerli di continuo non serve (si aggiornano da «Aggiorna»).
+        const CANDLE_REFRESH_MS = 10 * 60 * 1000;
+        async function refreshCandles(){
+            if (document.hidden) return;  // scheda in background: niente chiamate inutili
+            await Promise.all(['ES', 'NQ'].map(async sym => {
+                try {
+                    const r = await fetch('/api/zerogex-levels?symbol=' + sym + '&only=candles');
+                    const d = await r.json();
+                    const c = charts[sym];
+                    if (d.error || !c || !d.candles || !d.candles.length) return;
+                    c.series.setData(d.candles);  // niente fitContent: lo zoom scelto resta
+                    if (last[sym]) last[sym].candles = d.candles;
+                    const sp = document.getElementById('zgSpot' + sym);
+                    if (sp && d.price != null) sp.textContent = fmt(d.price);
+                } catch (e) { /* si riprova al giro dopo */ }
+            }));
+        }
+        setInterval(refreshCandles, CANDLE_REFRESH_MS);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshCandles(); });
         document.addEventListener('DOMContentLoaded', function(){
             const btn = document.getElementById('zgRefreshBtn');
             if (btn) btn.addEventListener('click', () => load(true));

@@ -5,6 +5,14 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.35.1] — 2026-10-02
+
+### Modificato
+- **Le candele di ES e NQ si aggiornano da sole ogni 10 minuti**, senza ridisegnare i livelli ZeroGEX (che hanno comunque almeno 15 minuti di ritardo e restano sul bottone «Aggiorna»). Lo zoom scelto sul grafico non viene azzerato, il refresh salta se la scheda è in background e riparte appena la riapri.
+
+### Tecnico
+- `GET /api/zerogex-levels` accetta `?only=candles`, che salta la lettura dei livelli.
+
 ## [1.35.0] — 2026-10-02
 
 ### Aggiunto
