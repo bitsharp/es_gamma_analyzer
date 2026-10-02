@@ -5,6 +5,14 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.35.0] — 2026-10-02
+
+### Aggiunto
+- **Bottone «Piano operativo» su ogni grafico (ES e NQ).** Apre tre scenari in italiano ricavati dai livelli: dove cercare respingimenti, dove si apre lo spazio e cosa succede uscendo dalla mappa, con il minimo recente come riferimento di prezzo quando non restano livelli gamma. Con regime negativo il piano parte dalla zona debole sotto il flip, con regime positivo da pinning e call wall. Sono regole applicate ai livelli, non previsioni, e il testo lo ricorda insieme all'età dei dati. Se il piano è aperto, «Aggiorna» lo rigenera.
+
+### Modificato
+- **La sezione di upload del PDF è nascosta.** Si riapre dallo stesso menu amministratore di Key Levels, Net GEX e VIX.
+
 ## [1.34.0] — 2026-10-02
 
 ### Aggiunto

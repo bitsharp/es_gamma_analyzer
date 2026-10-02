@@ -970,7 +970,8 @@
     
     <div class="container-fluid px-2 px-lg-3">
         <!-- Upload Section -->
-        <div class="card upload-card mb-2">
+        <!-- Chiuso di default: si apre dal menu admin della sezione livelli gamma -->
+        <div class="card upload-card mb-2 collapse" id="uploadWrap">
             <div class="card-body">
                 <div class="row align-items-center">
                     <div class="col-md-5">
@@ -1010,6 +1011,9 @@
             <style>
                 .zg-card .zg-chart{height:340px;}
                 .zg-badges .badge{font-weight:600;}
+                .zg-plan{border-left:3px solid #38bdf8;background:rgba(56,189,248,0.07);border-radius:4px;padding:8px 12px;font-size:13px;line-height:1.5;}
+                .zg-plan p{margin:0 0 6px;}
+                .zg-plan p:last-child{margin-bottom:0;}
                 .zg-lv{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-variant-numeric:tabular-nums;margin-right:12px;white-space:nowrap;}
                 .zg-lv i{display:inline-block;width:14px;height:0;border-top:2px dashed currentColor;}
             </style>
@@ -1019,7 +1023,7 @@
                     <span class="text-muted small" id="zgStatus"></span>
                     <button type="button" class="btn btn-sm btn-outline-light" id="zgRefreshBtn"><i class="bi bi-arrow-clockwise me-1"></i>Aggiorna</button>
                     {% if is_admin %}
-                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#legacyLevelsWrap" aria-expanded="false" aria-controls="legacyLevelsWrap"><i class="bi bi-shield-lock me-1"></i>Admin: Key Levels, Net GEX, VIX</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#legacyLevelsWrap, #uploadWrap" aria-expanded="false" aria-controls="legacyLevelsWrap uploadWrap"><i class="bi bi-shield-lock me-1"></i>Admin: Upload PDF, Key Levels, Net GEX, VIX</button>
                     {% endif %}
                 </div>
             </div>
@@ -1042,11 +1046,15 @@
                 <div class="card zg-card" id="zgCard{{ zs }}">
                     <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
                         <div><span class="fw-bold">{{ zs }}</span> <span class="fw-bold ms-2" id="zgSpot{{ zs }}">--</span> <span class="text-muted small ms-1" id="zgAsOf{{ zs }}"></span></div>
-                        <div class="zg-badges"><span class="badge bg-secondary" id="zgRegime{{ zs }}">--</span> <span class="badge bg-dark border" id="zgGex{{ zs }}">--</span></div>
+                        <div class="zg-badges">
+                            <span class="badge bg-secondary" id="zgRegime{{ zs }}">--</span> <span class="badge bg-dark border" id="zgGex{{ zs }}">--</span>
+                            <button type="button" class="btn btn-sm btn-outline-info py-0 ms-1 zg-plan-btn" data-sym="{{ zs }}" aria-expanded="false"><i class="bi bi-list-check me-1"></i>Piano operativo</button>
+                        </div>
                     </div>
                     <div class="card-body p-2">
                         <div class="zg-chart" id="zgChart{{ zs }}"></div>
                         <div class="mt-2" id="zgLegend{{ zs }}"></div>
+                        <div class="zg-plan mt-2" id="zgPlan{{ zs }}" style="display:none;"></div>
                         <div class="text-muted small mt-1" id="zgNote{{ zs }}"></div>
                     </div>
                 </div>
@@ -6222,6 +6230,54 @@
             set('zgAsOf', lv.as_of ? 'livelli ' + ageText(lv.age_seconds) : '');
             set('zgNote', lv.as_of ? 'Livelli calcolati sullo spot ' + fmt(lv.spot) + ' (' + (lv.market_phase || '') + ', ritardo minimo 15 min) · ZeroGEX · derivati dalla catena ' + (sym === 'ES' ? 'SPX' : 'NDX') + ' e già sull’asse del future. Candele 5m Yahoo.' : '');
         }
+        // ---- Piano operativo: scenari in italiano ricavati dai livelli (regole, non previsioni) ----
+        const last = {};
+        const n0 = v => Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        function planParagraphs(data){
+            const lv = data.levels || {};
+            const F = lv.gamma_flip, C = lv.call_wall, P = lv.put_wall, M = lv.max_pain, N = lv.pin_strike;
+            const out = [];
+            if (!lv.regime || F == null) return ['Livelli insufficienti per costruire un piano.'];
+            // Minimo recente delle candele caricate (ultime ~24 ore): riferimento di prezzo oltre la mappa.
+            const lows = (data.candles || []).slice(-288).map(c => c.low);
+            const L = lows.length ? Math.min.apply(null, lows) : null;
+            if (lv.regime === 'short') {
+                if (P != null && P < F) {
+                    const A = (M != null && M > P && M < F) ? M : (P + F) / 2;
+                    const B = (A + F) / 2;
+                    out.push('Sotto ' + n0(A) + ' il prezzo resta nella parte debole della mappa: la zona intermedia è il primo punto dove cercare respingimenti short, con obiettivo la put wall (' + n0(P) + ').');
+                    const top = (C != null && C > F) ? n0(F) + '–' + n0(C) : n0(F);
+                    out.push('Sopra ' + n0(B) + ' con tenuta si apre lo spazio fino a ' + top + '. Solo oltre il flip il regime diventa positivo e ha senso ragionare in pinning.');
+                    out.push('Sotto ' + n0(P) + ' si esce dalla mappa in gamma negativa. Non ci sono altri livelli gamma: il riferimento successivo è di prezzo' + (L != null && L < P ? ', il minimo recente a ' + n0(L) + '.' : '.'));
+                } else {
+                    out.push('Gamma negativa: i dealer amplificano i movimenti, quindi i livelli tengono meno. Il flip a ' + n0(F) + ' separa il regime negativo da quello positivo.');
+                    if (P != null) out.push('Put wall a ' + n0(P) + (L != null && L < P ? '; oltre, il riferimento è il minimo recente a ' + n0(L) + '.' : '.'));
+                }
+            } else {
+                out.push('Sopra ' + n0(F) + ' il regime è positivo: i dealer smorzano i movimenti, quindi ha senso ragionare in pinning e mean reversion' + ((N != null || M != null) ? ' verso ' + n0(N != null ? N : M) + '.' : '.'));
+                if (C != null) out.push('La call wall a ' + n0(C) + ' è il tetto della mappa: qui cercare respingimenti. Solo con tenuta oltre, lo spazio è libero da livelli gamma.');
+                out.push('Sotto il flip (' + n0(F) + ') si torna in gamma negativa e i movimenti si amplificano' + (P != null ? '; il primo obiettivo è la put wall a ' + n0(P) + '.' : '.'));
+            }
+            return out;
+        }
+        function renderPlan(sym){
+            const box = document.getElementById('zgPlan' + sym);
+            if (!box || !last[sym]) return;
+            const lv = last[sym].levels || {};
+            const age = lv.age_seconds != null ? ' Livelli di ' + ageText(lv.age_seconds) + ', ritardo minimo 15 min.' : '';
+            box.innerHTML = planParagraphs(last[sym]).map(t => '<p>' + t + '</p>').join('') +
+                '<p class="text-muted small">Scenari ricavati dai livelli, non una raccomandazione.' + age + '</p>';
+        }
+        function bindPlanButtons(){
+            document.querySelectorAll('.zg-plan-btn').forEach(btn => btn.addEventListener('click', function(){
+                const sym = btn.dataset.sym;
+                const box = document.getElementById('zgPlan' + sym);
+                const open = box.style.display === 'none';
+                box.style.display = open ? '' : 'none';
+                btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                if (open) renderPlan(sym);
+            }));
+        }
         async function load(force){
             const btn = document.getElementById('zgRefreshBtn');
             const status = document.getElementById('zgStatus');
@@ -6234,6 +6290,9 @@
                     const d = await r.json();
                     if (d.error) { failed++; return; }
                     render(sym, d);
+                    last[sym] = d;
+                    const pb = document.getElementById('zgPlan' + sym);
+                    if (pb && pb.style.display !== 'none') renderPlan(sym);  // piano aperto: segue il refresh
                 } catch (e) { failed++; }
             }));
             if (status) status.textContent = failed ? 'Errore su ' + failed + ' simbolo/i' : 'Aggiornato ' + new Date().toLocaleTimeString('it-IT');
@@ -6242,6 +6301,7 @@
         document.addEventListener('DOMContentLoaded', function(){
             const btn = document.getElementById('zgRefreshBtn');
             if (btn) btn.addEventListener('click', () => load(true));
+            bindPlanButtons();
             load(false);
         });
     })();
