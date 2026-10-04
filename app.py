@@ -13379,9 +13379,15 @@ def _insider_alert_candidates() -> Dict[str, dict]:
     try:
         coll = _get_mongo_screener_collection()
         if coll is not None:
-            for d in coll.find({"zone_rank": {"$in": list(_INSIDER_ALERT_ZONES)}}):
-                add(d.get("ticker"), d.get("name"), d.get("zone_rank"),
-                    d.get("current_price"), "screener")
+            # Come la pagina screener: solo le righe che passano il filtro
+            # strategia, con la zona ricalcolata dai valori salvati.
+            for d in coll.find({}):
+                if not _stock_passes_strategy(d):
+                    continue
+                rank = _compute_zone_rank(d.get("forward_eps"), d.get("current_price"),
+                                          d.get("pe_theoretical"))
+                add(d.get("ticker"), d.get("name"), rank,
+                    d.get("current_price"), f"screener {d.get('market') or ''}".strip())
     except Exception:
         pass
     return out
@@ -13477,6 +13483,10 @@ def api_insider_cron():
     if not _ibkr_cron_authorized():
         return jsonify({"error": "unauthorized"}), 401
     day = (request.args.get("day") or "").strip() or None
+    if request.args.get("diag") == "1":
+        # Chi entra nel controllo e perché: serve a capire un titolo mancante.
+        return jsonify({"candidati": sorted(_insider_alert_candidates().values(),
+                                            key=lambda c: c["ticker"])})
     return jsonify(_insider_alert_run(day=day, notify=request.args.get("notify") != "0"))
 
 
