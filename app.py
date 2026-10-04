@@ -9184,10 +9184,10 @@ def _get_mongo_insider_collection():
         return None
 
 
-def _fetch_insider_transactions(ticker: str) -> Optional[list]:
+def _fetch_insider_transactions(ticker: str, days: int = 90) -> Optional[list]:
     """Fetch insider transactions (last 90 days): SEC EDGAR first, FMP fallback.
     Returns list (possibly empty) or None if all sources fail."""
-    cutoff = (_dt.date.today() - _dt.timedelta(days=90)).isoformat()
+    cutoff = (_dt.date.today() - _dt.timedelta(days=days)).isoformat()
 
     # SEC EDGAR: authoritative for all US public companies
     edgar = _fetch_insider_edgar(ticker, cutoff)
@@ -13327,6 +13327,7 @@ def _send_alert_email(subject: str, html_body: str, to_address: str) -> dict:
 _MONGO_INSIDER_ALERTS_COLLECTION = None
 _INSIDER_ALERT_ZONES = (0, 1)  # Affare, Sconto
 _INSIDER_ALERT_MAX_TICKERS = 80
+_INSIDER_ALERT_LOOKBACK_DAYS = 14
 
 
 def _get_mongo_insider_alerts_collection():
@@ -13444,7 +13445,9 @@ def _insider_alert_run(day: Optional[str] = None, notify: bool = True) -> dict:
 
     def fetch(ticker):
         try:
-            return ticker, _fetch_insider_transactions(ticker)
+            # Finestra corta: servono solo le Form 4 recenti, e ogni Form 4 in
+            # più è una richiesta a SEC che rischia di essere respinta.
+            return ticker, _fetch_insider_transactions(ticker, days=_INSIDER_ALERT_LOOKBACK_DAYS)
         except Exception:
             return ticker, None
 
