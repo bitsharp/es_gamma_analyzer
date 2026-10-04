@@ -13440,7 +13440,10 @@ def _insider_alert_run(day: Optional[str] = None, notify: bool = True) -> dict:
         except Exception:
             return ticker, None
 
-    with ThreadPoolExecutor(max_workers=8) as executor:
+    # SEC EDGAR limita a ~10 richieste/s e ogni titolo ne apre una dozzina in
+    # parallelo: con 8 titoli insieme le Form 4 vengono respinte (e scartate in
+    # silenzio), quindi se ne scorrono due alla volta.
+    with ThreadPoolExecutor(max_workers=2) as executor:
         fetched = list(executor.map(fetch, tickers))
 
     coll = _get_mongo_insider_alerts_collection()
