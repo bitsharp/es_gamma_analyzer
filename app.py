@@ -13444,7 +13444,8 @@ def _insider_alert_render(items: List[dict], day: str) -> tuple:
     return subject, html_body
 
 
-def _insider_alert_run(day: Optional[str] = None, notify: bool = True) -> dict:
+def _insider_alert_run(day: Optional[str] = None, notify: bool = True,
+                       to: Optional[str] = None) -> dict:
     """Cerca operazioni insider datate `day` (oggi, ora di New York) sui titoli
     Affare/Sconto e manda una mail con quelle non ancora segnalate."""
     from concurrent.futures import ThreadPoolExecutor
@@ -13469,7 +13470,9 @@ def _insider_alert_run(day: Optional[str] = None, notify: bool = True) -> dict:
     with ThreadPoolExecutor(max_workers=2) as executor:
         fetched = list(executor.map(fetch, tickers))
 
-    coll = _get_mongo_insider_alerts_collection()
+    # Con un destinatario esplicito è un rinvio a mano: ignora e non tocca il
+    # registro, che riguarda solo la mail automatica.
+    coll = None if to else _get_mongo_insider_alerts_collection()
     new_items = []
     for ticker, txns in fetched:
         for t in (txns or []):
@@ -13489,7 +13492,8 @@ def _insider_alert_run(day: Optional[str] = None, notify: bool = True) -> dict:
     if new_items and notify:
         subject, body = _insider_alert_render(new_items, day)
         owner = _ibkr_default_owner_email()
-        result["email"] = _send_alert_email(subject, body, _ibkr_api_env("ALERT_EMAIL_TO") or owner)
+        result["email"] = _send_alert_email(
+            subject, body, to or _ibkr_api_env("ALERT_EMAIL_TO") or owner)
         if result["email"].get("sent") and coll is not None:
             now = _dt.datetime.utcnow()
             for it in new_items:
@@ -13519,7 +13523,8 @@ def api_insider_cron():
         txns = _fetch_insider_transactions(ticker)
         return jsonify({"ticker": ticker, "cik": cik,
                         "transazioni": None if txns is None else txns[:10]})
-    return jsonify(_insider_alert_run(day=day, notify=request.args.get("notify") != "0"))
+    return jsonify(_insider_alert_run(day=day, notify=request.args.get("notify") != "0",
+                                      to=(request.args.get("to") or "").strip() or None))
 
 
 # ---------------------------------------------------------------------------
