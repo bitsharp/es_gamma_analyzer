@@ -13493,7 +13493,9 @@ def _insider_alert_run(day: Optional[str] = None, notify: bool = True,
         subject, body = _insider_alert_render(new_items, day)
         owner = _ibkr_default_owner_email()
         result["email"] = _send_alert_email(
-            subject, body, to or _ibkr_api_env("ALERT_EMAIL_TO") or owner)
+            subject, body,
+            to or _ibkr_api_env("INSIDER_ALERT_EMAIL_TO")
+            or _ibkr_api_env("ALERT_EMAIL_TO") or owner)
         if result["email"].get("sent") and coll is not None:
             now = _dt.datetime.utcnow()
             for it in new_items:
