@@ -13313,6 +13313,174 @@ def _send_alert_email(subject: str, html_body: str, to_address: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Alert insider su titoli in zona Affare/Sconto
+# ---------------------------------------------------------------------------
+
+_MONGO_INSIDER_ALERTS_COLLECTION = None
+_INSIDER_ALERT_ZONES = (0, 1)  # Affare, Sconto
+_INSIDER_ALERT_MAX_TICKERS = 80
+
+
+def _get_mongo_insider_alerts_collection():
+    """Registro delle operazioni insider già segnalate: evita di rimandare la
+    stessa mail se il cron gira due volte o se la Form 4 compare in ritardo."""
+    global _MONGO_CLIENT, _MONGO_INSIDER_ALERTS_COLLECTION
+    if _MONGO_INSIDER_ALERTS_COLLECTION is not None:
+        return _MONGO_INSIDER_ALERTS_COLLECTION
+    if MongoClient is None:
+        return None
+    uri = (os.getenv("MONGODB_URI") or "").strip()
+    if not uri:
+        return None
+    db_name = (os.getenv("MONGODB_DB") or "es_gamma_analyzer").strip()
+    coll_name = (os.getenv("MONGODB_INSIDER_ALERTS_COLLECTION") or "insider_alerts").strip()
+    try:
+        if _MONGO_CLIENT is None:
+            _MONGO_CLIENT = MongoClient(uri, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+        coll = _MONGO_CLIENT[db_name][coll_name]
+        try:
+            coll.create_index("key", unique=True)
+            coll.create_index("sent_at", expireAfterSeconds=30 * 24 * 3600)
+        except Exception:
+            pass
+        _MONGO_INSIDER_ALERTS_COLLECTION = coll
+        return coll
+    except Exception:
+        return None
+
+
+def _insider_alert_candidates() -> Dict[str, dict]:
+    """Titoli in zona Affare/Sconto: le posizioni/ordini IBKR più gli ultimi
+    risultati dello screener salvati su Mongo (nessun refresh: il cron non deve
+    rifare l'intero universo)."""
+    out: Dict[str, dict] = {}
+
+    def add(ticker, name, zone_rank, price, source):
+        ticker = (ticker or "").strip().upper()
+        if ticker and zone_rank in _INSIDER_ALERT_ZONES and ticker not in out:
+            out[ticker] = {"ticker": ticker, "name": name or "", "zone": _zone_label_for(zone_rank),
+                           "price": price, "source": source}
+
+    try:
+        payload = _ibkr_holdings_payload(_ibkr_default_owner_email(), analyze=True)
+        for row in (payload.get("positions") or []) + (payload.get("orders_only") or []):
+            a = row.get("analysis") or {}
+            if a.get("error"):
+                continue
+            rank = a.get("zone_rank")
+            if rank is None:
+                rank = _compute_zone_rank(a.get("forward_eps"), a.get("current_price"),
+                                          a.get("pe_theoretical"))
+            add(row.get("fmp_symbol") or a.get("ticker"), row.get("name") or a.get("name"),
+                rank, a.get("current_price"), "portafoglio")
+    except Exception:
+        pass
+
+    try:
+        coll = _get_mongo_screener_collection()
+        if coll is not None:
+            for d in coll.find({"zone_rank": {"$in": list(_INSIDER_ALERT_ZONES)}}):
+                add(d.get("ticker"), d.get("name"), d.get("zone_rank"),
+                    d.get("current_price"), "screener")
+    except Exception:
+        pass
+    return out
+
+
+def _insider_alert_render(items: List[dict], day: str) -> tuple:
+    def money(v):
+        return f"${v:,.2f}" if v else "n/d"
+
+    rows = []
+    for it in items:
+        t = it["txn"]
+        buy = t["type"] == "buy"
+        value = (t.get("price") or 0) * (t.get("qty") or 0)
+        rows.append(
+            "<tr>"
+            f"<td><b>{_html.escape(it['ticker'])}</b><br><small>{_html.escape(it['name'])}</small></td>"
+            f"<td>{_html.escape(it['zone'])}</td>"
+            f"<td style='color:{'#16a34a' if buy else '#dc2626'}'><b>{'ACQUISTO' if buy else 'VENDITA'}</b></td>"
+            f"<td>{_html.escape(t.get('name') or '')}<br><small>{_html.escape(t.get('title') or '')}</small></td>"
+            f"<td align='right'>{(t.get('qty') or 0):,.0f} az. @ {money(t.get('price'))}</td>"
+            f"<td align='right'>{money(value)}</td>"
+            "</tr>")
+    html_body = (
+        f"<h3>Operazioni insider del {day} su titoli Affare/Sconto</h3>"
+        "<table cellpadding='6' cellspacing='0' border='1' style='border-collapse:collapse;font-family:sans-serif;font-size:13px'>"
+        "<tr><th>Titolo</th><th>Zona</th><th>Tipo</th><th>Insider</th><th>Quantità</th><th>Controvalore</th></tr>"
+        + "".join(rows) + "</table>")
+    buys = sum(1 for i in items if i["txn"]["type"] == "buy")
+    subject = (f"Polaris · Insider {day}: "
+               + ", ".join(sorted({i["ticker"] for i in items}))[:80]
+               + f" ({buys} acq., {len(items) - buys} vend.)")
+    return subject, html_body
+
+
+def _insider_alert_run(day: Optional[str] = None, notify: bool = True) -> dict:
+    """Cerca operazioni insider datate `day` (oggi, ora di New York) sui titoli
+    Affare/Sconto e manda una mail con quelle non ancora segnalate."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    if not day:
+        # New York = UTC-4/-5: sottrarre 5 ore basta, la mail parte a mercato chiuso.
+        day = (_dt.datetime.utcnow() - _dt.timedelta(hours=5)).date().isoformat()
+    candidates = _insider_alert_candidates()
+    tickers = sorted(candidates)[:_INSIDER_ALERT_MAX_TICKERS]
+
+    def fetch(ticker):
+        try:
+            return ticker, _fetch_insider_transactions(ticker)
+        except Exception:
+            return ticker, None
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        fetched = list(executor.map(fetch, tickers))
+
+    coll = _get_mongo_insider_alerts_collection()
+    new_items = []
+    for ticker, txns in fetched:
+        for t in (txns or []):
+            if t.get("date") != day:
+                continue
+            key = f"{ticker}|{t['date']}|{t['type']}|{t.get('name')}|{t.get('qty')}"
+            if coll is not None:
+                try:
+                    if coll.find_one({"key": key}, {"_id": 1}):
+                        continue
+                except Exception:
+                    pass
+            new_items.append({**candidates[ticker], "txn": t, "key": key})
+
+    result = {"day": day, "checked": len(tickers), "found": len(new_items),
+              "email": {"sent": False, "error": "nessuna operazione nuova"}}
+    if new_items and notify:
+        subject, body = _insider_alert_render(new_items, day)
+        owner = _ibkr_default_owner_email()
+        result["email"] = _send_alert_email(subject, body, _ibkr_api_env("ALERT_EMAIL_TO") or owner)
+        if result["email"].get("sent") and coll is not None:
+            now = _dt.datetime.utcnow()
+            for it in new_items:
+                try:
+                    coll.replace_one({"key": it["key"]}, {"key": it["key"], "sent_at": now}, upsert=True)
+                except Exception:
+                    pass
+    result["symbols"] = sorted({i["ticker"] for i in new_items})
+    return result
+
+
+@app.route('/api/insider/cron', methods=['GET', 'POST'])
+def api_insider_cron():
+    """Dopo la chiusura USA: mail con le operazioni insider di oggi sui titoli
+    Affare/Sconto. Lo chiama Vercel Cron. `?notify=0` fa solo l'anteprima,
+    `?day=YYYY-MM-DD` cerca un'altra data."""
+    if not _ibkr_cron_authorized():
+        return jsonify({"error": "unauthorized"}), 401
+    day = (request.args.get("day") or "").strip() or None
+    return jsonify(_insider_alert_run(day=day, notify=request.args.get("notify") != "0"))
+
+
+# ---------------------------------------------------------------------------
 # Rotte
 # ---------------------------------------------------------------------------
 

@@ -5,6 +5,14 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.38.0] — 2026-10-04
+
+### Aggiunto
+- **Mail sulle operazioni insider dei titoli in zona Affare o Sconto.** A fine seduta USA (23:30 UTC, lun-ven) un cron controlla gli acquisti e le vendite degli insider datati oggi su portafoglio IBKR, ordini pendenti e screener, e manda una mail con quelle non ancora segnalate.
+
+### Tecnico
+- Nuova rotta `/api/insider/cron` (`?notify=0` anteprima, `?day=YYYY-MM-DD`) e collezione `insider_alerts` (`MONGODB_INSIDER_ALERTS_COLLECTION`, TTL 30 giorni) per non rimandare due volte la stessa operazione. Destinatario e SMTP come l'alert earnings.
+
 ## [1.37.3] — 2026-10-02
 
 ### Modificato
