@@ -380,7 +380,7 @@ def _require_login():
     # la guardia di sessione risponda 401 prima che la rotta veda la richiesta.
     if path.startswith('/api/ibkr/') and _ibkr_cron_authorized():
         return None
-    if path == '/api/zerogex/cron' and _ibkr_cron_authorized():
+    if path in ('/api/zerogex/cron', '/api/insider/cron') and _ibkr_cron_authorized():
         return None
 
     # Bookmap scarica il CSV senza sessione: il token viene verificato dalla rotta.
