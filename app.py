@@ -13487,6 +13487,12 @@ def api_insider_cron():
         # Chi entra nel controllo e perché: serve a capire un titolo mancante.
         return jsonify({"candidati": sorted(_insider_alert_candidates().values(),
                                             key=lambda c: c["ticker"])})
+    if request.args.get("diag") == "fetch":
+        ticker = (request.args.get("ticker") or "").strip().upper()
+        cik = _get_edgar_cik(ticker)
+        txns = _fetch_insider_transactions(ticker)
+        return jsonify({"ticker": ticker, "cik": cik,
+                        "transazioni": None if txns is None else txns[:10]})
     return jsonify(_insider_alert_run(day=day, notify=request.args.get("notify") != "0"))
 
 
