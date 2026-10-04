@@ -9238,20 +9238,27 @@ def _get_edgar_cik(ticker: str) -> Optional[int]:
     Downloads /files/company_tickers.json once and populates the full map."""
     if ticker in _EDGAR_CIK_CACHE:
         return _EDGAR_CIK_CACHE[ticker] or None
-    try:
-        url = "https://www.sec.gov/files/company_tickers.json"
-        req = urllib.request.Request(
-            url, headers={"User-Agent": "Polaris luca.taurisano@bitsharp.it"})
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            raw = json.loads(resp.read().decode("utf-8"))
-        for entry in raw.values():
-            t = (entry.get("ticker") or "").upper()
-            c = entry.get("cik_str")
-            if t and c is not None:
-                _EDGAR_CIK_CACHE[t] = int(c)
-    except Exception:
-        _EDGAR_CIK_CACHE[ticker] = 0
+    raw = None
+    for attempt in range(3):
+        try:
+            url = "https://www.sec.gov/files/company_tickers.json"
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "Polaris luca.taurisano@bitsharp.it"})
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                raw = json.loads(resp.read().decode("utf-8"))
+            break
+        except Exception:
+            time.sleep(0.6 * (attempt + 1))
+    if raw is None:
+        # Errore di rete, non "ticker assente": non va memorizzato, altrimenti
+        # un rifiuto momentaneo di SEC taglia fuori il titolo per tutta la vita
+        # dell'istanza.
         return None
+    for entry in raw.values():
+        t = (entry.get("ticker") or "").upper()
+        c = entry.get("cik_str")
+        if t and c is not None:
+            _EDGAR_CIK_CACHE[t] = int(c)
     cik = _EDGAR_CIK_CACHE.get(ticker)
     if not cik:
         _EDGAR_CIK_CACHE[ticker] = 0
@@ -9338,12 +9345,17 @@ def _fetch_insider_edgar(ticker: str, cutoff: str) -> Optional[list]:
         return None
 
     subs_url = f"https://data.sec.gov/submissions/CIK{cik:010d}.json"
-    try:
-        req = urllib.request.Request(
-            subs_url, headers={"User-Agent": "Polaris luca.taurisano@bitsharp.it"})
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            subs = json.loads(resp.read().decode("utf-8"))
-    except Exception:
+    subs = None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(
+                subs_url, headers={"User-Agent": "Polaris luca.taurisano@bitsharp.it"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                subs = json.loads(resp.read().decode("utf-8"))
+            break
+        except Exception:
+            time.sleep(0.6 * (attempt + 1))
+    if subs is None:
         return None
 
     recent = subs.get("filings", {}).get("recent", {})
