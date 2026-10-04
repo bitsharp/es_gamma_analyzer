@@ -9372,15 +9372,23 @@ def _fetch_insider_edgar(ticker: str, cutoff: str) -> Optional[list]:
         filing_date, acc_nd = args
         # Form 4 raw XML is always form4.xml regardless of the styled primaryDocument
         url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_nd}/form4.xml"
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": ua})
-            with urllib.request.urlopen(req, timeout=6) as resp:
-                if resp.status != 200:
+        # SEC risponde 403/429 quando si supera il limite di richieste: un
+        # rifiuto temporaneo non deve far sparire la Form 4, si riprova.
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": ua})
+                with urllib.request.urlopen(req, timeout=6) as resp:
+                    if resp.status != 200:
+                        return []
+                    xml_text = resp.read().decode("utf-8", errors="replace")
+                return _parse_form4_xml(xml_text, filing_date)
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
                     return []
-                xml_text = resp.read().decode("utf-8", errors="replace")
-            return _parse_form4_xml(xml_text, filing_date)
-        except Exception:
-            return []
+            except Exception:
+                pass
+            time.sleep(0.6 * (attempt + 1))
+        return []
 
     all_txns = []
     with ThreadPoolExecutor(max_workers=6) as ex:
