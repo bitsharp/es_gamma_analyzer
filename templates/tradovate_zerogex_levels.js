@@ -7,9 +7,9 @@
 // Installazione: in Tradovate apri Code Explorer, File > New, incolla tutto questo
 // file, salva, poi aggiungi l'indicatore "polarisZeroGexLevels" al grafico.
 //
-// Se accanto al prezzo compare la scritta "ZeroGEX: rete non disponibile" o
-// "errore", Tradovate blocca le richieste verso domini esterni: in quel caso
-// questa strada non e' percorribile.
+// Se accanto al prezzo compare la scritta "ZeroGEX: ..." arancione, e' la diagnosi:
+// dice se la richiesta e' partita, con quale trasporto e come e' finita. Il log
+// completo e' nella console di Code Explorer (righe che cominciano con "[PZG]").
 
 const predef = require("./tools/predef");
 const meta = require("./tools/meta");
@@ -18,49 +18,77 @@ const { px, du, op } = require("./tools/graphics");
 const BASE_URL = "{{ base_url }}";
 const KEY = "{{ token }}";
 const REFRESH_MS = 5 * 60 * 1000;
+const TIMEOUT_MS = 15 * 1000;
 
-function getJson(url) {
-    return new Promise(function (resolve, reject) {
-        if (typeof fetch === "function") {
-            fetch(url).then(function (r) { return r.json(); }).then(resolve, reject);
-        } else if (typeof XMLHttpRequest === "function") {
+// Lo stato sta a livello di modulo e non nell'istanza: Tradovate ricrea
+// l'indicatore (init) a ogni ricalcolo, e uno stato nell'istanza ripartirebbe
+// da "caricamento" a ogni tick senza mai arrivare a mostrare la risposta.
+const STATE = {};
+
+function log(msg) {
+    try { console.log("[PZG] " + msg); } catch (e) { /* nessuna console */ }
+}
+
+function stateFor(sym) {
+    if (!STATE[sym]) {
+        STATE[sym] = { levels: [], status: "in attesa", at: 0, busy: false, transport: "", ageLabel: "" };
+    }
+    return STATE[sym];
+}
+
+function finish(st, levels, ageLabel, status) {
+    st.levels = levels;
+    st.ageLabel = ageLabel;
+    st.status = status;
+    st.busy = false;
+}
+
+function load(sym) {
+    const st = stateFor(sym);
+    const url = BASE_URL + "/tradovate/levels/" + sym + ".json?key=" + KEY;
+    st.busy = true;
+    st.at = Date.now();
+    st.status = "richiesta inviata";
+
+    const onData = function (d) {
+        const levels = (d && d.levels) || [];
+        log(sym + ": ricevuti " + levels.length + " livelli (" + ((d && d.age_label) || "") + ")");
+        finish(st, levels, (d && d.age_label) || "", levels.length ? "" : "nessun livello disponibile");
+    };
+    const onFail = function (why) {
+        log(sym + ": errore " + why);
+        finish(st, st.levels, st.ageLabel, "errore: " + why);
+    };
+
+    try {
+        if (typeof XMLHttpRequest === "function") {
+            st.transport = "XHR";
             const x = new XMLHttpRequest();
             x.open("GET", url);
             x.onload = function () {
-                try { resolve(JSON.parse(x.responseText)); } catch (e) { reject(e); }
+                try { onData(JSON.parse(x.responseText)); } catch (e) { onFail("risposta non valida (" + x.status + ")"); }
             };
-            x.onerror = function () { reject(new Error("richiesta bloccata")); };
+            x.onerror = function () { onFail("XHR bloccata (CORS/CSP?)"); };
+            x.ontimeout = function () { onFail("XHR scaduta"); };
             x.send();
+        } else if (typeof fetch === "function") {
+            st.transport = "fetch";
+            fetch(url).then(function (r) { return r.json(); }).then(onData, function (e) {
+                onFail("fetch: " + (e && e.message ? e.message : e));
+            });
         } else {
-            reject(new Error("rete non disponibile"));
+            st.transport = "nessuno";
+            onFail("rete non disponibile (ne' XMLHttpRequest ne' fetch)");
         }
-    });
+        log(sym + ": richiesta partita con " + st.transport);
+    } catch (e) {
+        onFail("eccezione: " + (e && e.message ? e.message : e));
+    }
 }
 
 class PolarisZeroGexLevels {
     init() {
-        this.st = { levels: [], status: "caricamento...", at: 0, busy: false, sym: null, asOf: "" };
-    }
-
-    load(sym) {
-        const st = this.st;
-        st.busy = true;
-        st.at = Date.now();
-        st.sym = sym;
-        try {
-            getJson(BASE_URL + "/tradovate/levels/" + sym + ".json?key=" + KEY).then(function (d) {
-                st.levels = (d && d.levels) || [];
-                st.asOf = (d && d.age_label) || "";
-                st.status = st.levels.length ? "" : "nessun livello disponibile";
-                st.busy = false;
-            }).catch(function (e) {
-                st.status = "errore: " + (e && e.message ? e.message : e);
-                st.busy = false;
-            });
-        } catch (e) {
-            st.status = "errore: " + (e && e.message ? e.message : e);
-            st.busy = false;
-        }
+        // niente stato qui: vedi STATE
     }
 
     map(d) {
@@ -68,15 +96,19 @@ class PolarisZeroGexLevels {
         if (!d.isLast()) {
             return {};
         }
-        const st = this.st;
         const price = d.value();
         const sym = price > 15000 ? "NQ" : "ES";
-        if (st.sym !== sym) {
-            st.levels = [];
-            st.at = 0;
+        const st = stateFor(sym);
+        const now = Date.now();
+
+        if (st.busy && now - st.at > TIMEOUT_MS) {
+            // La richiesta non e' mai tornata: si sblocca e si dice come.
+            st.busy = false;
+            st.status = "nessuna risposta dopo " + Math.round(TIMEOUT_MS / 1000) + " s (" + st.transport + ")";
+            log(sym + ": " + st.status);
         }
-        if (!st.busy && Date.now() - st.at > REFRESH_MS) {
-            this.load(sym);
+        if (!st.busy && now - st.at > REFRESH_MS) {
+            load(sym);
         }
 
         const items = [];
@@ -110,7 +142,7 @@ class PolarisZeroGexLevels {
                 tag: "Text",
                 key: "pzg_status",
                 point: { x: op(x, "+", px(8)), y: op(du(price), "-", px(20)) },
-                text: "ZeroGEX: " + st.status,
+                text: "ZeroGEX " + sym + ": " + st.status,
                 style: { fontSize: 11, fill: "#f59e0b" },
                 textAlignment: "leftMiddle",
                 global: true

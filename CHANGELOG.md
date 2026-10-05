@@ -5,6 +5,14 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.39.1] — 2026-10-05
+
+### Corretto
+- **L'indicatore Tradovate restava su «caricamento» e non mostrava mai i livelli.** Tradovate ricrea l'indicatore a ogni ricalcolo, e lo stato era nell'istanza: a ogni tick ripartiva da zero e la risposta arrivava a un'istanza già scartata. Ora lo stato sta a livello di modulo e sopravvive ai ricalcoli.
+
+### Modificato
+- **Diagnosi sul grafico e nel log.** La scritta arancione accanto al prezzo dice cosa è successo (richiesta inviata, errore, nessuna risposta dopo 15 s) e con quale trasporto; le stesse informazioni vanno nella console di Code Explorer con prefisso `[PZG]`. Si usa `XMLHttpRequest` se c'è, altrimenti `fetch`.
+
 ## [1.39.0] — 2026-10-05
 
 ### Aggiunto
