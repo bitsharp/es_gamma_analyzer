@@ -5803,6 +5803,9 @@ def get_zerogex_candles_cached(symbol: str, max_age_seconds: int = 60) -> Option
 # chiusa (404), come l'ingest IBKR.
 
 _BOOKMAP_FUT_MONTHS = ((3, 'H'), (6, 'M'), (9, 'U'), (12, 'Z'))
+# Colonna "Diameter" delle Cloud Notes: quanti livelli di prezzo occupa la nota, cioe'
+# lo spessore della striscia sul grafico. 1 era sottile; si alza qui se serve di piu'.
+_BOOKMAP_NOTE_DIAMETER = 2
 _BOOKMAP_NOTE_LEVELS = (
     # (campo, etichetta, colore testo, colore sfondo)
     ('call_wall', 'CallW', '#FFFFFF', '#B91C1C'),
@@ -5877,7 +5880,7 @@ def bookmap_cloud_notes(symbol: str):
         price = round(float(value) * 4) / 4  # tick ES/NQ = 0.25
         # Nota "7762.25-Flip": prezzo esatto (al tick, senza zeri inutili) e poi il nome.
         shown = f"{price:.2f}".rstrip('0').rstrip('.')
-        writer.writerow(['', alias, f"{price:.2f}", f"{shown}-{label}", fg, bg, 'left', 1, 'TRUE'])
+        writer.writerow(['', alias, f"{price:.2f}", f"{shown}-{label}", fg, bg, 'left', _BOOKMAP_NOTE_DIAMETER, 'TRUE'])
 
     resp = Response(out.getvalue(), mimetype='text/csv')
     resp.headers['Cache-Control'] = 'public, max-age=60'

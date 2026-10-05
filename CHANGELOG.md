@@ -5,6 +5,11 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.40.2] — 2026-10-05
+
+### Modificato
+- **Le note Bookmap dei livelli ZeroGEX sono più spesse:** la colonna «Diameter» del CSV passa da 1 a 2, quindi ogni livello occupa due livelli di prezzo invece di uno.
+
 ## [1.40.1] — 2026-10-05
 
 ### Modificato
