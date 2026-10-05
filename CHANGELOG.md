@@ -5,6 +5,14 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.40.0] — 2026-10-05
+
+### Aggiunto
+- **Bottone «Copia per Tradovate» (solo amministratore).** Copia negli appunti il codice di un indicatore con i livelli ZeroGEX di ES e NQ già scritti dentro. In Code Explorer si apre il file, si seleziona tutto, si incolla e si salva: niente parametri da compilare. L'indicatore riconosce ES o NQ dal prezzo del grafico e scrive in grigio quando sono stati calcolati i livelli e quando è stato generato il file, così un file vecchio si nota subito.
+
+### Rimosso
+- **L'indicatore che scaricava i livelli da Polaris.** Tradovate blocca le richieste di rete dagli indicatori (XHR bloccata, provato), quindi non poteva funzionare. Con lui se ne vanno anche l'endpoint JSON con CORS e il link «Tradovate (prova)»: nel codice dell'indicatore non c'è più nessun token.
+
 ## [1.39.1] — 2026-10-05
 
 ### Corretto

@@ -386,8 +386,6 @@ def _require_login():
     # Bookmap scarica il CSV senza sessione: il token viene verificato dalla rotta.
     if path.startswith('/bookmap/notes/') and _bookmap_authorized():
         return None
-    if path.startswith('/tradovate/levels/') and (request.method == 'OPTIONS' or _bookmap_authorized()):
-        return None
 
     if _is_authenticated():
         return None
@@ -6050,13 +6048,11 @@ def api_zerogex_cron():
 
 
 # ---------------------------------------------------------------------------
-# Tradovate: indicatore custom che legge i livelli ZeroGEX da Polaris
+# Tradovate: indicatore custom con i livelli ZeroGEX scritti dentro il codice
 # ---------------------------------------------------------------------------
-# Tradovate non ha un equivalente delle Cloud Notes: l'indicatore (JavaScript, da
-# incollare in Code Explorer) scarica un JSON da qui. Si autentica col token del
-# link Bookmap (`?key=`), perche' gira nel browser/app senza la sessione di Polaris,
-# e serve il CORS aperto. Se Tradovate blocca le richieste esterne l'indicatore
-# lo scrive sul grafico: l'esito si vede solo provandolo.
+# Tradovate blocca le richieste di rete dagli indicatori (provato: XHR bloccata),
+# quindi l'indicatore non scarica niente: Polaris lo genera con i livelli gia'
+# dentro e lo si incolla in Code Explorer. Niente token nel codice.
 
 _TRADOVATE_LINE_COLORS = {
     'call_wall': '#ef4444', 'gamma_flip': '#60a5fa', 'max_pain': '#fbbf24',
@@ -6064,25 +6060,8 @@ _TRADOVATE_LINE_COLORS = {
 }
 
 
-def _tradovate_cors(resp):
-    resp.headers['Access-Control-Allow-Origin'] = '*'
-    resp.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
-    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-    return resp
-
-
-@app.route('/tradovate/levels/<symbol>.json', methods=['GET', 'OPTIONS'])
-def tradovate_levels(symbol: str):
-    """Livelli gamma di ES o NQ in JSON, con etichette gia' nel formato `7763.5-CallW`."""
-    if request.method == 'OPTIONS':
-        return _tradovate_cors(Response('', status=204))
-    if not _bookmap_authorized():
-        return _tradovate_cors(jsonify({"error": "not found"})), 404
-    root = (symbol or '').upper()
-    if root not in _ZEROGEX_SYMBOLS:
-        return _tradovate_cors(jsonify({"error": "Simbolo non supportato (ES o NQ)"})), 404
-
-    levels = get_zerogex_levels_cached(root) or {}
+def _tradovate_level_rows(levels: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Livelli nel formato delle note Bookmap (`7763.5-CallW`), prezzi al tick di 0,25."""
     rows = []
     for field, label, _fg, _bg in _BOOKMAP_NOTE_LEVELS:
         value = levels.get(field)
@@ -6092,29 +6071,23 @@ def tradovate_levels(symbol: str):
         shown = f"{price:.2f}".rstrip('0').rstrip('.')
         rows.append({"key": field, "price": price, "label": f"{shown}-{label}",
                      "color": _TRADOVATE_LINE_COLORS.get(field, '#cbd5e1')})
-
-    age = levels.get('age_seconds')
-    age_label = ''
-    if isinstance(age, (int, float)):
-        age_label = f"{int(age // 60)} min fa" if age < 3600 else f"{age / 3600:.1f} h fa"
-    resp = jsonify({"symbol": root, "as_of": levels.get('as_of'), "age_seconds": age,
-                    "age_label": age_label, "levels": rows})
-    resp.headers['Cache-Control'] = 'public, max-age=60'
-    return _tradovate_cors(resp)
+    return rows
 
 
 @app.route('/tradovate/indicator.js', methods=['GET'])
 def tradovate_indicator_js():
-    """Codice dell'indicatore da incollare in Tradovate (Code Explorer), con URL e token gia' dentro.
-
-    Contiene il token: solo amministratore, mai pubblico."""
+    """Codice dell'indicatore da incollare in Tradovate (Code Explorer), livelli di ES e NQ inclusi."""
     if not _is_admin():
         return Response("Forbidden\n", status=403, mimetype='text/plain')
-    token = (os.getenv('BOOKMAP_TOKEN') or '').strip()
-    if not token:
-        return Response("Imposta BOOKMAP_TOKEN nell'ambiente per generare l'indicatore.\n",
-                        status=503, mimetype='text/plain')
-    code = render_template('tradovate_zerogex_levels.js', base_url=request.host_url.rstrip('/'), token=token)
+    data = {}
+    for sym in _ZEROGEX_SYMBOLS:
+        levels = get_zerogex_levels_cached(sym) or {}
+        as_of = str(levels.get('as_of') or '')
+        data[sym] = {"asOf": as_of.replace('T', ' ')[:16] + ' UTC' if as_of else '',
+                     "levels": _tradovate_level_rows(levels)}
+    code = render_template('tradovate_zerogex_levels.js',
+                           levels_json=json.dumps(data, ensure_ascii=False, indent=4),
+                           generated=_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC'))
     resp = Response(code, mimetype='text/plain')
     resp.headers['Cache-Control'] = 'no-store'
     return resp
