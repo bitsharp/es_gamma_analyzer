@@ -5,6 +5,11 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.40.3] — 2026-10-05
+
+### Modificato
+- **Il livello Pin non è più nelle note Bookmap.** Restano call wall, flip, max pain e put wall. Il Pin resta sui grafici di Polaris e nell'indicatore Tradovate.
+
 ## [1.40.2] — 2026-10-05
 
 ### Modificato

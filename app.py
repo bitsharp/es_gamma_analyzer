@@ -5806,6 +5806,8 @@ _BOOKMAP_FUT_MONTHS = ((3, 'H'), (6, 'M'), (9, 'U'), (12, 'Z'))
 # Colonna "Diameter" delle Cloud Notes: quanti livelli di prezzo occupa la nota, cioe'
 # lo spessore della striscia sul grafico. 1 era sottile; si alza qui se serve di piu'.
 _BOOKMAP_NOTE_DIAMETER = 2
+# Livelli che il CSV di Bookmap non esporta (la tupla sotto serve anche all'indicatore Tradovate).
+_BOOKMAP_HIDDEN_LEVELS = {'pin_strike'}
 _BOOKMAP_NOTE_LEVELS = (
     # (campo, etichetta, colore testo, colore sfondo)
     ('call_wall', 'CallW', '#FFFFFF', '#B91C1C'),
@@ -5874,6 +5876,8 @@ def bookmap_cloud_notes(symbol: str):
     writer.writerow(['Automap command', 'Symbol', 'Price Level', 'Note', 'Foreground Color',
                      'Background Color', 'Text Alignment', 'Diameter', 'Draw Note Price Horizontal Line'])
     for field, label, fg, bg in _BOOKMAP_NOTE_LEVELS:
+        if field in _BOOKMAP_HIDDEN_LEVELS:
+            continue
         value = levels.get(field)
         if value is None:  # livello non supportato ora: non e' zero, non si disegna
             continue
