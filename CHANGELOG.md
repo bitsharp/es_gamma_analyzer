@@ -13,6 +13,11 @@ La versione mostrata nell'header dell'app è letta direttamente da questo file: 
 ### Tecnico
 - Nuova rotta `/api/insider/cron` (ammessa dal guard di login col bearer, come lo zerogex) (`?notify=0` anteprima, `?day=YYYY-MM-DD`) e collezione `insider_alerts` (`MONGODB_INSIDER_ALERTS_COLLECTION`, TTL 30 giorni) per non rimandare due volte la stessa operazione. SMTP come l'alert earnings; i destinatari si impostano in `INSIDER_ALERT_EMAIL_TO` (più indirizzi separati da virgola), altrimenti vale `ALERT_EMAIL_TO`. `?to=` rimanda la mail a mano a un altro indirizzo.
 
+## [1.37.4] — 2026-10-05
+
+### Corretto
+- **Il piano operativo di NQ diceva «Livelli insufficienti» quando il modello non ha il gamma flip.** ZeroGEX restituisce il flip `null` quando il suo modello non lo supporta (per NQ succedeva venerdì sera), e il piano pretendeva il flip per partire. Ora si costruisce con i livelli che ci sono: con gamma positivo e senza flip dice che il regime regge su tutta la mappa e indica call wall, put wall e minimo recente; con gamma negativo lo dice esplicitamente. Il messaggio di livelli insufficienti resta solo se mancano anche call e put wall.
+
 ## [1.37.3] — 2026-10-02
 
 ### Modificato

@@ -6332,12 +6332,13 @@
             const lv = data.levels || {};
             const F = lv.gamma_flip, C = lv.call_wall, P = lv.put_wall, M = lv.max_pain, N = lv.pin_strike;
             const out = [];
-            if (!lv.regime || F == null) return ['Livelli insufficienti per costruire un piano.'];
+            // Il flip puo' mancare (il modello non lo supporta): il piano si costruisce con quello che c'e'.
+            if (!lv.regime || (F == null && C == null && P == null)) return ['Livelli insufficienti per costruire un piano.'];
             // Minimo recente delle candele caricate (ultime ~24 ore): riferimento di prezzo oltre la mappa.
             const lows = (data.candles || []).slice(-288).map(c => c.low);
             const L = lows.length ? Math.min.apply(null, lows) : null;
             if (lv.regime === 'short') {
-                if (P != null && P < F) {
+                if (F != null && P != null && P < F) {
                     const A = (M != null && M > P && M < F) ? M : (P + F) / 2;
                     const B = (A + F) / 2;
                     out.push('Sotto ' + n0(A) + ' il prezzo resta nella parte debole della mappa: la zona intermedia è il primo punto dove cercare respingimenti short, con obiettivo la put wall (' + n0(P) + ').');
@@ -6345,13 +6346,19 @@
                     out.push('Sopra ' + n0(B) + ' con tenuta si apre lo spazio fino a ' + top + '. Solo oltre il flip il regime diventa positivo e ha senso ragionare in pinning.');
                     out.push('Sotto ' + n0(P) + ' si esce dalla mappa in gamma negativa. Non ci sono altri livelli gamma: il riferimento successivo è di prezzo' + (L != null && L < P ? ', il minimo recente a ' + n0(L) + '.' : '.'));
                 } else {
-                    out.push('Gamma negativa: i dealer amplificano i movimenti, quindi i livelli tengono meno. Il flip a ' + n0(F) + ' separa il regime negativo da quello positivo.');
+                    out.push('Gamma negativa: i dealer amplificano i movimenti, quindi i livelli tengono meno. ' + (F != null ? 'Il flip a ' + n0(F) + ' separa il regime negativo da quello positivo.' : 'Il modello non individua un flip: manca un livello sopra cui il regime torni positivo.'));
+                    if (C != null) out.push('Call wall a ' + n0(C) + ': primo punto dove cercare respingimenti short.');
                     if (P != null) out.push('Put wall a ' + n0(P) + (L != null && L < P ? '; oltre, il riferimento è il minimo recente a ' + n0(L) + '.' : '.'));
                 }
             } else {
-                out.push('Sopra ' + n0(F) + ' il regime è positivo: i dealer smorzano i movimenti, quindi ha senso ragionare in pinning e mean reversion' + ((N != null || M != null) ? ' verso ' + n0(N != null ? N : M) + '.' : '.'));
+                const pinTo = (N != null || M != null) ? ' verso ' + n0(N != null ? N : M) + '.' : '.';
+                out.push((F != null ? 'Sopra ' + n0(F) + ' il regime è positivo' : 'Il gamma è positivo e il modello non individua un flip') + ': i dealer smorzano i movimenti, quindi ha senso ragionare in pinning e mean reversion' + pinTo);
                 if (C != null) out.push('La call wall a ' + n0(C) + ' è il tetto della mappa: qui cercare respingimenti. Solo con tenuta oltre, lo spazio è libero da livelli gamma.');
-                out.push('Sotto il flip (' + n0(F) + ') si torna in gamma negativa e i movimenti si amplificano' + (P != null ? '; il primo obiettivo è la put wall a ' + n0(P) + '.' : '.'));
+                if (F != null) {
+                    out.push('Sotto il flip (' + n0(F) + ') si torna in gamma negativa e i movimenti si amplificano' + (P != null ? '; il primo obiettivo è la put wall a ' + n0(P) + '.' : '.'));
+                } else if (P != null) {
+                    out.push('Senza flip il regime positivo regge su tutta la mappa. Sotto la put wall (' + n0(P) + ') si esce dalla mappa: il riferimento successivo è di prezzo' + (L != null && L < P ? ', il minimo recente a ' + n0(L) + '.' : '.'));
+                }
             }
             return out;
         }
