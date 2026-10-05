@@ -1047,6 +1047,7 @@
                         {% for zs in ['ES', 'NQ'] %}
                         <div><b>{{ zs }}</b> <code class="user-select-all">{{ request.host_url }}bookmap/notes/{{ zs }}.csv?key={{ bookmap_token }}</code></div>
                         {% endfor %}
+                        <div class="mt-1"><i class="bi bi-code-slash me-1"></i>Tradovate (prova): <a href="/tradovate/indicator.js" target="_blank" rel="noopener">apri il codice dell'indicatore</a> e incollalo in Code Explorer.</div>
                     {% else %}
                         imposta <code>BOOKMAP_TOKEN</code> nell'ambiente per attivare i link.
                     {% endif %}
