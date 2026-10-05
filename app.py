@@ -6086,8 +6086,7 @@ def tradovate_indicator_js():
         data[sym] = {"asOf": as_of.replace('T', ' ')[:16] + ' UTC' if as_of else '',
                      "levels": _tradovate_level_rows(levels)}
     code = render_template('tradovate_zerogex_levels.js',
-                           levels_json=json.dumps(data, ensure_ascii=False, indent=4),
-                           generated=_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC'))
+                           levels_json=json.dumps(data, ensure_ascii=False, indent=4))
     resp = Response(code, mimetype='text/plain')
     resp.headers['Cache-Control'] = 'no-store'
     return resp

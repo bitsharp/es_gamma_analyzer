@@ -11,8 +11,6 @@
 const meta = require("./tools/meta");
 const { px, du, op } = require("./tools/graphics");
 
-const GENERATED = "{{ generated }}";
-
 const LEVELS = {{ levels_json|safe }};
 
 class PolarisZeroGexLevels {
@@ -56,16 +54,6 @@ class PolarisZeroGexLevels {
             });
         });
 
-        // Quando sono stati generati: se e' vecchio, si vede subito.
-        items.push({
-            tag: "Text",
-            key: "pzg_info",
-            point: { x: op(x, "+", px(8)), y: op(du(price), "-", px(20)) },
-            text: "ZeroGEX " + sym + " · livelli di " + (set.asOf || "n/d") + " · file del " + GENERATED,
-            style: { fontSize: 10, fill: "#94a3b8" },
-            textAlignment: "leftMiddle",
-            global: true
-        });
         return { graphics: { items: items } };
     }
 }

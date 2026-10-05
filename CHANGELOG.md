@@ -5,6 +5,11 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.40.1] — 2026-10-05
+
+### Modificato
+- **L'indicatore Tradovate non scrive più la riga grigia con le date** («livelli di… · file del…») accanto al prezzo: restano solo le linee con le loro etichette.
+
 ## [1.40.0] — 2026-10-05
 
 ### Aggiunto
