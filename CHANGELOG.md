@@ -13,7 +13,7 @@ La versione mostrata nell'header dell'app è letta direttamente da questo file: 
 ### Tecnico
 - Nuova rotta `/api/insider/cron` (ammessa dal guard di login col bearer, come lo zerogex) (`?notify=0` anteprima, `?day=YYYY-MM-DD`) e collezione `insider_alerts` (`MONGODB_INSIDER_ALERTS_COLLECTION`, TTL 30 giorni) per non rimandare due volte la stessa operazione. SMTP come l'alert earnings; i destinatari si impostano in `INSIDER_ALERT_EMAIL_TO` (più indirizzi separati da virgola), altrimenti vale `ALERT_EMAIL_TO`. `?to=` rimanda la mail a mano a un altro indirizzo.
 
-## [1.38.0] — 2026-10-05
+## [1.39.0] — 2026-10-05
 
 ### Aggiunto
 - **Indicatore di prova per Tradovate con i livelli ZeroGEX.** Un indicatore custom (JavaScript) che scarica i livelli da Polaris ogni 5 minuti e li disegna come linee orizzontali con etichetta (`7763.5-CallW`), riconoscendo ES o NQ dal prezzo del grafico. Il codice, con URL e token già dentro, si apre dal link «Tradovate (prova)» sopra i grafici della pagina Gamma (solo amministratore) e si incolla in Code Explorer. È un tentativo: Tradovate potrebbe bloccare le richieste verso domini esterni, e in quel caso l'indicatore lo scrive sul grafico.
