@@ -5806,7 +5806,8 @@ _BOOKMAP_FUT_MONTHS = ((3, 'H'), (6, 'M'), (9, 'U'), (12, 'Z'))
 # Colonna "Diameter" delle Cloud Notes: quanti livelli di prezzo occupa la nota, cioe'
 # lo spessore della striscia sul grafico. 1 era sottile; si alza qui se serve di piu'.
 _BOOKMAP_NOTE_DIAMETER = 2
-# Livelli che il CSV di Bookmap non esporta (la tupla sotto serve anche all'indicatore Tradovate).
+# Livelli che non si esportano verso la piattaforma (CSV Bookmap e indicatore Tradovate):
+# restano sui grafici di Polaris.
 _BOOKMAP_HIDDEN_LEVELS = {'pin_strike'}
 _BOOKMAP_NOTE_LEVELS = (
     # (campo, etichetta, colore testo, colore sfondo)
@@ -6071,6 +6072,8 @@ def _tradovate_level_rows(levels: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Livelli nel formato delle note Bookmap (`7763.5-CallW`), prezzi al tick di 0,25."""
     rows = []
     for field, label, _fg, _bg in _BOOKMAP_NOTE_LEVELS:
+        if field in _BOOKMAP_HIDDEN_LEVELS:
+            continue
         value = levels.get(field)
         if value is None:  # livello non supportato ora: non e' zero, non si disegna
             continue
