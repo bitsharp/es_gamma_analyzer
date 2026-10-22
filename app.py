@@ -6068,7 +6068,7 @@ _TRADOVATE_LINE_COLORS = {
 
 
 def _tradovate_level_rows(levels: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Livelli nel formato delle note Bookmap (`7763.5-CallW`), prezzi al tick di 0,25."""
+    """Livelli con le stesse etichette delle note Bookmap (solo il nome: `CallW`), prezzi al tick di 0,25."""
     rows = []
     for field, label, _fg, _bg in _BOOKMAP_NOTE_LEVELS:
         if field in _BOOKMAP_HIDDEN_LEVELS:
@@ -6077,8 +6077,7 @@ def _tradovate_level_rows(levels: Dict[str, Any]) -> List[Dict[str, Any]]:
         if value is None:  # livello non supportato ora: non e' zero, non si disegna
             continue
         price = round(float(value) * 4) / 4
-        shown = f"{price:.2f}".rstrip('0').rstrip('.')
-        rows.append({"key": field, "price": price, "label": f"{shown}-{label}",
+        rows.append({"key": field, "price": price, "label": label,
                      "color": _TRADOVATE_LINE_COLORS.get(field, '#cbd5e1')})
     return rows
 
