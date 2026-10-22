@@ -5883,9 +5883,8 @@ def bookmap_cloud_notes(symbol: str):
         if value is None:  # livello non supportato ora: non e' zero, non si disegna
             continue
         price = round(float(value) * 4) / 4  # tick ES/NQ = 0.25
-        # Nota "7762.25-Flip": prezzo esatto (al tick, senza zeri inutili) e poi il nome.
-        shown = f"{price:.2f}".rstrip('0').rstrip('.')
-        writer.writerow(['', alias, f"{price:.2f}", f"{shown}-{label}", fg, bg, 'left', _BOOKMAP_NOTE_DIAMETER, 'TRUE'])
+        # Nota col solo nome ("Flip", "CallW"): il prezzo lo da' gia' la colonna Price Level.
+        writer.writerow(['', alias, f"{price:.2f}", label, fg, bg, 'left', _BOOKMAP_NOTE_DIAMETER, 'TRUE'])
 
     resp = Response(out.getvalue(), mimetype='text/csv')
     resp.headers['Cache-Control'] = 'public, max-age=60'
