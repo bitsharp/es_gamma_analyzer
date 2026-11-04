@@ -7837,6 +7837,7 @@ def _tradovate_fills_from_fills_csv(content: str, filter_date) -> list:
 
         fills.append({
             'dt': dt,
+            'day': trade_date or dt.date(),
             'time_str': dt.strftime('%H:%M'),
             'side': side,
             'qty': int(qty),
@@ -7869,6 +7870,7 @@ def _tradovate_fills_from_orders(orders: list, filter_date) -> list:
 
         fills.append({
             'dt': o['fill_dt'],
+            'day': o['fill_dt'].date(),
             'time_str': o['fill_dt'].strftime('%H:%M'),
             'side': o['side'],
             'qty': int(o['fill_qty']),
@@ -7949,47 +7951,8 @@ def _parse_tradovate_cash(content: str, date_filter: str = '') -> dict:
     return summary
 
 
-def _import_tradovate(files: list, date_filter: str = '') -> dict:
-    """Build the day's picture from any subset of the three Tradovate exports.
-
-    Orders alone give the trades and the bracket levels; add Fills and the
-    commissions and the broker's trade date come with them; add Cash History and
-    the account balance is reconciled against the movements instead of inferred.
-    Each file is recognised by its header, so they can be dropped in any order.
-    """
-    filter_date = None
-    if date_filter:
-        try:
-            filter_date = _dt.datetime.strptime(date_filter, '%Y-%m-%d').date()
-        except Exception:
-            pass
-
-    by_kind = {}
-    unknown = []
-    for name, content in files:
-        kind = _classify_tradovate_file(content)
-        if not kind:
-            unknown.append(name)
-            continue
-        by_kind[kind] = (name, content)
-
-    warnings = []
-    if unknown:
-        warnings.append('File non riconosciuti e ignorati: ' + ', '.join(unknown))
-
-    orders = _parse_tradovate_orders(by_kind['orders'][1]) if 'orders' in by_kind else []
-    brackets = _tradovate_brackets(orders)
-
-    if 'fills' in by_kind:
-        fills = _tradovate_fills_from_fills_csv(by_kind['fills'][1], filter_date)
-    else:
-        fills = _tradovate_fills_from_orders(orders, filter_date)
-        if orders:
-            warnings.append('Senza Fills.csv le commissioni per trade non sono disponibili.')
-
-    if not orders and not fills and 'cash' not in by_kind:
-        warnings.append('Nessun file Tradovate riconosciuto (Orders, Fills o Cash History).')
-
+def _tradovate_day_picture(fills: list, brackets: dict, cash_content, day_key: str) -> tuple:
+    """Trades and per-account summary of one session, from its fills and cash movements."""
     trades = []
     for rt in _group_round_trips(fills):
         trade = _round_trip_to_trade(rt)
@@ -8039,7 +8002,7 @@ def _import_tradovate(files: list, date_filter: str = '') -> dict:
 
     trades.sort(key=lambda t: t.get('time', ''))
 
-    accounts = _parse_tradovate_cash(by_kind['cash'][1], date_filter) if 'cash' in by_kind else {}
+    accounts = _parse_tradovate_cash(cash_content, day_key) if cash_content is not None else {}
     for acct in accounts.values():
         acct['broker'] = 'Tradovate'
 
@@ -8057,6 +8020,86 @@ def _import_tradovate(files: list, date_filter: str = '') -> dict:
     open_accounts = {t['account'] for t in trades if t.get('open')}
     for name, acct in accounts.items():
         acct['flat'] = name not in open_accounts
+
+    return trades, accounts
+
+
+def _tradovate_cash_days(content: str) -> list:
+    """Session dates (YYYY-MM-DD) that have at least one movement in a Cash History export."""
+    rows, _get = _read_tradovate_rows(content)
+    days = set()
+    for row in rows:
+        if _parse_tradovate_money(_get(row, 'Delta')) is None:
+            continue
+        parsed = _parse_tradovate_datetime((_get(row, 'Date') or '') + ' 00:00:00')
+        if parsed is not None:
+            days.add(parsed.strftime('%Y-%m-%d'))
+    return sorted(days)
+
+
+def _import_tradovate(files: list, date_filter: str = '', all_days: bool = False) -> dict:
+    """Build the day's picture from any subset of the three Tradovate exports.
+
+    Orders alone give the trades and the bracket levels; add Fills and the
+    commissions and the broker's trade date come with them; add Cash History and
+    the account balance is reconciled against the movements instead of inferred.
+    Each file is recognised by its header, so they can be dropped in any order.
+    """
+    filter_date = None
+    if date_filter:
+        try:
+            filter_date = _dt.datetime.strptime(date_filter, '%Y-%m-%d').date()
+        except Exception:
+            pass
+
+    by_kind = {}
+    unknown = []
+    for name, content in files:
+        kind = _classify_tradovate_file(content)
+        if not kind:
+            unknown.append(name)
+            continue
+        by_kind[kind] = (name, content)
+
+    warnings = []
+    if unknown:
+        warnings.append('File non riconosciuti e ignorati: ' + ', '.join(unknown))
+
+    orders = _parse_tradovate_orders(by_kind['orders'][1]) if 'orders' in by_kind else []
+    brackets = _tradovate_brackets(orders)
+
+    if 'fills' in by_kind:
+        fills = _tradovate_fills_from_fills_csv(by_kind['fills'][1], filter_date)
+    else:
+        fills = _tradovate_fills_from_orders(orders, filter_date)
+        if orders:
+            warnings.append('Senza Fills.csv le commissioni per trade non sono disponibili.')
+
+    if not orders and not fills and 'cash' not in by_kind:
+        warnings.append('Nessun file Tradovate riconosciuto (Orders, Fills o Cash History).')
+
+    if all_days:
+        cash_content = by_kind['cash'][1] if 'cash' in by_kind else None
+        by_day: dict = {}
+        for f in fills:
+            by_day.setdefault(f['day'].strftime('%Y-%m-%d'), []).append(f)
+        day_keys = set(by_day)
+        if cash_content is not None:
+            day_keys.update(_tradovate_cash_days(cash_content))
+        days = {}
+        for dk in sorted(day_keys):
+            d_trades, d_accounts = _tradovate_day_picture(by_day.get(dk, []), brackets, cash_content, dk)
+            days[dk] = {'trades': d_trades, 'accounts': d_accounts}
+        return {
+            'trades': [t for d in days.values() for t in d['trades']],
+            'accounts': {},
+            'days': days,
+            'sources': {kind: name for kind, (name, _c) in by_kind.items()},
+            'warnings': warnings,
+        }
+
+    trades, accounts = _tradovate_day_picture(
+        fills, brackets, by_kind['cash'][1] if 'cash' in by_kind else None, date_filter)
 
     return {
         'trades': trades,
@@ -8125,8 +8168,12 @@ def api_import_apex():
         except Exception:
             return jsonify({'error': f'Impossibile decodificare il file: {f.filename}'}), 400
 
+    all_days = (request.form.get('all_days') or '').strip() in ('1', 'true')
     try:
-        result = importer(files, date_filter=date_key)
+        if all_days and source == 'tradovate':
+            result = importer(files, date_filter='', all_days=True)
+        else:
+            result = importer(files, date_filter=date_key)
     except Exception as e:
         return jsonify({'error': f'Errore parsing: {e}'}), 500
 
@@ -8135,6 +8182,7 @@ def api_import_apex():
         'trades': result['trades'],
         'count': len(result['trades']),
         'accounts': result.get('accounts') or {},
+        'days': result.get('days'),
         'sources': result.get('sources') or {},
         'warnings': result.get('warnings') or [],
         'date_filter': date_key,

@@ -5,6 +5,14 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e ve
 
 La versione mostrata nell'header dell'app è letta direttamente da questo file: la prima riga `## [X.Y.Z]` è la versione corrente.
 
+## [1.41.0] — 2026-11-04
+
+### Aggiunto
+- **L'import Tradovate registra tutti i giorni presenti nei file**, non solo quello aperto. Per ogni giornata vengono scritti trade, commissioni e saldo (inizio/fine, versamenti, realizzato) di tutti i conti; le note già salvate nel giorno (mattina, appunti) restano. Il giorno aperto si aggiorna a schermo, gli altri vengono salvati direttamente e un riepilogo elenca i giorni importati.
+
+### Tecnico
+- `/api/checklist/import-apex` accetta `all_days=1` (solo Tradovate) e risponde con `days: {data: {trades, accounts}}`; senza il parametro il comportamento a giorno singolo è invariato.
+
 ## [1.40.6] — 2026-10-22
 
 ### Modificato

@@ -864,8 +864,8 @@
                             </ul>
                             <p class="small mb-2" style="color:#94a3b8;">
                                 Ne basta anche uno solo: con i soli ordini mancano le commissioni,
-                                senza i movimenti manca il saldo. Vengono presi solo gli eseguiti
-                                della giornata selezionata.
+                                senza i movimenti manca il saldo. Se i file coprono più giorni vengono
+                                importati tutti, con trade e saldo di ogni conto.
                             </p>
                             <button class="btn btn-sm btn-outline-info" onclick="pickImportFile('tradovate')">
                                 <i class="bi bi-files me-1"></i>Scegli i file Tradovate…
@@ -875,7 +875,7 @@
                 </div>
                 <div class="modal-footer" style="border-top:1px solid #415a77;">
                     <span class="small me-auto" style="color:#f59e0b;">
-                        <i class="bi bi-exclamation-triangle me-1"></i>L'import sostituisce i trade già presenti nella giornata.
+                        <i class="bi bi-exclamation-triangle me-1"></i>L'import sostituisce i trade già presenti nei giorni importati.
                     </span>
                     <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Annulla</button>
                 </div>
@@ -1056,6 +1056,7 @@
                 files.forEach(f => formData.append('file', f));
                 formData.append('date_key', currentDateKey);
                 formData.append('source', importSource);
+                if (importSource === 'tradovate') formData.append('all_days', '1');
 
                 const resp = await fetch('/api/checklist/import-apex', {
                     method: 'POST',
@@ -1071,56 +1072,54 @@
                 const accounts = data.accounts || {};
                 const warnings = data.warnings || [];
 
+                const readFiles = Object.entries(data.sources || {})
+                    .map(([kind, name]) => `${IMPORT_FILE_LABELS[kind] || kind}: ${name}`);
+                const filesMsg = readFiles.length ? '\n\nFile letti:\n· ' + readFiles.join('\n· ') : '';
+                const warnMsg = warnings.length ? '\n\n⚠️ ' + warnings.join('\n⚠️ ') : '';
+
+                // Tradovate: tutti i giorni presenti nei file, non solo quello selezionato
+                if (data.days) {
+                    const dayKeys = Object.keys(data.days).sort();
+                    if (!dayKeys.length) {
+                        alert('Nessun giorno trovato nei file caricati.\n'
+                            + 'Assicurati che siano export Tradovate con eseguiti o movimenti di conto.'
+                            + warnMsg);
+                        return;
+                    }
+                    const lines = [];
+                    let totalTrades = 0;
+                    for (const dk of dayKeys) {
+                        const day = data.days[dk];
+                        const n = (day.trades || []).length;
+                        totalTrades += n;
+                        if (dk === currentDateKey) {
+                            applyImportToPage(day.trades || [], day.accounts || {});
+                            lines.push(`${dk}: ${n} trade (giorno aperto)`);
+                        } else {
+                            try {
+                                await saveImportedDay(dk, day);
+                                lines.push(`${dk}: ${n} trade`);
+                            } catch (e) {
+                                lines.push(`${dk}: ERRORE (${e.message})`);
+                            }
+                        }
+                    }
+                    loadHistory();
+                    alert(`✅ Importati ${totalTrades} trade in ${dayKeys.length} giorni (${sourceLabel})\n\n`
+                        + lines.join('\n') + filesMsg + warnMsg);
+                    return;
+                }
+
                 if ((!data.trades || !data.trades.length) && !Object.keys(accounts).length) {
                     const dateLabel = currentDateKey || 'la data selezionata';
                     alert(`Nessun trade trovato per il ${dateLabel} nei file caricati.\n`
                         + `Assicurati che siano export ${sourceLabel} con ordini "Filled" per questo giorno.`
-                        + (warnings.length ? '\n\n' + warnings.join('\n') : ''));
+                        + warnMsg);
                     return;
                 }
 
-                // Saldo, commissioni e realizzato per account (Cash History)
-                Object.entries(accounts).forEach(([acc, a]) => {
-                    if (!accountNetLiq[acc]) accountNetLiq[acc] = { end: '', cash: '' };
-                    const nl = accountNetLiq[acc];
-                    if (a.broker)   nl.broker   = a.broker;
-                    if (a.currency) nl.currency = a.currency;
-                    if (a.end_cash != null) {
-                        nl.cash = a.end_cash.toFixed(2);
-                        // Net Liq = cash solo a posizioni chiuse; con una aperta non lo sappiamo
-                        if (a.flat) nl.end = a.end_cash.toFixed(2);
-                    }
-                    if (a.start_cash   != null) nl.startCash   = a.start_cash.toFixed(2);
-                    if (a.deposits     != null) nl.deposits    = a.deposits.toFixed(2);
-                    if (a.realized     != null) nl.realizedPnl = a.realized.toFixed(2);
-                    if (a.commissions  != null) nl.commissions = a.commissions.toFixed(2);
-                });
-
-                // Remove ALL existing trade cards (full replace on import)
-                document.querySelectorAll('.trade-card').forEach(c => c.remove());
-                tradeCounter = 0;
-
-                // Add newly imported trades
-                let added = 0;
-                for (const trade of (data.trades || [])) {
-                    addTradeCard(null, trade, null);
-                    added++;
-                }
-
-                // Re-number all visible trade cards
-                document.querySelectorAll('.trade-num-val').forEach((el, i) => el.textContent = i + 1);
-
-                const remaining = document.querySelectorAll('.trade-card').length;
-                document.getElementById('noTradesMsg').style.display = remaining === 0 ? '' : 'none';
-
-                updateAccountPnlSummary();
-                scheduleSave();
-
-                const readFiles = Object.entries(data.sources || {})
-                    .map(([kind, name]) => `${IMPORT_FILE_LABELS[kind] || kind}: ${name}`);
-                alert(`✅ Importati ${added} trade del ${currentDateKey} (${sourceLabel})`
-                    + (readFiles.length ? '\n\nFile letti:\n· ' + readFiles.join('\n· ') : '')
-                    + (warnings.length ? '\n\n⚠️ ' + warnings.join('\n⚠️ ') : ''));
+                const added = applyImportToPage(data.trades || [], accounts);
+                alert(`✅ Importati ${added} trade del ${currentDateKey} (${sourceLabel})` + filesMsg + warnMsg);
             } catch (e) {
                 alert('Errore importazione: ' + e.message);
             } finally {
@@ -1130,6 +1129,79 @@
             }
         });
     });
+
+    // Applica trade e saldi importati alla pagina del giorno aperto (sostituisce i trade presenti)
+    function applyImportToPage(trades, accounts) {
+        // Saldo, commissioni e realizzato per account (Cash History)
+        mergeAccountsIntoNetLiq(accountNetLiq, accounts);
+
+        document.querySelectorAll('.trade-card').forEach(c => c.remove());
+        tradeCounter = 0;
+
+        let added = 0;
+        for (const trade of trades) {
+            addTradeCard(null, trade, null);
+            added++;
+        }
+
+        document.querySelectorAll('.trade-num-val').forEach((el, i) => el.textContent = i + 1);
+
+        const remaining = document.querySelectorAll('.trade-card').length;
+        document.getElementById('noTradesMsg').style.display = remaining === 0 ? '' : 'none';
+
+        updateAccountPnlSummary();
+        scheduleSave();
+        return added;
+    }
+
+    function mergeAccountsIntoNetLiq(target, accounts) {
+        Object.entries(accounts || {}).forEach(([acc, a]) => {
+            if (!target[acc]) target[acc] = { end: '', cash: '' };
+            const nl = target[acc];
+            if (a.broker)   nl.broker   = a.broker;
+            if (a.currency) nl.currency = a.currency;
+            if (a.end_cash != null) {
+                nl.cash = a.end_cash.toFixed(2);
+                // Net Liq = cash solo a posizioni chiuse; con una aperta non lo sappiamo
+                if (a.flat) nl.end = a.end_cash.toFixed(2);
+            }
+            if (a.start_cash   != null) nl.startCash   = a.start_cash.toFixed(2);
+            if (a.deposits     != null) nl.deposits    = a.deposits.toFixed(2);
+            if (a.realized     != null) nl.realizedPnl = a.realized.toFixed(2);
+            if (a.commissions  != null) nl.commissions = a.commissions.toFixed(2);
+        });
+    }
+
+    // Registra un giorno diverso da quello aperto: parte dalla checklist già salvata
+    // (mattina, note) e ne sostituisce trade, saldi e totali di sessione.
+    async function saveImportedDay(dateKey, day) {
+        const getResp = await fetch(`/api/checklist/${dateKey}`);
+        const existing = getResp.ok ? ((await getResp.json()).checklist || {}) : {};
+
+        const stamp = Date.now();
+        const trades = (day.trades || []).map((t, i) => Object.assign({}, t, { id: `trade_${stamp}_${i}` }));
+        const session = Object.assign({}, existing.session || {});
+        const netliq = Object.assign({}, session.account_netliq || {});
+        mergeAccountsIntoNetLiq(netliq, day.accounts);
+        session.account_netliq = netliq;
+
+        const closed = trades.filter(t => t.result && t.result.pnl !== '' && !isNaN(parseFloat(t.result.pnl)));
+        if (closed.length) {
+            session.total_trades = String(closed.length);
+            session.daily_pnl = closed.reduce((sum, t) => sum + parseFloat(t.result.pnl), 0).toFixed(2);
+        }
+        const comm = Object.values(day.accounts || {})
+            .reduce((sum, a) => sum + ((a.commissions != null && a.commissions > 0) ? a.commissions : 0), 0);
+        if (comm > 0) session.commissions = comm.toFixed(2);
+
+        const resp = await fetch('/api/checklist/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ date_key: dateKey,
+                checklist: Object.assign({}, existing, { trades, session }) }),
+        });
+        if (!resp.ok) throw new Error('salvataggio fallito');
+    }
 
     // =====================================================================
     // IMPORT TRADE — scelta sorgente (tab Rithmic / Tradovate)
